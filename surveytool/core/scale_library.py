@@ -24,13 +24,17 @@ def _normalise(label: str) -> str:
     return label.replace("\xa0", " ").strip().lower()
 
 
+def _is_neutral_label(norm: str, family: dict[str, list[str]]) -> bool:
+    """A label counts as neutral for a family if it matches the neither…nor
+    regex, or is a literal member of that family's neutral_patterns."""
+    return bool(_NEITHER_NOR.search(norm)) or norm in family["neutral_patterns"]
+
+
 def _match_role(norm: str) -> CodeRole | None:
-    if _NEITHER_NOR.search(norm):
-        return CodeRole.neutral
     for family in _FAMILIES.values():
         if norm in family["top_patterns"]:
             return CodeRole.top
-        if norm in family["neutral_patterns"]:
+        if _is_neutral_label(norm, family):
             return CodeRole.neutral
         if norm in family["bottom_patterns"]:
             return CodeRole.bottom
@@ -71,16 +75,17 @@ def resolve_roles(
     return result
 
 
+def _label_in_family(norm: str, family: dict[str, list[str]]) -> bool:
+    if norm in family["top_patterns"] or norm in family["bottom_patterns"]:
+        return True
+    return _is_neutral_label(norm, family)
+
+
 def identify_family(labels: list[str]) -> str | None:
     """Return the scale family name if the full label set matches exactly one family."""
     normed = [_normalise(lb) for lb in labels]
     matches: list[str] = []
     for name, family in _FAMILIES.items():
-        all_patterns = (
-            family["top_patterns"]
-            + family["neutral_patterns"]
-            + family["bottom_patterns"]
-        )
-        if all(n in all_patterns for n in normed):
+        if all(_label_in_family(n, family) for n in normed):
             matches.append(name)
     return matches[0] if len(matches) == 1 else None
