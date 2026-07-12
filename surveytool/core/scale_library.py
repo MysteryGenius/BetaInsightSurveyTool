@@ -75,6 +75,17 @@ def resolve_roles(
     return result
 
 
+def any_label_matches_family(labels: list[str]) -> bool:
+    """True if at least one label matches some scale family's role patterns.
+
+    Used by ingest adapters to distinguish a genuine non-scale categorical
+    column (no label matches anything) from a scale column that the library
+    only partially resolves (some labels match, others don't) — the latter
+    must fail loudly rather than silently demote to single_choice.
+    """
+    return any(_match_role(_normalise(label)) is not None for label in labels)
+
+
 def _label_in_family(norm: str, family: dict[str, list[str]]) -> bool:
     if norm in family["top_patterns"] or norm in family["bottom_patterns"]:
         return True

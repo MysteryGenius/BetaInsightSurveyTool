@@ -15,7 +15,7 @@ from surveytool.core.model import (
     Survey,
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
-from surveytool.core.scale_library import identify_family, resolve_roles
+from surveytool.core.scale_library import any_label_matches_family, identify_family, resolve_roles
 
 _HEADER_RE = re.compile(r"^\[(?P<qid>[^\]]+)\]:\s*(?P<qtype>.+?)\s+-\s+(?P<text>.*)$")
 _MULTI_DELIMITER = "; "
@@ -196,12 +196,14 @@ def parse_header(fieldnames: list[str], rows: list[dict[str, str]]) -> list[Ques
             continue
 
         if info.qtype_token == "Single-select":
-            try:
-                questions.append(_build_scale_question(info, values, None))
-                continue
-            except ValueError:
+            if not any_label_matches_family(values):
                 questions.append(_build_single_choice_question(info, values))
                 continue
+            try:
+                questions.append(_build_scale_question(info, values, None))
+            except ValueError as exc:
+                raise ValueError(f"question {info.qid!r}: {exc}") from exc
+            continue
 
     return questions
 

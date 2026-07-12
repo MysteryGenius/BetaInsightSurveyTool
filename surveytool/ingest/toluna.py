@@ -16,7 +16,7 @@ from surveytool.core.model import (
     Survey,
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
-from surveytool.core.scale_library import identify_family, resolve_roles
+from surveytool.core.scale_library import any_label_matches_family, identify_family, resolve_roles
 
 _HEADER_RE = re.compile(r"^(?P<num>\d+)\s*:\s*(?P<rest>.+)$")
 _RESPID_COLUMN = "respid"
@@ -176,9 +176,12 @@ def parse_header(header: tuple, rows: list[tuple]) -> tuple[list[Question], dict
 
         values = _collect_single_values(rows, idx)
 
-        try:
-            question = _build_scale_question(qid, text, values, grid_group)
-        except ValueError:
+        if any_label_matches_family(values):
+            try:
+                question = _build_scale_question(qid, text, values, grid_group)
+            except ValueError as exc:
+                raise ValueError(f"question {qid!r}: {exc}") from exc
+        else:
             question = _build_single_choice_question(qid, text, values)
 
         questions.append(question)

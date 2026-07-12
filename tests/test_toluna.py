@@ -124,3 +124,20 @@ def test_no_scale_column_left_unresolved():
         q = next(qq for qq in survey.questions if qq.qid == qid)
         assert q.qtype is QuestionType.scale, f"{qid} did not resolve as scale"
         assert q.scale_family is not None, f"{qid} scale_family not identified"
+
+
+def test_unresolvable_scale_label_fails_loud_not_silent_demote():
+    """A column the adapter recognises as a scale (some labels match a
+    family) but that also carries one unresolvable label must raise, not
+    silently fall back to single_choice."""
+    from surveytool.ingest.toluna import parse_header
+
+    header = ("respid", "99 : Some scale question?")
+    rows = [
+        ("SG1", "Agree"),
+        ("SG2", "Disagree"),
+        ("SG3", "Gobbledygook"),
+    ]
+
+    with pytest.raises(ValueError, match="Gobbledygook"):
+        parse_header(header, rows)

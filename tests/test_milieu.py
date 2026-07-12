@@ -119,3 +119,36 @@ def test_demographic_columns_not_flagged_as_demographic():
     assert q6.is_demographic is False
     assert q5.qtype is QuestionType.single_choice
     assert q6.qtype is QuestionType.single_choice
+
+
+def test_unresolvable_scale_label_fails_loud_not_silent_demote():
+    """A Single-select column the adapter recognises as a scale (some labels
+    match a family) but that also carries one unresolvable label must raise,
+    not silently fall back to single_choice."""
+    from surveytool.ingest.milieu import parse_header
+
+    fieldnames = ["[q99]: Single-select - Some scale question"]
+    rows = [
+        {"[q99]: Single-select - Some scale question": "Agree"},
+        {"[q99]: Single-select - Some scale question": "Disagree"},
+        {"[q99]: Single-select - Some scale question": "Gobbledygook"},
+    ]
+
+    with pytest.raises(ValueError, match="Gobbledygook"):
+        parse_header(fieldnames, rows)
+
+
+def test_genuine_categorical_still_demotes_to_single_choice():
+    """A Single-select column where zero labels match any scale family is a
+    genuine categorical and must resolve as single_choice, not raise."""
+    from surveytool.ingest.milieu import parse_header
+
+    fieldnames = ["[q98]: Single-select - Gender"]
+    rows = [
+        {"[q98]: Single-select - Gender": "Male"},
+        {"[q98]: Single-select - Gender": "Female"},
+    ]
+
+    questions = parse_header(fieldnames, rows)
+    assert len(questions) == 1
+    assert questions[0].qtype is QuestionType.single_choice

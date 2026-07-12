@@ -69,7 +69,9 @@ families:
 
   ability:
     top_patterns:
+      - "extremely able to"
       - "very able"
+      - "somewhat able to"
       - "able"
       - "very capable"
       - "capable"
@@ -78,7 +80,9 @@ families:
       - "neither able nor unable"
       - "neither"
     bottom_patterns:
+      - "extremely unable to"
       - "very unable"
+      - "somewhat unable to"
       - "unable"
       - "not able"
       - "not capable"
