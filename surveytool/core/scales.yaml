@@ -1,0 +1,110 @@
+families:
+  agreement:
+    top_patterns:
+      - "strongly agree"
+      - "agree"
+    neutral_patterns:
+      - "neutral"
+      - "neither agree nor disagree"
+      - "neither"
+    bottom_patterns:
+      - "strongly disagree"
+      - "disagree"
+
+  satisfaction:
+    top_patterns:
+      - "very satisfied"
+      - "satisfied"
+    neutral_patterns:
+      - "neither satisfied nor dissatisfied"
+      - "neutral"
+      - "neither"
+    bottom_patterns:
+      - "very dissatisfied"
+      - "dissatisfied"
+
+  likelihood:
+    top_patterns:
+      - "very likely"
+      - "likely"
+    neutral_patterns:
+      - "neutral"
+      - "neither likely nor unlikely"
+      - "neither"
+    bottom_patterns:
+      - "very unlikely"
+      - "unlikely"
+
+  importance:
+    top_patterns:
+      - "extremely important"
+      - "very important"
+      - "important"
+    neutral_patterns:
+      - "moderately important"
+      - "neutral"
+      - "neither important nor unimportant"
+      - "neither"
+    bottom_patterns:
+      - "slightly important"
+      - "very unimportant"
+      - "unimportant"
+      - "not important"
+      - "not at all important"
+      - "not important at all"
+
+  effectiveness:
+    top_patterns:
+      - "very effective"
+      - "effective"
+    neutral_patterns:
+      - "neutral"
+      - "neither effective nor ineffective"
+      - "neither"
+    bottom_patterns:
+      - "very ineffective"
+      - "ineffective"
+      - "not effective"
+      - "not at all effective"
+
+  ability:
+    top_patterns:
+      - "very able"
+      - "able"
+      - "very capable"
+      - "capable"
+    neutral_patterns:
+      - "neutral"
+      - "neither able nor unable"
+      - "neither"
+    bottom_patterns:
+      - "very unable"
+      - "unable"
+      - "not able"
+      - "not capable"
+      - "not at all able"
+
+  frequency:
+    top_patterns:
+      - "always"
+      - "very often"
+      - "often"
+    neutral_patterns:
+      - "sometimes"
+      - "neutral"
+    bottom_patterns:
+      - "rarely"
+      - "never"
+      - "very rarely"
+
+  zero_to_ten:
+    top_patterns:
+      - "10"
+      - "9"
+      - "8"
+    neutral_patterns:
+      - "5"
+    bottom_patterns:
+      - "0"
+      - "1"
+      - "2"

@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/pytest tests/test_conformance.py -v)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/test_charts.py -v)",
+      "Bash(python -m pytest --ignore=tests/test_charts.py -q)",
+      "Bash(pytest -v)",
+      "Bash(python -m surveytool ingest rakuten_survey_support_measures_data.xlsx --survey-id support-measures)",
+      "Bash(surveytool ingest *)",
+      "Bash(surveytool findings *)",
+      "Bash(python3 -c \"import sys; lines=sys.stdin.readlines\\(\\); [print\\(l, end=''\\) for l in lines[:6]]\")",
+      "Bash(python3 -c \"import sys; lines=sys.stdin.readlines\\(\\); [print\\(l, end=''\\) for l in lines[:3]]\")",
+      "Bash(cat > *)",
+      "Bash(surveytool charts *)",
+      "Bash(.venv/bin/pytest tests/test_milieu.py -v)",
+      "Bash(.venv/bin/pytest -v)",
+      "Bash(grep -n \"def \\\\|TODO\\\\|pass$\" /Users/jodie/Desktop/Projects/surveytool/surveytool/charts/renderer.py)",
+      "Bash(git init *)",
+      "Bash(git reset *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
