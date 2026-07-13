@@ -7,8 +7,18 @@ import sys
 from pathlib import Path
 
 
-def _load_survey(file: Path, survey_id: str):
-    from surveytool.ingest.rakuten import load
+_VENDORS = ("rakuten", "milieu", "toluna")
+
+
+def _load_survey(file: Path, survey_id: str, vendor: str):
+    if vendor == "rakuten":
+        from surveytool.ingest.rakuten import load
+    elif vendor == "milieu":
+        from surveytool.ingest.milieu import load
+    elif vendor == "toluna":
+        from surveytool.ingest.toluna import load
+    else:
+        raise ValueError(f"Unknown vendor {vendor!r}. Choose from: {', '.join(_VENDORS)}")
     return load(file, survey_id)
 
 
@@ -49,7 +59,7 @@ def _run_reconcile(findings, figures_path: Path) -> int:
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
     file = Path(args.file)
-    survey = _load_survey(file, args.survey_id)
+    survey = _load_survey(file, args.survey_id, args.vendor)
     info = {
         "id": survey.id,
         "n_raw": survey.n_raw,
@@ -63,7 +73,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 def _cmd_findings(args: argparse.Namespace) -> int:
     from surveytool.findings.sheet import build_findings_sheet
     file = Path(args.file)
-    survey = _load_survey(file, args.survey_id)
+    survey = _load_survey(file, args.survey_id, args.vendor)
     excluded = _exclude_ids(survey, args.include_straightliners)
     findings = build_findings_sheet(survey, exclude_respondent_ids=excluded or None)
 
@@ -99,7 +109,7 @@ def _cmd_charts(args: argparse.Namespace) -> int:
     from surveytool.charts import render_charts
     from surveytool.findings.sheet import build_findings_sheet
     file = Path(args.file)
-    survey = _load_survey(file, args.survey_id)
+    survey = _load_survey(file, args.survey_id, args.vendor)
     excluded = _exclude_ids(survey, args.include_straightliners)
     findings = build_findings_sheet(survey, exclude_respondent_ids=excluded or None)
 
@@ -130,6 +140,12 @@ def _build_parser() -> argparse.ArgumentParser:
     def _add_common(p: argparse.ArgumentParser, *, reconcile: bool = False) -> None:
         p.add_argument("file", metavar="FILE", help="Vendor data file (.xlsx or .csv)")
         p.add_argument("--survey-id", required=True, metavar="ID", help="Survey identifier")
+        p.add_argument(
+            "--vendor",
+            required=True,
+            choices=_VENDORS,
+            help="Vendor adapter to use for this file.",
+        )
         p.add_argument(
             "--include-straightliners",
             action="store_true",
