@@ -42,20 +42,6 @@ def _find_banner_question(survey: Survey, name: str) -> Question | None:
     return None
 
 
-def _respondent_to_scalecode(
-    responses: list[Response],
-    demo_qid: str,
-) -> dict[str, ScaleCode]:
-    """Map respondent_id → ScaleCode for a demographic question."""
-    # First build qid→ScaleCode map from responses; we'll resolve labels later.
-    # We store raw_value here; the caller maps that to ScaleCode.
-    answered: dict[str, int | str] = {}
-    for r in responses:
-        if r.qid == demo_qid and r.state is ResponseState.answered and r.raw_value is not None:
-            answered[r.respondent_id] = r.raw_value
-    return answered  # type: ignore[return-value]
-
-
 def _emit_rows(
     qs_result,
     survey_id: str,
