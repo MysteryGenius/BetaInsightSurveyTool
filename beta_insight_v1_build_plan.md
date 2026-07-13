@@ -49,7 +49,7 @@ true as adapters are added.
 | Source of truth for questions | **The data file's own codebook or headers**, never an external questionnaire. | The questionnaire on file describes a different survey than the data. |
 | Default banner | **Age and ethnicity.** Others supported, off by default. Config, not code. Demographic categories differ by vendor (Milieu has Caucasian; Rakuten does not), so levels are read from data. | Matches the reports. |
 | Reconciliation | **First-class feature, not optional.** The tool compares a set of written figures against the findings sheet and flags mismatches. | The client already does this by hand. The evaluation doc is a manual reconcile. Automating it is core value. |
-| Significance testing | **Out of scope.** Clean seam for a two-proportion z-test at 95 and 90. | No test groups defined in the data. |
+| Significance testing | **Not implemented in v1.** `--significance` is accepted by the CLI but exits immediately with a clear message and no traceback; it computes nothing. Adding it later needs: test-group definition in the data model (none exists today), the two-proportion z-test itself at 95/90, and CLI/findings-sheet wiring to surface the result. scipy and statsmodels are already declared as dependencies but currently unused. | No test groups defined in the data. |
 | Rounding | **One decimal, half up, presentation only.** | Standard. |
 | Branding | Charts teal `#1B667D` on cream `#F4F1EA`, corner wordmark. | Sampled from the logo. |
 

@@ -55,3 +55,17 @@ def test_missing_vendor_exits_with_clear_message_not_guess():
     assert result.returncode != 0
     assert "--vendor" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_significance_flag_exits_cleanly_not_implemented():
+    path = VENDOR_FILES["rakuten"]
+    if not path.exists():
+        pytest.skip(f"{path.name} not found in project root")
+
+    result = _run_cli(
+        "findings", str(path), "--survey-id", "t", "--vendor", "rakuten", "--significance", "95",
+    )
+
+    assert result.returncode == 2
+    assert "not yet implemented" in result.stderr
+    assert "Traceback" not in result.stderr
