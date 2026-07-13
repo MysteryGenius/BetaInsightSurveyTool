@@ -25,7 +25,6 @@ from surveytool.core.model import (
 from surveytool.findings import FindingsRow, Mismatch, build_findings_sheet, reconcile
 
 ROOT = Path(__file__).parent.parent
-SOCIAL_MOBILITY_PATH = ROOT / "rakuten_survey_social_mobility_data.xlsx"
 SUPPORT_MEASURES_PATH = ROOT / "rakuten_survey_support_measures_data.xlsx"
 
 
@@ -341,50 +340,6 @@ def test_support_measures_q2_q3_q4_q5(support_measures_sheet):
     assert idx[("Q5", "total", "Total", "mean")].value == pytest.approx(3.44, abs=0.005)
 
 
-@pytest.mark.skipif(
-    not SOCIAL_MOBILITY_PATH.exists(),
-    reason="social-mobility file not yet on disk",
-)
-def test_social_mobility_crossbreaks():
-    """Social-mobility crossbreaks at base 927 (straightliners excluded).
-
-    TODO: confirm actual qid for the primary agreement question by inspecting
-    survey.questions after the file arrives. Golden values from the build plan's
-    human-verified section.
-    """
-    from surveytool.ingest.rakuten import load
-    from surveytool.core.straightliner import detect_straightliners
-
-    survey = load(SOCIAL_MOBILITY_PATH, "social-mobility")
-    excluded = detect_straightliners(survey.responses, survey.questions)
-    sheet = build_findings_sheet(survey, exclude_respondent_ids=excluded)
-    idx = {
-        (r.qid, r.breakdown_variable, r.breakdown_level, r.metric): r
-        for r in sheet
-    }
-
-    # TODO: replace "Q1" with the actual qid once the file is on disk
-    Q1 = "Q1"
-
-    assert idx[(Q1, "total", "Total", "t2b")].cell_base == 927
-    assert idx[(Q1, "total", "Total", "t2b")].value == pytest.approx(67.4, abs=0.05)
-    assert idx[(Q1, "total", "Total", "pct_Neutral")].value == pytest.approx(25.2, abs=0.05)
-
-    # Age crossbreaks — TODO: confirm actual age-band label strings from S-question codes
-    assert idx[(Q1, "age", "25-34", "t2b")].value == pytest.approx(67.8, abs=0.05)
-    assert idx[(Q1, "age", "35-44", "t2b")].value == pytest.approx(69.3, abs=0.05)
-
-    # Ethnicity crossbreaks
-    assert idx[(Q1, "ethnicity", "Chinese", "t2b")].value == pytest.approx(68.1, abs=0.05)
-    assert idx[(Q1, "ethnicity", "Malay",   "t2b")].value == pytest.approx(62.0, abs=0.05)
-    assert idx[(Q1, "ethnicity", "Indian",  "t2b")].value == pytest.approx(72.7, abs=0.05)
-    assert idx[(Q1, "ethnicity", "Other",   "t2b")].value == pytest.approx(61.8, abs=0.05)
-
-    # Q7 — TODO: confirm qid; uncomment once file is present
-    # assert idx[("Q7", "total", "Total", "t2b")].value  == pytest.approx(57.1, abs=0.05)
-    # assert idx[("Q7", "total", "Total", "mean")].value == pytest.approx(3.5,  abs=0.05)
-
-
 # ── Section C: negative-fixture reconcile tests ───────────────────────────────
 # Each fixture seeds a known-wrong value and asserts reconcile() flags it.
 # Comments record the source error documented in the build plan.
@@ -462,50 +417,3 @@ def test_reconcile_flags_oldest_age_wrong(support_measures_sheet):
     assert m.breakdown_level == oldest_label
     assert m.written_value == pytest.approx(4.30)
     assert m.computed_value == pytest.approx(4.48, abs=0.005)
-
-
-@pytest.mark.skipif(
-    not SOCIAL_MOBILITY_PATH.exists(),
-    reason="social-mobility file not yet on disk",
-)
-def test_reconcile_flags_sm_chinese_wrong():
-    """Source error: report says Chinese T2B 61.8%; correct is 68.1%.
-    TODO: replace 'Q1' with actual qid once file arrives.
-    """
-    from surveytool.ingest.rakuten import load
-    from surveytool.core.straightliner import detect_straightliners
-
-    survey = load(SOCIAL_MOBILITY_PATH, "social-mobility")
-    excluded = detect_straightliners(survey.responses, survey.questions)
-    sheet = build_findings_sheet(survey, exclude_respondent_ids=excluded)
-
-    # TODO: confirm qid
-    written = {"Q1|ethnicity|Chinese|t2b": 61.8}
-    mismatches = reconcile(sheet, written)
-    assert len(mismatches) == 1
-    m = mismatches[0]
-    assert m.breakdown_level == "Chinese"
-    assert m.computed_value == pytest.approx(68.1, abs=0.05)
-
-
-@pytest.mark.skipif(
-    not SOCIAL_MOBILITY_PATH.exists(),
-    reason="social-mobility file not yet on disk",
-)
-def test_reconcile_flags_sm_q7_mean_wrong():
-    """Source error: report says Q7 mean 3.4; correct is 3.5.
-    TODO: confirm qid once file arrives.
-    """
-    from surveytool.ingest.rakuten import load
-    from surveytool.core.straightliner import detect_straightliners
-
-    survey = load(SOCIAL_MOBILITY_PATH, "social-mobility")
-    excluded = detect_straightliners(survey.responses, survey.questions)
-    sheet = build_findings_sheet(survey, exclude_respondent_ids=excluded)
-
-    written = {"Q7|total|Total|mean": 3.4}
-    mismatches = reconcile(sheet, written)
-    assert len(mismatches) == 1
-    m = mismatches[0]
-    assert m.metric == "mean"
-    assert m.computed_value == pytest.approx(3.5, abs=0.005)

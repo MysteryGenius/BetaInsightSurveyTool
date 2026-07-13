@@ -84,6 +84,13 @@ Default question set is all ordinal scale items in the analysis block, rule is z
 variance across that set. Reproduces the vendor `FLAG` exactly on the social-
 mobility file (73 rows). Default action is keep; exclude is a per-project switch.
 
+**Pending proof (v1 fix pass):** the social-mobility file that this 73-row
+reproduction was verified against is not present in this repo checkout. The
+straightliner-exclusion *logic* is covered by a synthetic conformance fixture
+(`test_conformance.py::test_straightliner_reproduces_known_set`), but there is
+currently no test exercising exclusion end to end against a real vendor file.
+This is unverified pending the file, not a known defect — see §7.
+
 ### 4.6 Input hygiene is the adapter's job
 Trim whitespace on labels before grouping, normalise obvious label noise, and
 report anything that does not resolve. Milieu's trailing-space label is the worked
@@ -117,12 +124,17 @@ two vendors, and are now concrete because the files exist.
   code. Gate: suite green on synthetic fixtures.
 - **Phase 1**: Rakuten adapter (Datamap plus A1). Gate: passes conformance; on
   social-mobility yields 1000 respondents, Q7 a length-6 scale with one
-  non-substantive code, straightliner reproduces 73.
+  non-substantive code, straightliner reproduces 73. **Pending (v1 fix pass):**
+  the social-mobility file this gate was originally checked against is not in
+  this repo checkout; this gate has not been re-run here. See §7.
 - **Phase 2**: compute on Total, validated against the `HC` tab (base 1000). Gate:
   Q1 agree 64.6%, neutral 28.3%.
-- **Phase 3**: crossbreaks and the findings sheet, plus the reconcile pass.
-  Validated against both verified surveys (see section 7). Gate: all golden and
-  negative fixtures pass, reconcile flags the seeded errors.
+- **Phase 3**: crossbreaks and the findings sheet, plus the reconcile pass. Gate:
+  all golden and negative fixtures pass, reconcile flags the seeded errors. The
+  operative, currently-passing accuracy gate is the support-measures golden and
+  negative-fixture tests (Q1–Q5 T2B/B2B/means, plus the seeded reconcile-error
+  tests) — these run for real against the real file and pass. The social-mobility
+  golden fixtures are validated separately once that file is available; see §7.
 - **Phase 4**: usable chart graphics, findings-sheet driven. Gate: real labels, no
   "Code N", no zero-filled bars, title variable matches bars, manifest resolves
   every PNG to findings rows.
@@ -139,13 +151,27 @@ canonical-model gap, not a patch.
 
 ## 7. Golden fixtures, from human-verified sources
 
-Social-mobility (verified report, straightliners excluded, base 927):
+The operative accuracy gate for this repo is the support-measures golden and
+negative fixtures below — they run for real against a file that is present in
+the repo, and pass. The social-mobility fixtures are a second, pending gate:
+`rakuten_survey_social_mobility_data.xlsx` is not in this repo checkout, so the
+three tests that exercised it (`test_social_mobility_crossbreaks`,
+`test_reconcile_flags_sm_chinese_wrong`, `test_reconcile_flags_sm_q7_mean_wrong`)
+were removed rather than left as permanent skips. The numbers below are kept
+verbatim as the proof still owed once the real file arrives — they are not
+currently checked by any test in the suite.
+
+**Social-mobility — PENDING, file not yet delivered** (verified report,
+straightliners excluded, base 927):
 Q1 agree 67.4%, neutral 25.2%; age 25-34 = 67.8%, 35-44 = 69.3%; Chinese 68.1%,
 Malay 62.0%, Indian 72.7%, Other 61.8%; Q7 agree 57.1%, mean 3.5. On base 1000 (HC
 tab) Q1 agree is 64.6%. Negative fixtures: report's Chinese 61.8% (correct 68.1%)
-and Q7 mean 3.4 (correct 3.5).
+and Q7 mean 3.4 (correct 3.5). Crossbreaks (age/ethnicity banners) and
+straightliner-exclusion have synthetic-fixture coverage only
+(`test_conformance.py`) until this file is available to re-add the real-file
+tests above.
 
-Support-measures (evaluation doc, base 1000, no exclusion):
+**Support-measures — confirmed, passing** (evaluation doc, base 1000, no exclusion):
 Q1 concern T2B 87.3%, mean 4.27, B2B 2.3%; concern mean by age rises with age,
 youngest 3.90, then 4.23, 4.24, 4.25, 4.45, oldest 4.48. Q2 vouchers T2B 74.9%
 (50.2 + 24.7), mean 3.93. Q3 insufficiency T2B 23.7%, B2B 41.5%, mean 2.73. Q4
