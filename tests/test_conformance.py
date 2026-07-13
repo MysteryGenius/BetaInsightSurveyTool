@@ -2,14 +2,22 @@
 Phase 0 conformance suite.
 
 Asserts the seven invariants the canonical model must satisfy.
-No vendor files are touched. All fixtures are hand-written synthetic data.
+Section A: synthetic fixtures only, no vendor files touched.
+Section B: real Milieu and Toluna vendor files — a guard against the exact
+           class of silent-degradation bug fixed in the v1 fix pass (role
+           resolution succeeding while scale_family silently returns None,
+           or a scale silently demoting to single_choice).
 """
+from pathlib import Path
+
 import pytest
 
-from surveytool.core.model import CodeRole, ResponseState
+from surveytool.core.model import CodeRole, QuestionType, ResponseState
 from surveytool.core.scale_library import resolve_roles
 from surveytool.core.straightliner import detect_straightliners
 
+
+# ── Section A: synthetic fixtures ──────────────────────────────────────────────
 
 # ── 1. Reversed-coded scale resolves roles from labels ────────────────────────
 
@@ -177,3 +185,61 @@ def test_straightliner_reproduces_known_set():
     flagged = detect_straightliners(RESPONSES, QUESTIONS)
 
     assert flagged == EXPECTED_FLAGGED
+
+
+# ── Section B: real vendor file guard ──────────────────────────────────────────
+#
+# Every question an adapter treats as a scale must fully resolve: role
+# resolution must succeed AND scale_family must not be None. This is the
+# exact regression class of the two bugs this fix pass closed — resolve_roles
+# succeeding while identify_family silently returned None (Toluna's compound
+# "Neutral / Neither X nor Y" labels), and a scale silently demoting to
+# single_choice when a label didn't resolve at all (Toluna Q6's missing
+# ability-family gradations). This guard asserts loudly; it does not skip
+# quietly the way the vendor adapters used to.
+
+_ROOT = Path(__file__).parent.parent
+_MILIEU_PATH = _ROOT / "milieu_survey_coe_data.csv"
+_TOLUNA_PATH = _ROOT / "toluna_survey_misinformation_data.xlsx"
+
+
+def _assert_all_scales_fully_resolved(questions, vendor: str) -> None:
+    for q in questions:
+        if q.qtype is not QuestionType.scale:
+            continue
+        assert q.scale_family is not None, (
+            f"{vendor} question {q.qid!r} resolved as a scale but "
+            "scale_family is None — role resolution and family "
+            "identification have diverged again."
+        )
+        roles = {sc.role for sc in q.labels}
+        assert CodeRole.top in roles, f"{vendor} question {q.qid!r} scale has no top role"
+        assert CodeRole.bottom in roles, f"{vendor} question {q.qid!r} scale has no bottom role"
+
+
+@pytest.mark.skipif(
+    not _MILIEU_PATH.exists(),
+    reason="milieu_survey_coe_data.csv not found in project root",
+)
+def test_milieu_real_file_scales_fully_resolve():
+    from surveytool.ingest.milieu import load
+
+    survey = load(_MILIEU_PATH, "coe")
+    assert any(q.qtype is QuestionType.scale for q in survey.questions), (
+        "Expected at least one scale question in the Milieu fixture"
+    )
+    _assert_all_scales_fully_resolved(survey.questions, "milieu")
+
+
+@pytest.mark.skipif(
+    not _TOLUNA_PATH.exists(),
+    reason="toluna_survey_misinformation_data.xlsx not found in project root",
+)
+def test_toluna_real_file_scales_fully_resolve():
+    from surveytool.ingest.toluna import load
+
+    survey = load(_TOLUNA_PATH, "misinformation")
+    assert any(q.qtype is QuestionType.scale for q in survey.questions), (
+        "Expected at least one scale question in the Toluna fixture"
+    )
+    _assert_all_scales_fully_resolved(survey.questions, "toluna")

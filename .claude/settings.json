@@ -24,7 +24,11 @@
       "Bash(.venv/bin/pytest -v)",
       "Bash(grep -n \"def \\\\|TODO\\\\|pass$\" /Users/jodie/Desktop/Projects/surveytool/surveytool/charts/renderer.py)",
       "Bash(git init *)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(cp /tmp/backup_scale_library.py surveytool/core/scale_library.py)",
+      "Bash(cp /tmp/backup_scales.yaml surveytool/core/scales.yaml)",
+      "Bash(cp /tmp/backup_toluna.py surveytool/ingest/toluna.py)",
+      "Bash(cp /tmp/backup_milieu.py surveytool/ingest/milieu.py)"
     ],
     "additionalDirectories": [
       "/tmp"
