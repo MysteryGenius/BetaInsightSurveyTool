@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
 
 import openpyxl
+from openpyxl.utils.exceptions import InvalidFileException
 
+from surveytool.charts.errors import ErrorCode, SurveyToolError, UnresolvedScaleLabelsError
+from surveytool.core.demographics import text_matches_demographic
 from surveytool.core.hygiene import normalize_label
 from surveytool.core.model import (
     CodeRole,
@@ -135,6 +139,7 @@ def _build_single_choice_question(qid: str, text: str, values: list[str]) -> Que
         qtype=QuestionType.single_choice,
         labels=labels,
         base_eligible=True,
+        is_demographic=text_matches_demographic(text),
     )
 
 
@@ -179,8 +184,8 @@ def parse_header(header: tuple, rows: list[tuple]) -> tuple[list[Question], dict
         if any_label_matches_family(values):
             try:
                 question = _build_scale_question(qid, text, values, grid_group)
-            except ValueError as exc:
-                raise ValueError(f"question {qid!r}: {exc}") from exc
+            except UnresolvedScaleLabelsError as exc:
+                raise UnresolvedScaleLabelsError([f"question {qid!r}: {label}" for label in exc.unresolved]) from exc
         else:
             question = _build_single_choice_question(qid, text, values)
 
@@ -245,11 +250,35 @@ def load_respondents(
 
 def load(path: Path, survey_id: str) -> Survey:
     """Load a Toluna xlsx file and return a canonical Survey."""
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        ws = wb[_SHEET_NAME]
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
+        raise SurveyToolError(
+            ErrorCode.FILE_UNREADABLE,
+            "This file could not be opened as a Toluna export.",
+            detail=str(exc),
+            next_action="Confirm the file is a complete, un-corrupted .xlsx export, or pick a different file.",
+        ) from exc
+
+    try:
+        try:
+            ws = wb[_SHEET_NAME]
+        except KeyError as exc:
+            raise SurveyToolError(
+                ErrorCode.MISSING_SHEET,
+                "This file does not look like a Toluna export.",
+                detail=f"No {_SHEET_NAME!r} sheet was found.",
+                next_action="Check the vendor setting, or pick a different file.",
+            ) from exc
+
         row_iter = ws.iter_rows(values_only=True)
-        header = next(row_iter)
+        header = next(row_iter, None)
+        if header is None:
+            raise SurveyToolError(
+                ErrorCode.NO_QUESTIONS_FOUND,
+                "This file was read but has no computable questions in it.",
+                next_action="Check the vendor setting, or pick a different file.",
+            )
 
         rows: list[tuple] = []
         for row in row_iter:
@@ -257,11 +286,25 @@ def load(path: Path, survey_id: str) -> Survey:
                 break
             rows.append(row)
 
-        respid_col = next(
-            i for i, cell in enumerate(header) if cell is not None and str(cell).strip() == _RESPID_COLUMN
-        )
+        try:
+            respid_col = next(
+                i for i, cell in enumerate(header) if cell is not None and str(cell).strip() == _RESPID_COLUMN
+            )
+        except StopIteration as exc:
+            raise SurveyToolError(
+                ErrorCode.MISSING_COLUMNS,
+                "This file is missing an expected column.",
+                detail=f"No {_RESPID_COLUMN!r} column was found in the header row.",
+                next_action="Check the vendor setting, or pick a different file.",
+            ) from exc
 
         questions, col_idx_by_qid = parse_header(header, rows)
+        if not questions:
+            raise SurveyToolError(
+                ErrorCode.NO_QUESTIONS_FOUND,
+                "This file was read but has no computable questions in it.",
+                next_action="Check the vendor setting, or pick a different file.",
+            )
         responses, n_raw = load_respondents(rows, questions, col_idx_by_qid, respid_col)
     finally:
         wb.close()

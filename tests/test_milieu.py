@@ -111,12 +111,12 @@ def test_grid_question_stats_compute_cleanly():
     assert stats.b2b is not None
 
 
-def test_demographic_columns_not_flagged_as_demographic():
+def test_demographic_columns_flagged_as_demographic():
     survey = _load()
     q5 = next(q for q in survey.questions if q.qid == "q5")
     q6 = next(q for q in survey.questions if q.qid == "q6")
-    assert q5.is_demographic is False
-    assert q6.is_demographic is False
+    assert q5.is_demographic is True
+    assert q6.is_demographic is True
     assert q5.qtype is QuestionType.single_choice
     assert q6.qtype is QuestionType.single_choice
 

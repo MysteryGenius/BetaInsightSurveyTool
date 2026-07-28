@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from surveytool.charts.errors import UnresolvedScaleLabelsError
 from surveytool.core.model import CodeRole
 
 _NEITHER_NOR = re.compile(r"neither.+nor", re.IGNORECASE)
@@ -68,10 +69,7 @@ def resolve_roles(
             result[label] = role
 
     if unresolved:
-        raise ValueError(
-            f"Scale library could not resolve label(s): {unresolved}. "
-            "Add an override or extend scales.yaml."
-        )
+        raise UnresolvedScaleLabelsError(unresolved)
     return result
 
 

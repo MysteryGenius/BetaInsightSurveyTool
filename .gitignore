@@ -7,3 +7,7 @@ build/
 .venv/
 *.pyc
 .DS_Store
+packaging/dist/
+packaging/build/
+packaging/Output/
+packaging/MicrosoftEdgeWebview2Setup.exe

@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+
+from surveytool.charts.errors import ErrorCode, SurveyToolError
 
 
 class ToolConfig(BaseModel):
@@ -13,12 +15,29 @@ class ToolConfig(BaseModel):
     rounding_decimals: int = 1
     rounding_mode: Literal["half_up"] = "half_up"
     default_banner: list[str] = Field(default_factory=lambda: ["age", "ethnicity"])
+    cross_tab_grey_threshold: int = 30
+    cross_tab_suppress_threshold: int = 10
     per_project: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 def load_config(path: Path) -> ToolConfig:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return ToolConfig.model_validate(raw)
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return ToolConfig.model_validate(raw)
+    except yaml.YAMLError as exc:
+        raise SurveyToolError(
+            ErrorCode.CONFIG_INVALID,
+            "The project configuration file could not be read.",
+            detail=str(exc),
+            next_action=f"Check {path} for formatting errors.",
+        ) from exc
+    except ValidationError as exc:
+        raise SurveyToolError(
+            ErrorCode.CONFIG_INVALID,
+            "The project configuration file is missing or has an invalid setting.",
+            detail=str(exc),
+            next_action=f"Check {path} against the expected configuration keys.",
+        ) from exc
 
 
 def project_config(base: ToolConfig, project_id: str) -> ToolConfig:

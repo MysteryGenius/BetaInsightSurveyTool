@@ -1,0 +1,78 @@
+name: Windows Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging dependencies
+        run: pip install -e ".[packaging]"
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python -c "import importlib.metadata; print(importlib.metadata.version('surveytool'))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build PyInstaller bundle
+        working-directory: packaging
+        run: pyinstaller surveytool.spec
+
+      - name: Download WebView2 bootstrapper
+        working-directory: packaging
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
+            -OutFile "MicrosoftEdgeWebview2Setup.exe"
+
+      - name: Determine signed/unsigned output name
+        id: signing
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.WINDOWS_CERTIFICATE }}" ]; then
+            echo "suffix=" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "suffix=-unsigned" >> "$GITHUB_OUTPUT"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Compile installer
+        working-directory: packaging
+        shell: cmd
+        run: >
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          /DMyAppVersion=${{ steps.version.outputs.version }}
+          /DMyOutputBaseName=SurveyTool-Setup-x64${{ steps.signing.outputs.suffix }}
+          installer.iss
+
+      - name: Sign installer
+        if: steps.signing.outputs.signed == 'true'
+        shell: pwsh
+        run: |
+          # Decode secrets.WINDOWS_CERTIFICATE (base64 PFX) to a temp .pfx and sign:
+          # signtool sign /f cert.pfx /p ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }} `
+          #   /fd sha256 /tr http://timestamp.digicert.com /td sha256 `
+          #   packaging\Output\SurveyTool-Setup-x64.exe
+          Write-Host "Signing skipped: no certificate wired up yet."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SurveyTool-Setup-x64${{ steps.signing.outputs.suffix }}
+          path: packaging/Output/*.exe

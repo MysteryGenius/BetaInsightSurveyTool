@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from surveytool.findings.sheet import FindingsRow
+if TYPE_CHECKING:
+    from surveytool.findings.sheet import FindingsRow
 
 ChartType = Literal["dist", "xbreak", "means"]
 

@@ -112,6 +112,10 @@ def test_demographic_columns_load_as_single_choice():
     assert age.qtype is QuestionType.single_choice
     assert ethnicity.qtype is QuestionType.single_choice
 
+    assert gender.is_demographic is True
+    assert age.is_demographic is True
+    assert ethnicity.is_demographic is True
+
 
 def test_no_scale_column_left_unresolved():
     """Every non-demographic column must resolve to a scale via the label

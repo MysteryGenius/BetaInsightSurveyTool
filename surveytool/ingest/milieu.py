@@ -4,6 +4,8 @@ import csv
 import re
 from pathlib import Path
 
+from surveytool.charts.errors import ErrorCode, SurveyToolError, UnresolvedScaleLabelsError
+from surveytool.core.demographics import text_matches_demographic
 from surveytool.core.hygiene import normalize_label
 from surveytool.core.model import (
     CodeRole,
@@ -149,6 +151,7 @@ def _build_single_choice_question(info: _HeaderInfo, values: list[str]) -> Quest
         qtype=QuestionType.single_choice,
         labels=labels,
         base_eligible=True,
+        is_demographic=text_matches_demographic(info.text),
     )
 
 
@@ -201,8 +204,8 @@ def parse_header(fieldnames: list[str], rows: list[dict[str, str]]) -> list[Ques
                 continue
             try:
                 questions.append(_build_scale_question(info, values, None))
-            except ValueError as exc:
-                raise ValueError(f"question {info.qid!r}: {exc}") from exc
+            except UnresolvedScaleLabelsError as exc:
+                raise UnresolvedScaleLabelsError([f"question {info.qid!r}: {label}" for label in exc.unresolved]) from exc
             continue
 
     return questions
@@ -266,12 +269,26 @@ def load_respondents(
 
 def load(path: Path, survey_id: str) -> Survey:
     """Load a Milieu CSV file and return a canonical Survey."""
-    with path.open(encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = list(reader.fieldnames or [])
-        rows = list(reader)
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            fieldnames = list(reader.fieldnames or [])
+            rows = list(reader)
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise SurveyToolError(
+            ErrorCode.FILE_UNREADABLE,
+            "This file could not be read as a Milieu export.",
+            detail=str(exc),
+            next_action="Confirm the file is a complete, un-corrupted export, or pick a different file.",
+        ) from exc
 
     questions = parse_header(fieldnames, rows)
+    if not questions:
+        raise SurveyToolError(
+            ErrorCode.NO_QUESTIONS_FOUND,
+            "This file was read but has no computable questions in it.",
+            next_action="Check the vendor setting, or pick a different file.",
+        )
 
     header_by_qid: dict[str, str] = {}
     for column in fieldnames:

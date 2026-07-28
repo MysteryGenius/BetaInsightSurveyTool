@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
 from typing import Iterator
 
 import openpyxl
+from openpyxl.utils.exceptions import InvalidFileException
 
+from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.core.hygiene import normalize_label
 from surveytool.core.model import (
     CodeRole,
@@ -270,10 +273,45 @@ def load_respondents(
 
 def load(path: Path, survey_id: str) -> Survey:
     """Load a Rakuten xlsx file and return a canonical Survey."""
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        questions = parse_codebook(wb["Datamap"])
-        responses, n_raw = load_respondents(wb["A1"], questions)
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
+        raise SurveyToolError(
+            ErrorCode.FILE_UNREADABLE,
+            "This file could not be opened as a Rakuten export.",
+            detail=str(exc),
+            next_action="Confirm the file is a complete, un-corrupted .xlsx export, or pick a different file.",
+        ) from exc
+
+    try:
+        try:
+            ws_datamap = wb["Datamap"]
+        except KeyError as exc:
+            raise SurveyToolError(
+                ErrorCode.MISSING_SHEET,
+                "This file does not look like a Rakuten export.",
+                detail="No Datamap sheet was found.",
+                next_action="Check the vendor setting, or pick a different file.",
+            ) from exc
+
+        try:
+            ws_respondents = wb["A1"]
+        except KeyError as exc:
+            raise SurveyToolError(
+                ErrorCode.MISSING_SHEET,
+                "This file does not look like a Rakuten export.",
+                detail="No A1 respondent-data sheet was found.",
+                next_action="Check the vendor setting, or pick a different file.",
+            ) from exc
+
+        questions = parse_codebook(ws_datamap)
+        if not questions:
+            raise SurveyToolError(
+                ErrorCode.NO_QUESTIONS_FOUND,
+                "This file was read but has no computable questions in it.",
+                next_action="Check the Datamap sheet, or pick a different file.",
+            )
+        responses, n_raw = load_respondents(ws_respondents, questions)
     finally:
         wb.close()
 

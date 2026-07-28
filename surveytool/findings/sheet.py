@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 
+from surveytool.compute.cross_tab import DemographicNotFoundError, resolve_demographic_question
 from surveytool.compute.frequency import compute_question_stats
 from surveytool.core.model import CodeRole, Question, Response, ResponseState, ScaleCode, Survey
 
@@ -31,15 +32,10 @@ class FindingsRow:
 
 
 def _find_banner_question(survey: Survey, name: str) -> Question | None:
-    name_lower = name.lower()
-    for q in survey.questions:
-        if not q.is_demographic:
-            continue
-        if q.qid.lower() == name_lower:
-            return q
-        if name_lower in q.text.lower():
-            return q
-    return None
+    try:
+        return resolve_demographic_question(survey, name)
+    except DemographicNotFoundError:
+        return None
 
 
 def _emit_rows(

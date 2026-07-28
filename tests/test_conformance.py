@@ -201,6 +201,7 @@ def test_straightliner_reproduces_known_set():
 _ROOT = Path(__file__).parent.parent
 _MILIEU_PATH = _ROOT / "milieu_survey_coe_data.csv"
 _TOLUNA_PATH = _ROOT / "toluna_survey_misinformation_data.xlsx"
+_RAKUTEN_PATH = _ROOT / "rakuten_survey_support_measures_data.xlsx"
 
 
 def _assert_all_scales_fully_resolved(questions, vendor: str) -> None:
@@ -215,6 +216,20 @@ def _assert_all_scales_fully_resolved(questions, vendor: str) -> None:
         roles = {sc.role for sc in q.labels}
         assert CodeRole.top in roles, f"{vendor} question {q.qid!r} scale has no top role"
         assert CodeRole.bottom in roles, f"{vendor} question {q.qid!r} scale has no bottom role"
+
+
+@pytest.mark.skipif(
+    not _RAKUTEN_PATH.exists(),
+    reason="rakuten_survey_support_measures_data.xlsx not found in project root",
+)
+def test_rakuten_real_file_scales_fully_resolve():
+    from surveytool.ingest.rakuten import load
+
+    survey = load(_RAKUTEN_PATH, "support-measures")
+    assert any(q.qtype is QuestionType.scale for q in survey.questions), (
+        "Expected at least one scale question in the Rakuten fixture"
+    )
+    _assert_all_scales_fully_resolved(survey.questions, "rakuten")
 
 
 @pytest.mark.skipif(

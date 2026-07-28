@@ -28,7 +28,27 @@
       "Bash(cp /tmp/backup_scale_library.py surveytool/core/scale_library.py)",
       "Bash(cp /tmp/backup_scales.yaml surveytool/core/scales.yaml)",
       "Bash(cp /tmp/backup_toluna.py surveytool/ingest/toluna.py)",
-      "Bash(cp /tmp/backup_milieu.py surveytool/ingest/milieu.py)"
+      "Bash(cp /tmp/backup_milieu.py surveytool/ingest/milieu.py)",
+      "Bash(python3 -c \"import uuid; print\\(uuid.uuid4\\(\\)\\)\")",
+      "Bash(python -m pytest tests/test_respondent_frame.py -v)",
+      "Bash(python -c \"import fastapi; print\\(fastapi.__version__\\)\")",
+      "Bash(python -c \"import httpx\")",
+      "Bash(python -c \"import multipart\")",
+      "Bash(pip show *)",
+      "Bash(python -m pytest tests/test_desktop_upload.py -v)",
+      "Bash(python -m pytest -q)",
+      "Bash(python -c \"from surveytool.cli import main; main\\(\\)\" ingest rakuten_survey_support_measures_data.xlsx --survey-id t --vendor toluna)",
+      "Bash(pip list *)",
+      "Bash(python -m pytest tests/test_charts.py -q)",
+      "Bash(python -m pytest tests/test_chart_data.py -q)",
+      "Bash(python -c \"from surveytool.desktop.app import app; print\\([r.path for r in app.routes]\\)\")",
+      "Bash(python -m pytest tests/test_desktop_charts.py -q)",
+      "Bash(curl -sI https://cdn.plot.ly/plotly-basic-2.35.2.min.js)",
+      "Bash(/usr/bin/curl -sIL https://cdn.plot.ly/plotly-basic-2.35.2.min.js)",
+      "Bash(/usr/bin/curl -sL https://cdn.plot.ly/plotly-basic-2.35.2.min.js -o /Users/jodie/Desktop/Projects/surveytool/surveytool/desktop/static/vendor/plotly.min.js)",
+      "Bash(python -m uvicorn surveytool.desktop.app:app --host 127.0.0.1 --port 47899 --log-level warning)",
+      "Bash(/usr/bin/curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:47899/)",
+      "Bash(/usr/bin/wc -l)"
     ],
     "additionalDirectories": [
       "/tmp"

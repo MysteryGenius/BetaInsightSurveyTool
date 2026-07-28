@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SurveyTool — redesign v2</title>
+<style>
+  /* ===========================================================
+     SurveyTool — design system v2
+     A working tool for non-technical analysts turning vendor
+     survey exports into charts and cross-tabs. The whole premise
+     is trustworthy numbers: "loud failure over silent degradation."
+     No print/editorial skin — a calm, precise data-tool look.
+     =========================================================== */
+  :root {
+    --ink: #14181f;
+    --ink-soft: #5b6270;
+    --ink-faint: #656c79;
+    --paper: #f6f6f4;
+    --panel: #ffffff;
+    --line: #e2e3e0;
+    --line-strong: #c7c9c5;
+
+    --accent: #3d5a85;
+    --accent-hover: #324a6d;
+    --accent-soft: #eef1f4;
+    --accent-soft-line: #cdd7e1;
+
+    --good: #177349;
+    --good-bg: #eaf6f0;
+    --warn: #9a6b00;
+    --warn-bg: #fbf3e0;
+    --muted: #6f6f66;
+    --muted-bg: #eeeeec;
+
+    --danger: #b3402f;
+    --danger-bg: #fbeeec;
+    --danger-line: #e3b3a9;
+
+    --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --font-num: "Inter", ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+
+    --radius-sm: 4px;
+    --radius-md: 6px;
+
+    --text-xs: 11.5px;
+    --text-sm: 13px;
+    --text-base: 14.5px;
+    --text-lg: 18px;
+    --text-xl: 24px;
+
+    --shadow-card: 0 1px 2px rgba(20, 24, 31, 0.05), 0 1px 8px rgba(20, 24, 31, 0.04);
+    --shadow-pop: 0 8px 28px rgba(20, 24, 31, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 0; }
+  button { font-family: inherit; }
+  .num {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection { background: var(--accent-soft-line); }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---- app shell ---- */
+  #app {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #topbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-5);
+    background: var(--ink);
+    color: var(--paper);
+  }
+  #topbar .app-name {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  #topbar .app-name .dot {
+    color: var(--accent);
+    display: inline-block;
+    transform: translateY(-1px);
+  }
+
+  #tab-nav {
+    display: none;
+    gap: var(--space-1);
+    margin-left: var(--space-4);
+  }
+  #tab-nav.visible { display: flex; }
+  .tab-btn {
+    appearance: none;
+    border: none;
+    background: none;
+    color: rgba(246, 246, 244, 0.62);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    padding: 7px var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .tab-btn:hover { color: var(--paper); background: rgba(246, 246, 244, 0.08); }
+  .tab-btn.active {
+    color: var(--paper);
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  /* ---- provenance strip: the two-state model's "loaded" signal ---- */
+  #prov-strip {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-6);
+    padding: var(--space-3) var(--space-5);
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  #prov-strip.visible { display: flex; }
+  .prov-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .prov-label {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+  .prov-value {
+    font-size: var(--text-sm);
+    color: var(--ink);
+  }
+  .prov-source {
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  .prov-source .prov-value { color: var(--ink-soft); }
+
+  /* ---- buttons ---- */
+  .btn {
+    appearance: none;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    padding: 9px var(--space-4);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 100ms ease, border-color 100ms ease;
+  }
+  .btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn:active { background: #16309e; }
+  .btn-secondary {
+    background: var(--panel);
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+  .btn-secondary:hover { background: var(--paper); border-color: var(--ink-faint); }
+  .btn-ghost {
+    background: none;
+    border-color: transparent;
+    color: var(--accent);
+    padding: 9px var(--space-2);
+  }
+  .btn-ghost:hover { background: var(--accent-soft); }
+  .btn-sm { padding: 5px var(--space-3); font-size: var(--text-xs); font-weight: 600; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ---- main ---- */
+  #main {
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ---- upload / empty state ---- */
+  #view-empty.active {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 100%;
+    padding: var(--space-7) var(--space-5);
+  }
+  .upload-card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-card);
+    padding: var(--space-6);
+  }
+  .upload-card .eyebrow {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: var(--space-1);
+  }
+  .upload-card h1 {
+    font-size: var(--text-xl);
+    margin-bottom: var(--space-1);
+  }
+  .upload-card .subtitle {
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-5);
+  }
+
+  .field { margin-bottom: var(--space-4); }
+  .field label {
+    display: block;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 5px;
+  }
+  .field select,
+  .field input[type="text"] {
+    width: 100%;
+    padding: 9px var(--space-3);
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+  }
+  .field select:focus,
+  .field input[type="text"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+
+  #dropzone {
+    border: 1.5px dashed var(--line-strong);
+    border-radius: var(--radius-md);
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    background: var(--paper);
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  #dropzone svg { display: block; margin: 0 auto var(--space-2); color: var(--ink-faint); }
+  #dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
+  #dropzone:hover svg { color: var(--accent); }
+  #dropzone strong { color: var(--ink); }
+
+  .upload-card .btn { width: 100%; margin-top: var(--space-5); padding-top: 11px; padding-bottom: 11px; font-size: var(--text-base); }
+
+  /* ---- staged pipeline loading ---- */
+  #view-loading.active {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-7) var(--space-5);
+  }
+  .loading-card {
+    width: 100%;
+    max-width: 460px;
+  }
+  .loading-card .file-name {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .loading-card .file-sub {
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-6);
+  }
+  .stage-list { display: flex; flex-direction: column; }
+  .stage {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+  }
+  .stage-marker {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+    font-size: 12px;
+  }
+  .stage.done .stage-marker {
+    background: var(--good);
+    color: #fff;
+  }
+  .stage.active .stage-marker {
+    border: 2px solid var(--accent);
+    background: var(--accent-soft);
+    animation: pulse-ring 1.5s ease-in-out infinite;
+  }
+  .stage.pending .stage-marker {
+    border: 2px solid var(--line-strong);
+  }
+  @keyframes pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft-line); }
+    50% { box-shadow: 0 0 0 4px transparent; }
+  }
+  .stage-label { font-size: var(--text-base); padding-top: 2px; }
+  .stage.pending .stage-label { color: var(--ink-faint); }
+  .stage-detail {
+    font-size: var(--text-xs);
+    color: var(--ink-faint);
+    margin-top: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage.active .stage-marker { animation: none; }
+  }
+
+  /* ---- error state ---- */
+  #view-error.active {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-7) var(--space-5);
+  }
+  .error-card {
+    width: 100%;
+    max-width: 460px;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-line);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+  }
+  .error-card .eyebrow {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--danger);
+    font-weight: 700;
+    margin-bottom: var(--space-2);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .error-card h2 {
+    font-size: var(--text-lg);
+    margin-bottom: var(--space-2);
+  }
+  .error-card .detail {
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-2);
+  }
+  .error-card .next-action {
+    font-size: var(--text-sm);
+    color: var(--ink);
+    margin-bottom: var(--space-5);
+  }
+  .error-card .actions { display: flex; gap: var(--space-2); }
+
+  /* ---- content padding for loaded views ---- */
+  .content { padding: var(--space-5) var(--space-5) var(--space-7); max-width: 1040px; margin: 0 auto; }
+
+  /* ---- notices (warnings) ---- */
+  .notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-5);
+    background: var(--warn-bg);
+    border: 1px solid #e8cf8f;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    color: #6b4c00;
+  }
+  .notice svg { flex: none; margin-top: 2px; color: var(--warn); }
+
+  /* ---- export row ---- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-6);
+  }
+  .toolbar .export-dest {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  .toolbar .export-dest strong { color: var(--ink); font-weight: 600; }
+  .toolbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+  h2.section-title {
+    font-size: var(--text-lg);
+    margin-bottom: var(--space-4);
+  }
+
+  /* ---- chart blocks ---- */
+  .chart-block { margin-bottom: var(--space-7); }
+  .chart-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .chart-head h3 { font-size: 15.5px; font-weight: 600; }
+  .chart-head .cell-base { font-size: var(--text-xs); color: var(--ink-faint); margin-top: 2px; }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+  .bar-label {
+    width: 168px;
+    flex: none;
+    font-size: var(--text-sm);
+    text-align: right;
+    color: var(--ink-soft);
+  }
+  .bar-track {
+    flex: 1 1 auto;
+    background: var(--muted-bg);
+    border-radius: 3px;
+    height: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px 0 0 3px;
+    background: var(--accent);
+  }
+  .bar-fill.role-nonsub { background: var(--ink-faint); }
+  .bar-meta {
+    width: 128px;
+    flex: none;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  /* xbreak / grouped bars */
+  .xbreak-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-5);
+    height: 172px;
+    padding: 0 var(--space-2);
+  }
+  .xbreak-col {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    height: 100%;
+    max-width: 96px;
+  }
+  .xbreak-value { font-size: var(--text-sm); font-weight: 600; }
+  .xbreak-bar {
+    width: 100%;
+    max-width: 56px;
+    border-radius: 3px 3px 0 0;
+    background: var(--accent);
+  }
+  .xbreak-label { font-size: 12.5px; color: var(--ink-soft); }
+
+  /* ===========================================================
+     Signature element — status marks printed on the data itself.
+     Every number/bar/cell that carries a confidence status shows
+     it directly: a colored base rule + a short suffix. Suppressed
+     cells use a hatch fill (texture, not color alone) so status
+     survives grayscale. No legend required to read a single value;
+     the legend is a secondary reference for the full picture only.
+     =========================================================== */
+  .status-suffix {
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .status-suffix.ok { color: var(--good); }
+  .status-suffix.warn { color: var(--warn); }
+  .status-suffix.suppressed { color: var(--muted); }
+
+  .xbreak-bar.status-ok { background: var(--accent); border-bottom: 3px solid var(--good); }
+  .xbreak-bar.status-warn { background: var(--ink-faint); border-bottom: 3px solid var(--warn); }
+  .xbreak-bar.status-suppressed {
+    background: repeating-linear-gradient(135deg, var(--muted-bg) 0 5px, #e0e0dc 5px 10px);
+    border-bottom: 3px solid var(--muted);
+  }
+
+  /* ---- cross-tab ---- */
+  .picker-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .picker-row .field { flex: 1 1 240px; margin-bottom: 0; }
+
+  .sig-note {
+    font-size: var(--text-sm);
+    color: var(--ink-faint);
+    margin-bottom: var(--space-6);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .status-legend {
+    display: flex;
+    gap: var(--space-5);
+    margin-top: var(--space-6);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
+    font-size: var(--text-xs);
+    color: var(--ink-faint);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-tick {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+  }
+  .legend-tick.ok { background: var(--accent); border-bottom: 3px solid var(--good); }
+  .legend-tick.warn { background: var(--ink-faint); border-bottom: 3px solid var(--warn); }
+  .legend-tick.suppressed {
+    background: repeating-linear-gradient(135deg, var(--muted-bg) 0 3px, #e0e0dc 3px 6px);
+    border-bottom: 3px solid var(--muted);
+  }
+
+  /* ---- side rail: screen switcher (mockup navigation chrome only) ---- */
+  #mockup-rail {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 232px;
+    background: #0e1116;
+    color: rgba(246, 246, 244, 0.82);
+    padding: var(--space-5) var(--space-4);
+    overflow-y: auto;
+    font-size: var(--text-sm);
+    z-index: 50;
+  }
+  #mockup-rail .rail-title {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(246, 246, 244, 0.45);
+    font-weight: 700;
+    margin-bottom: var(--space-3);
+  }
+  #mockup-rail button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    background: none;
+    border: none;
+    color: rgba(246, 246, 244, 0.75);
+    font-size: var(--text-sm);
+    padding: 8px var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    margin-bottom: 2px;
+  }
+  #mockup-rail button:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+  #mockup-rail button.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  #mockup-rail .rail-sep {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: var(--space-5) 0;
+  }
+  #mockup-rail .rail-note {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: rgba(246, 246, 244, 0.5);
+  }
+  #stage-window { margin-left: 232px; min-height: 100vh; background: var(--paper); }
+
+  @media (max-width: 860px) {
+    #mockup-rail { position: static; width: auto; }
+    #stage-window { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div id="mockup-rail" aria-label="Design mockup screen switcher">
+  <div class="rail-title">SurveyTool — redesign v2</div>
+  <button type="button" class="active" data-screen="empty">Empty · upload a file</button>
+  <button type="button" data-screen="loading">Loading · staged pipeline</button>
+  <button type="button" data-screen="error">Error · vendor mismatch</button>
+  <button type="button" data-screen="charts">Loaded · charts</button>
+  <button type="button" data-screen="crosstab">Loaded · cross-tab</button>
+  <div class="rail-sep"></div>
+  <div class="rail-note">
+    Design-only mockup. No print/editorial skin — replaced with a calm,
+    precise data-tool system built for non-technical analysts. Status
+    marks (ok / below threshold / suppressed) print directly on the
+    data so nothing needs the legend to be read safely.
+  </div>
+</div>
+
+<div id="stage-window">
+  <div id="app">
+
+    <div id="topbar">
+      <span class="app-name"><span class="dot">●</span> SurveyTool</span>
+      <nav id="tab-nav">
+        <button type="button" class="tab-btn active" data-view="charts">Charts</button>
+        <button type="button" class="tab-btn" data-view="crosstab">Cross-tab</button>
+      </nav>
+    </div>
+
+    <div id="prov-strip">
+      <div class="prov-stat">
+        <span class="prov-label">Vendor</span>
+        <span class="prov-value">Milieu</span>
+      </div>
+      <div class="prov-stat">
+        <span class="prov-label">Survey ID</span>
+        <span class="prov-value num">wave-12-omnibus</span>
+      </div>
+      <div class="prov-stat">
+        <span class="prov-label">Respondents</span>
+        <span class="prov-value num">1,180 of 1,204</span>
+      </div>
+      <div class="prov-stat">
+        <span class="prov-label">Questions</span>
+        <span class="prov-value num">42</span>
+      </div>
+      <div class="prov-stat prov-source">
+        <span class="prov-label">Source</span>
+        <span class="prov-value">milieu_wave12_omnibus.csv &middot; loaded 3 min ago</span>
+      </div>
+      <button type="button" class="btn btn-ghost">Load a different file</button>
+    </div>
+
+    <div id="main">
+
+      <!-- ============ EMPTY / UPLOAD ============ -->
+      <div id="view-empty" class="view active">
+        <div class="upload-card">
+          <div class="eyebrow">Start a session</div>
+          <h1>Load a survey file</h1>
+          <p class="subtitle">Choose a vendor export and run it through the pipeline.</p>
+
+          <div class="field">
+            <label for="f-vendor">Vendor</label>
+            <select id="f-vendor">
+              <option>Rakuten</option>
+              <option selected>Milieu</option>
+              <option>Toluna</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-survey-id">Survey ID</label>
+            <input id="f-survey-id" type="text" value="wave-12-omnibus">
+          </div>
+
+          <div id="dropzone" tabindex="0" role="button">
+            <svg width="26" height="26" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="14" aria-hidden="true" focusable="false">
+              <path d="M64 152v48a8 8 0 0 0 8 8h112a8 8 0 0 0 8-8v-48" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M96 96l32-32 32 32M128 64v96" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Drag a vendor export here, or <strong>click to browse</strong>
+          </div>
+
+          <button type="button" class="btn">Run pipeline</button>
+        </div>
+      </div>
+
+      <!-- ============ STAGED LOADING ============ -->
+      <div id="view-loading" class="view">
+        <div class="loading-card">
+          <div class="file-name">Reading milieu_wave12_omnibus.csv</div>
+          <div class="file-sub">This usually takes a few seconds.</div>
+
+          <div class="stage-list">
+            <div class="stage done">
+              <div class="stage-marker">✓</div>
+              <div>
+                <div class="stage-label">Reading file</div>
+              </div>
+            </div>
+            <div class="stage done">
+              <div class="stage-marker">✓</div>
+              <div>
+                <div class="stage-label">Detecting scale labels</div>
+              </div>
+            </div>
+            <div class="stage active">
+              <div class="stage-marker"></div>
+              <div>
+                <div class="stage-label">Excluding low-quality respondents</div>
+                <div class="stage-detail">Checked 1,180 of 1,204 respondents</div>
+              </div>
+            </div>
+            <div class="stage pending">
+              <div class="stage-marker"></div>
+              <div>
+                <div class="stage-label">Building findings sheet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ ERROR ============ -->
+      <div id="view-error" class="view">
+        <div class="error-card">
+          <div class="eyebrow">
+            <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-8,56a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm8,104a12,12,0,1,1,12-12A12,12,0,0,1,128,184Z"/></svg>
+            Upload failed
+          </div>
+          <h2>This file does not look like a Rakuten export</h2>
+          <p class="detail">It has no Datamap sheet.</p>
+          <p class="next-action">Check the vendor setting, or pick a different file.</p>
+          <div class="actions">
+            <button type="button" class="btn">Try again</button>
+            <button type="button" class="btn btn-secondary">Dismiss</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ CHARTS (loaded) ============ -->
+      <div id="view-charts" class="view">
+        <div class="content">
+
+          <div class="notice">
+            <svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.34-12.19A23.51,23.51,0,0,0,236.8,188.09ZM120,104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm8,88a12,12,0,1,1,12-12A12,12,0,0,1,128,192Z"/></svg>
+            <span>24 respondents were excluded for straightlining — identical answers across every scale question.</span>
+          </div>
+
+          <div class="toolbar">
+            <div class="export-dest">Export to: <strong>~/Desktop/wave-12-charts</strong></div>
+            <div class="toolbar-actions">
+              <button type="button" class="btn btn-secondary btn-sm">Change export folder</button>
+              <button type="button" class="btn">Export all as PNGs</button>
+            </div>
+          </div>
+
+          <h2 class="section-title">Distributions</h2>
+
+          <div class="chart-block">
+            <div class="chart-head">
+              <div>
+                <h3>Q12 — Overall satisfaction with checkout</h3>
+                <div class="cell-base">Base: total answering, n=1,180</div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm">Export chart</button>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Very satisfied</div>
+              <div class="bar-track"><div class="bar-fill" style="width:34%"></div></div>
+              <div class="bar-meta num">34% &middot; n=410</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Satisfied</div>
+              <div class="bar-track"><div class="bar-fill" style="width:28%"></div></div>
+              <div class="bar-meta num">28% &middot; n=337</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Neutral</div>
+              <div class="bar-track"><div class="bar-fill" style="width:19%"></div></div>
+              <div class="bar-meta num">19% &middot; n=229</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Dissatisfied</div>
+              <div class="bar-track"><div class="bar-fill" style="width:9%"></div></div>
+              <div class="bar-meta num">9% &middot; n=108</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Very dissatisfied</div>
+              <div class="bar-track"><div class="bar-fill" style="width:6%"></div></div>
+              <div class="bar-meta num">6% &middot; n=72</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Prefer not to say</div>
+              <div class="bar-track"><div class="bar-fill role-nonsub" style="width:4%"></div></div>
+              <div class="bar-meta num">4% &middot; n=48</div>
+            </div>
+          </div>
+
+          <h2 class="section-title">Top-2-box by region — Q12</h2>
+          <div class="chart-block">
+            <div class="chart-head">
+              <div><div class="cell-base">Base: total answering per region</div></div>
+              <button type="button" class="btn btn-ghost btn-sm">Export chart</button>
+            </div>
+            <div class="xbreak-row">
+              <div class="xbreak-col">
+                <div class="xbreak-value num">64%</div>
+                <div class="xbreak-bar status-ok" style="height:74%"></div>
+                <div class="xbreak-label">Northeast</div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value num">57%</div>
+                <div class="xbreak-bar status-ok" style="height:64%"></div>
+                <div class="xbreak-label">Midwest</div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value num">52%</div>
+                <div class="xbreak-bar status-ok" style="height:58%"></div>
+                <div class="xbreak-label">South</div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value num">61%</div>
+                <div class="xbreak-bar status-ok" style="height:69%"></div>
+                <div class="xbreak-label">West</div>
+              </div>
+            </div>
+          </div>
+
+          <h2 class="section-title">Mean score by question</h2>
+          <div class="chart-block">
+            <div class="chart-head">
+              <div></div>
+              <button type="button" class="btn btn-ghost btn-sm">Export chart</button>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Q9 Checkout speed</div>
+              <div class="bar-track"><div class="bar-fill" style="width:82%"></div></div>
+              <div class="bar-meta num">mean 4.1</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Q10 Site navigation</div>
+              <div class="bar-track"><div class="bar-fill" style="width:76%"></div></div>
+              <div class="bar-meta num">mean 3.8</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Q11 Product selection</div>
+              <div class="bar-track"><div class="bar-fill" style="width:86%"></div></div>
+              <div class="bar-meta num">mean 4.3</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Q12 Overall satisfaction</div>
+              <div class="bar-track"><div class="bar-fill" style="width:78%"></div></div>
+              <div class="bar-meta num">mean 3.9</div>
+            </div>
+            <div class="bar-row">
+              <div class="bar-label">Q15 Value for money</div>
+              <div class="bar-track"><div class="bar-fill" style="width:68%"></div></div>
+              <div class="bar-meta num">mean 3.4</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============ CROSS-TAB (loaded) ============ -->
+      <div id="view-crosstab" class="view">
+        <div class="content">
+
+          <h2 class="section-title">Cross-tab</h2>
+
+          <div class="picker-row">
+            <div class="field">
+              <label for="ct-question">Question</label>
+              <select id="ct-question">
+                <option>Q12 — Overall satisfaction with checkout</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ct-demo">Demographic</label>
+              <select id="ct-demo">
+                <option>Region</option>
+              </select>
+            </div>
+          </div>
+
+          <p class="sig-note">Significance testing — planned for a future release. This cross-tab does not flag subgroup differences yet.</p>
+
+          <div class="chart-block">
+            <div class="chart-head">
+              <h3>Top-2-box, by region</h3>
+            </div>
+            <div class="xbreak-row">
+              <div class="xbreak-col">
+                <div class="xbreak-value num">62%</div>
+                <div class="xbreak-bar status-ok" style="height:70%"></div>
+                <div><span class="status-suffix ok">ok</span></div>
+                <div class="xbreak-label">Northeast<br><span class="num">n=210</span></div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value num">58%</div>
+                <div class="xbreak-bar status-ok" style="height:65%"></div>
+                <div><span class="status-suffix ok">ok</span></div>
+                <div class="xbreak-label">Midwest<br><span class="num">n=185</span></div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value num">55%</div>
+                <div class="xbreak-bar status-warn" style="height:62%"></div>
+                <div><span class="status-suffix warn">below threshold</span></div>
+                <div class="xbreak-label">South<br><span class="num">n=24</span></div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value" style="color:var(--muted)">—</div>
+                <div class="xbreak-bar status-suppressed" style="height:30%"></div>
+                <div><span class="status-suffix suppressed">suppressed</span></div>
+                <div class="xbreak-label">West<br><span class="num">n=7</span></div>
+              </div>
+              <div class="xbreak-col">
+                <div class="xbreak-value" style="color:var(--muted)">—</div>
+                <div class="xbreak-bar status-suppressed" style="height:22%"></div>
+                <div><span class="status-suffix suppressed">suppressed</span></div>
+                <div class="xbreak-label">Other<br><span class="num">n=4</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="status-legend">
+            <span class="legend-item"><span class="legend-tick ok"></span>Ok — safe to quote</span>
+            <span class="legend-item"><span class="legend-tick warn"></span>Below threshold (n&lt;30)</span>
+            <span class="legend-item"><span class="legend-tick suppressed"></span>Suppressed (n&lt;10)</span>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var railButtons = document.querySelectorAll('#mockup-rail button[data-screen]');
+  var views = {
+    empty: document.getElementById('view-empty'),
+    loading: document.getElementById('view-loading'),
+    error: document.getElementById('view-error'),
+    charts: document.getElementById('view-charts'),
+    crosstab: document.getElementById('view-crosstab')
+  };
+  var provStrip = document.getElementById('prov-strip');
+  var tabNav = document.getElementById('tab-nav');
+  var tabButtons = document.querySelectorAll('.tab-btn');
+
+  function showScreen(name) {
+    Object.keys(views).forEach(function (k) {
+      views[k].classList.toggle('active', k === name);
+    });
+    railButtons.forEach(function (b) {
+      b.classList.toggle('active', b.dataset.screen === name);
+    });
+    var loaded = (name === 'charts' || name === 'crosstab');
+    provStrip.classList.toggle('visible', loaded);
+    tabNav.classList.toggle('visible', loaded);
+    if (name === 'charts' || name === 'crosstab') {
+      tabButtons.forEach(function (b) {
+        b.classList.toggle('active', b.dataset.view === name);
+      });
+    }
+  }
+
+  railButtons.forEach(function (b) {
+    b.addEventListener('click', function () { showScreen(b.dataset.screen); });
+  });
+  tabButtons.forEach(function (b) {
+    b.addEventListener('click', function () { showScreen(b.dataset.view); });
+  });
+
+  showScreen('empty');
+})();
+</script>
+</body>
+</html>

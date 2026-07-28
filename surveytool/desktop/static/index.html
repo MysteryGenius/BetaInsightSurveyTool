@@ -1,0 +1,857 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SurveyTool</title>
+<style>
+  :root {
+    /* ---- design tokens ---- */
+    --ink: #1a1d23;
+    --ink-soft: #565c66;
+    --surface: #ffffff;
+    --surface-sunken: #f4f5f7;
+    --surface-shell: #eceef1;
+    --border: #d8dbe0;
+    --border-strong: #b7bcc4;
+
+    /* brand: swap this one value when brand assets exist. logo slot is in the top bar. */
+    --accent: #2f5fb3;
+
+    --ok: #2f5fb3;
+    --grey-cell: #9aa1ac;
+    --suppressed-cell: #d8dbe0;
+    --error: #b3402f;
+    --error-bg: #fbeeec;
+    --success: #2f7a4f;
+    --success-bg: #eaf3ee;
+
+    --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-num: "Consolas", "SF Mono", ui-monospace, "Cascadia Mono", monospace;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 15px;
+    --text-lg: 20px;
+    --text-xl: 28px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    color: var(--ink);
+    background: var(--surface-sunken);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .num {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- top bar ---- */
+  #topbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-5);
+    background: var(--ink);
+    color: var(--surface);
+  }
+  #topbar .app-name {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  #brand-logo-slot {
+    /* empty until brand assets exist — drop a logo <img> here */
+    width: 1px;
+    height: 24px;
+  }
+
+  /* ---- session summary strip ---- */
+  #session-summary {
+    flex: 0 0 auto;
+    display: none;
+    gap: var(--space-6);
+    padding: var(--space-3) var(--space-5);
+    background: var(--surface-shell);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  #session-summary .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  #session-summary .stat-label {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+  }
+  #session-summary .stat-value {
+    font-size: var(--text-base);
+    color: var(--ink);
+  }
+
+  /* ---- tab nav ---- */
+  #tab-nav {
+    flex: 0 0 auto;
+    display: none;
+    gap: var(--space-2);
+    padding: 0 var(--space-5);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    color: var(--ink-soft);
+    padding: var(--space-3) var(--space-3);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  .tab-btn:hover { color: var(--ink); }
+  .tab-btn.active {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ---- main content ---- */
+  #main {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: var(--space-6) var(--space-5);
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+  #charts-view.active, #crosstab-view.active {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  #charts, #crosstab-result {
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+
+  /* ---- upload card ---- */
+  #upload-view {
+    max-width: 560px;
+    margin: var(--space-6) auto;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: var(--space-6);
+  }
+  .card h1 {
+    margin: 0 0 var(--space-1) 0;
+    font-size: var(--text-lg);
+  }
+  .card .subtitle {
+    margin: 0 0 var(--space-5) 0;
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+  }
+
+  .field {
+    margin-bottom: var(--space-4);
+  }
+  .field label {
+    display: block;
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    margin-bottom: var(--space-1);
+  }
+  .field select,
+  .field input[type="text"] {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+  }
+  .field select:focus,
+  .field input[type="text"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  #dropzone {
+    border: 2px dashed var(--border-strong);
+    border-radius: 6px;
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  #dropzone .dropzone-icon {
+    font-size: 28px;
+    line-height: 1;
+    margin-bottom: var(--space-2);
+    color: var(--border-strong);
+  }
+  #dropzone:hover { border-color: var(--ink-soft); }
+  #dropzone.drag {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--surface-sunken);
+  }
+  #dropzone.drag .dropzone-icon { color: var(--accent); }
+
+  /* ---- result / status states ---- */
+  #result { margin-top: var(--space-4); }
+  .status-box {
+    display: none;
+    padding: var(--space-4);
+    border-radius: 6px;
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+  .status-box.visible { display: block; }
+  .status-box.success {
+    background: var(--success-bg);
+    border: 1px solid var(--success);
+    color: var(--success);
+  }
+  .status-box.error {
+    background: var(--error-bg);
+    border: 1px solid var(--error);
+    color: var(--error);
+  }
+  .status-box .status-title {
+    font-weight: 600;
+    margin-bottom: var(--space-1);
+  }
+  .status-box .status-body {
+    color: var(--ink);
+    white-space: pre-wrap;
+  }
+  .status-box .status-dismiss {
+    appearance: none;
+    border: none;
+    background: none;
+    color: inherit;
+    text-decoration: underline;
+    font-size: var(--text-sm);
+    padding: 0;
+    margin-top: var(--space-2);
+    cursor: pointer;
+    display: none;
+  }
+  .status-box.error .status-dismiss { display: inline-block; }
+
+  /* ---- warnings notice ---- */
+  #warnings-notice {
+    display: none;
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    background: var(--surface-shell);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  #warnings-notice.visible { display: block; }
+  #warnings-notice p { margin: 0; }
+  #warnings-notice p + p { margin-top: var(--space-1); }
+
+  /* ---- export bar ---- */
+  #export-row {
+    display: none;
+    align-items: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    margin-bottom: var(--space-5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  #export-row .field { flex: 1 1 auto; margin-bottom: 0; }
+  #export-folder-display {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    padding: var(--space-2) 0;
+  }
+  .btn {
+    appearance: none;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--surface);
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    padding: var(--space-2) var(--space-4);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { filter: brightness(0.95); }
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--accent);
+  }
+  .btn-small {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
+  }
+  #export-result { margin-bottom: var(--space-5); }
+  .chart-export-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+  .chart-export-row .status-body {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  .chart-export-row .status-body.success { color: var(--success); }
+  .chart-export-row .status-body.error { color: var(--error); }
+
+  /* ---- significance chip ---- */
+  .chip-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    border-radius: 999px;
+    background: var(--surface-shell);
+    border: 1px solid var(--border);
+    color: var(--ink-soft);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .chip-note {
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+  }
+
+  /* ---- cross-tab section ---- */
+  #crosstab-section h2,
+  #charts-view h2 {
+    font-size: var(--text-lg);
+    margin: 0 0 var(--space-4) 0;
+  }
+  .picker-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .picker-row .field { flex: 1 1 240px; margin-bottom: 0; }
+
+  /* status legend for cross-tab */
+  .status-legend {
+    display: flex;
+    gap: var(--space-5);
+    margin-bottom: var(--space-4);
+    font-size: var(--text-xs);
+    color: var(--ink-soft);
+  }
+  .status-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .legend-tick {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+  .legend-tick.ok { background: var(--ok); }
+  .legend-tick.grey { background: var(--grey-cell); }
+  .legend-tick.suppressed {
+    background: repeating-linear-gradient(
+      45deg,
+      var(--suppressed-cell),
+      var(--suppressed-cell) 3px,
+      var(--surface) 3px,
+      var(--surface) 6px
+    );
+    border: 1px solid var(--border-strong);
+  }
+
+  #charts, #crosstab-result { margin-top: var(--space-2); max-width: 100%; }
+  #charts > div, #crosstab-result > div { max-width: 100%; }
+  #charts:not(:has(> div)), #crosstab-result:not(:has(> div)) {
+    padding: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  /* ---- narrow window / display scaling fallback ---- */
+  @media (max-width: 1024px) {
+    #session-summary {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span class="app-name">SurveyTool</span>
+  <div id="brand-logo-slot" aria-hidden="true"></div>
+</div>
+
+<div id="session-summary">
+  <div class="stat">
+    <span class="stat-label">Vendor</span>
+    <span class="stat-value" id="summary-vendor"></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Survey ID</span>
+    <span class="stat-value" id="summary-survey-id"></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Respondents</span>
+    <span class="stat-value num" id="summary-respondents"></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Questions</span>
+    <span class="stat-value num" id="summary-questions"></span>
+  </div>
+</div>
+
+<div id="tab-nav">
+  <button type="button" class="tab-btn" data-view="charts-view">Charts</button>
+  <button type="button" class="tab-btn" data-view="crosstab-view">Cross-tab</button>
+</div>
+
+<div id="main">
+
+  <div id="upload-view" class="view active">
+    <div class="card">
+      <h1>Load a survey file</h1>
+      <p class="subtitle">Choose a vendor export and run it through the pipeline.</p>
+
+      <div class="field">
+        <label for="vendor">Vendor</label>
+        <select id="vendor">
+          <option value="rakuten">Rakuten</option>
+          <option value="milieu">Milieu</option>
+          <option value="toluna">Toluna</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="survey-id">Survey ID</label>
+        <input id="survey-id" type="text" value="survey-1">
+      </div>
+
+      <div id="dropzone">
+        <div class="dropzone-icon">&#8595;</div>
+        Drop the vendor file here, or click to choose one.
+      </div>
+      <input id="file-input" type="file" style="display:none">
+
+      <div id="result">
+        <div id="result-box" class="status-box">
+          <div class="status-title" id="result-title"></div>
+          <div class="status-body" id="result-body"></div>
+          <button type="button" class="status-dismiss" id="result-dismiss">Dismiss</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="charts-view" class="view">
+    <div id="warnings-notice"></div>
+    <div id="export-row">
+      <div class="field">
+        <label for="export-folder-btn">Export to</label>
+        <div id="export-folder-display">No folder chosen</div>
+      </div>
+      <button id="export-folder-btn" type="button" class="btn btn-secondary">Choose export folder&hellip;</button>
+      <button id="export-btn" type="button" class="btn">Export all as PNGs</button>
+    </div>
+    <div id="export-result">
+      <div id="export-box" class="status-box">
+        <div class="status-title" id="export-title"></div>
+        <div class="status-body" id="export-body"></div>
+      </div>
+    </div>
+
+    <h2>Charts</h2>
+    <div id="charts"></div>
+  </div>
+
+  <div id="crosstab-view" class="view">
+    <div id="crosstab-section">
+      <h2>Cross-tab</h2>
+      <div class="picker-row">
+        <div class="field">
+          <label for="ct-question">Question</label>
+          <select id="ct-question"></select>
+        </div>
+        <div class="field">
+          <label for="ct-demographic">Demographic</label>
+          <select id="ct-demographic"></select>
+        </div>
+      </div>
+
+      <div class="chip-row">
+        <span class="chip">Significance &mdash; coming in v1.1</span>
+        <span class="chip-note">Subgroup differences are not yet flagged in this build.</span>
+      </div>
+
+      <div class="status-legend">
+        <span class="legend-item"><span class="legend-tick ok"></span> Ok</span>
+        <span class="legend-item"><span class="legend-tick grey"></span> Below threshold</span>
+        <span class="legend-item"><span class="legend-tick suppressed"></span> Suppressed</span>
+      </div>
+
+      <div id="crosstab-result"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/vendor/plotly.min.js"></script>
+<script src="/charts.js"></script>
+<script>
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("file-input");
+const resultBox = document.getElementById("result-box");
+const resultTitle = document.getElementById("result-title");
+const resultBody = document.getElementById("result-body");
+const resultDismiss = document.getElementById("result-dismiss");
+const chartsContainer = document.getElementById("charts");
+const exportRow = document.getElementById("export-row");
+const exportBox = document.getElementById("export-box");
+const exportTitle = document.getElementById("export-title");
+const exportBody = document.getElementById("export-body");
+const exportBtn = document.getElementById("export-btn");
+const exportFolderBtn = document.getElementById("export-folder-btn");
+const exportFolderDisplay = document.getElementById("export-folder-display");
+const sessionSummary = document.getElementById("session-summary");
+const tabNav = document.getElementById("tab-nav");
+const warningsNotice = document.getElementById("warnings-notice");
+const vendorSelect = document.getElementById("vendor");
+const surveyIdInput = document.getElementById("survey-id");
+
+let currentSessionId = null;
+let currentExportDir = null;
+
+function setExportDir(dir) {
+  currentExportDir = dir;
+  exportFolderDisplay.textContent = dir || "No folder chosen";
+}
+
+// Opens the native save-location dialog, remembering the choice for the rest
+// of the session so per-chart and bulk export both reuse it without
+// re-prompting. Returns the chosen folder, or null if the user cancelled or
+// no folder is set yet.
+async function ensureExportDir() {
+  if (currentExportDir) {
+    return currentExportDir;
+  }
+  return chooseExportDir();
+}
+
+async function chooseExportDir() {
+  const chosen = await window.pywebview.api.choose_export_folder(currentExportDir);
+  if (chosen) {
+    setExportDir(chosen);
+  }
+  return chosen || null;
+}
+
+function setStatusBox(boxEl, titleEl, bodyEl, kind, title, body) {
+  boxEl.className = "status-box visible " + kind;
+  titleEl.textContent = title;
+  bodyEl.textContent = body;
+}
+
+// Renders a structured {code, message, detail?, next_action?} error object:
+// message as heading, detail beneath if present, next action as body text.
+function setStatusError(boxEl, titleEl, bodyEl, errorObj) {
+  const body = [errorObj.detail, errorObj.next_action].filter(Boolean).join("\n");
+  setStatusBox(boxEl, titleEl, bodyEl, "error", errorObj.message, body);
+}
+
+// Compatibility shim: charts.js sets `.className`/`.textContent` directly for
+// its "Exporting…"/success states, and calls `.setError(errorObj)` for the
+// structured error path. This proxy keeps that contract while driving the
+// same styled status box as the rest of the app.
+function makeStatusProxy(boxEl, titleEl, bodyEl, defaultTitle) {
+  return {
+    set className(kind) {
+      if (kind === "success") {
+        setStatusBox(boxEl, titleEl, bodyEl, "success", defaultTitle, bodyEl.textContent);
+      } else if (kind === "") {
+        boxEl.className = "status-box";
+      }
+    },
+    set textContent(text) {
+      bodyEl.textContent = text;
+      if (boxEl.className.includes("success")) {
+        titleEl.textContent = defaultTitle;
+      }
+      boxEl.classList.add("visible");
+    },
+    setError(errorObj) {
+      setStatusError(boxEl, titleEl, bodyEl, errorObj);
+    },
+  };
+}
+
+const exportResult = makeStatusProxy(exportBox, exportTitle, exportBody, "Export complete");
+
+resultDismiss.addEventListener("click", () => {
+  resultBox.className = "status-box";
+  resultTitle.textContent = "";
+  resultBody.textContent = "";
+});
+
+exportFolderBtn.addEventListener("click", () => {
+  chooseExportDir();
+});
+
+exportBtn.addEventListener("click", async () => {
+  const outDir = await ensureExportDir();
+  if (!outDir) {
+    exportResult.setError({
+      code: "INTERNAL",
+      message: "Choose an export folder first.",
+    });
+    return;
+  }
+  exportCharts(currentSessionId, outDir, exportResult);
+});
+
+dropzone.addEventListener("click", () => fileInput.click());
+
+dropzone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropzone.classList.add("drag");
+});
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropzone.classList.remove("drag");
+  if (e.dataTransfer.files.length) {
+    uploadFile(e.dataTransfer.files[0]);
+  }
+});
+
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) {
+    uploadFile(fileInput.files[0]);
+  }
+});
+
+// Resizes every Plotly chart currently plotted inside a panel. Safe to call
+// on a panel with no charts yet (querySelectorAll returns nothing).
+function resizeChartsIn(viewId) {
+  document.getElementById(viewId).querySelectorAll(".js-plotly-plot").forEach((div) => {
+    Plotly.Plots.resize(div);
+  });
+}
+
+function activateTab(viewId) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  document.getElementById(viewId).classList.add("active");
+  document.querySelectorAll(".tab-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === viewId);
+  });
+  resizeChartsIn(viewId);
+}
+
+tabNav.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => activateTab(btn.dataset.view));
+});
+
+let resizeDebounceId = null;
+function scheduleActiveViewResize() {
+  clearTimeout(resizeDebounceId);
+  resizeDebounceId = setTimeout(() => {
+    const activeView = document.querySelector(".view.active");
+    if (activeView) resizeChartsIn(activeView.id);
+  }, 150);
+}
+
+window.addEventListener("resize", scheduleActiveViewResize);
+
+const UPLOAD_TIMEOUT_MS = 180_000;
+
+function showUploadWorking() {
+  warningsNotice.className = "";
+  warningsNotice.innerHTML = "";
+  resultBox.classList.remove("visible");
+  resultBody.textContent = "Running pipeline…";
+  resultBox.className = "status-box visible";
+  resultTitle.textContent = "Working";
+}
+
+function showUploadError(errorObj, { retryFile } = {}) {
+  setStatusError(resultBox, resultTitle, resultBody, errorObj);
+  if (retryFile) {
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "btn";
+    retryBtn.textContent = "Retry";
+    retryBtn.style.marginTop = "var(--space-2)";
+    retryBtn.addEventListener("click", () => uploadFile(retryFile));
+    resultBody.after(retryBtn);
+  }
+}
+
+function renderWarnings(warnings) {
+  warningsNotice.innerHTML = "";
+  if (!warnings || warnings.length === 0) {
+    warningsNotice.className = "";
+    return;
+  }
+  warnings.forEach((w) => {
+    const p = document.createElement("p");
+    p.textContent = w.message;
+    warningsNotice.appendChild(p);
+  });
+  warningsNotice.className = "visible";
+}
+
+async function uploadFile(file) {
+  showUploadWorking();
+
+  const vendor = vendorSelect.value;
+  const surveyId = surveyIdInput.value;
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("vendor", vendor);
+  formData.append("survey_id", surveyId);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      showUploadError(
+        {
+          code: "INTERNAL",
+          message: "The upload is taking too long and was stopped.",
+          next_action: "Try again.",
+        },
+        { retryFile: file }
+      );
+    } else {
+      showUploadError({
+        code: "INTERNAL",
+        message: "Could not reach the local server.",
+        next_action: "Try again. If it keeps happening, restart the app.",
+      });
+    }
+    return;
+  }
+  clearTimeout(timeoutId);
+
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    showUploadError(errorFromBody(body));
+    return;
+  }
+
+  setStatusBox(
+    resultBox,
+    resultTitle,
+    resultBody,
+    "success",
+    "Upload complete",
+    `Respondents: ${body.n_raw} raw / ${body.n_analysis} analysis\n` +
+      `Questions: ${body.question_count}\n` +
+      `Session: ${body.session_id}`
+  );
+  renderWarnings(body.warnings);
+
+  currentSessionId = body.session_id;
+
+  document.getElementById("summary-vendor").textContent = vendor;
+  document.getElementById("summary-survey-id").textContent = surveyId;
+  document.getElementById("summary-respondents").textContent =
+    `${body.n_raw} raw / ${body.n_analysis} analysis`;
+  document.getElementById("summary-questions").textContent = body.question_count;
+  sessionSummary.style.display = "flex";
+  tabNav.style.display = "flex";
+
+  exportRow.style.display = "flex";
+  exportBox.className = "status-box";
+  exportBody.textContent = "";
+  activateTab("charts-view");
+  await loadCharts(currentSessionId, chartsContainer);
+
+  await loadCrossTabPickers(currentSessionId);
+  await refreshCrossTab();
+}
+
+const ctQuestionSelect = document.getElementById("ct-question");
+const ctDemographicSelect = document.getElementById("ct-demographic");
+const crosstabResult = document.getElementById("crosstab-result");
+
+async function refreshCrossTab() {
+  if (!currentSessionId || !ctQuestionSelect.value || !ctDemographicSelect.value) return;
+  await loadCrossTab(currentSessionId, ctQuestionSelect.value, ctDemographicSelect.value, crosstabResult);
+}
+
+ctQuestionSelect.addEventListener("change", refreshCrossTab);
+ctDemographicSelect.addEventListener("change", refreshCrossTab);
+
+// Chart containers can change width from container layout (e.g. the
+// internal scrollbar in #charts/#crosstab-result appearing) without the
+// window itself firing a resize event. Watch the containers directly so
+// Plotly stays in sync with the space it actually has.
+const chartContainerResizeObserver = new ResizeObserver(scheduleActiveViewResize);
+[chartsContainer, crosstabResult].forEach((el) => {
+  if (el) chartContainerResizeObserver.observe(el);
+});
+</script>
+</body>
+</html>
