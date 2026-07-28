@@ -119,6 +119,11 @@
     font-size: var(--text-base);
     color: var(--ink);
   }
+  #session-summary .stat-source {
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  #session-summary .stat-source .stat-value { color: var(--ink-soft); }
 
   /* ---- tab nav ---- */
   #tab-nav {
@@ -462,6 +467,11 @@
     <span class="stat-label">Questions</span>
     <span class="stat-value num" id="summary-questions"></span>
   </div>
+  <div class="stat stat-source">
+    <span class="stat-label">Source</span>
+    <span class="stat-value" id="summary-source"></span>
+  </div>
+  <button type="button" class="btn btn-secondary btn-small" id="summary-reset-btn">Load a different file</button>
 </div>
 
 <div id="tab-nav">
@@ -579,6 +589,20 @@ const tabNav = document.getElementById("tab-nav");
 const warningsNotice = document.getElementById("warnings-notice");
 const vendorSelect = document.getElementById("vendor");
 const surveyIdInput = document.getElementById("survey-id");
+
+// Formats a load timestamp as a short relative string ("loaded just now",
+// "loaded 3 min ago"). Re-evaluated fresh each time it's read, not live —
+// the strip doesn't need a ticking clock, just an accurate value at a
+// glance.
+function formatLoadedAgo(loadedAtMs) {
+  const deltaMin = Math.round((Date.now() - loadedAtMs) / 60000);
+  if (deltaMin < 1) return "loaded just now";
+  if (deltaMin === 1) return "loaded 1 min ago";
+  return `loaded ${deltaMin} min ago`;
+}
+
+let currentFileName = null;
+let currentLoadedAtMs = null;
 
 let currentSessionId = null;
 let currentExportDir = null;
@@ -708,6 +732,36 @@ function activateTab(viewId) {
   resizeChartsIn(viewId);
 }
 
+// Client-side-only reset: there is no session-teardown endpoint (the
+// backend just accumulates sessions in memory), so "loading a different
+// file" means returning the UI to the empty upload state and discarding
+// our reference to the old session — the old session object is simply
+// never read again.
+function resetToUpload() {
+  currentSessionId = null;
+  currentFileName = null;
+  currentLoadedAtMs = null;
+
+  sessionSummary.style.display = "none";
+  tabNav.style.display = "none";
+  exportRow.style.display = "none";
+  chartsContainer.innerHTML = "";
+  crosstabResult.innerHTML = "";
+  ctQuestionSelect.innerHTML = "";
+  ctDemographicSelect.innerHTML = "";
+
+  resultBox.className = "status-box";
+  resultTitle.textContent = "";
+  resultBody.textContent = "";
+  warningsNotice.className = "";
+  warningsNotice.innerHTML = "";
+
+  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  document.getElementById("upload-view").classList.add("active");
+}
+
+document.getElementById("summary-reset-btn").addEventListener("click", resetToUpload);
+
 tabNav.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => activateTab(btn.dataset.view));
 });
@@ -763,6 +817,7 @@ function renderWarnings(warnings) {
 
 async function uploadFile(file) {
   showUploadWorking();
+  currentFileName = file.name;
 
   const vendor = vendorSelect.value;
   const surveyId = surveyIdInput.value;
@@ -829,6 +884,9 @@ async function uploadFile(file) {
   document.getElementById("summary-respondents").textContent =
     `${body.n_raw} raw / ${body.n_analysis} analysis`;
   document.getElementById("summary-questions").textContent = body.question_count;
+  currentLoadedAtMs = Date.now();
+  document.getElementById("summary-source").textContent =
+    `${currentFileName} · ${formatLoadedAgo(currentLoadedAtMs)}`;
   sessionSummary.style.display = "flex";
   tabNav.style.display = "flex";
 
