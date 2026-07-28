@@ -67,17 +67,17 @@ function renderInlineError(container, errorObj) {
 // (Plotly renders to canvas/SVG and can't read CSS vars, so values are
 // duplicated here — keep in sync with the :root block in index.html).
 const CHART_COLORS = {
-  ink: "#1a1d23",
-  inkSoft: "#565c66",
-  border: "#d8dbe0",
-  accent: "#2f5fb3",
-  ok: "#2f5fb3",
-  grey: "#9aa1ac",
-  suppressed: "#d8dbe0",
+  ink: "#14181f",
+  inkSoft: "#5b6270",
+  border: "#e2e3e0",
+  accent: "#3d5a85",
+  ok: "#3d5a85",
+  grey: "#8a8a83",
+  suppressed: "#e2e3e0",
 };
 
 const CHART_TEMPLATE_LAYOUT = {
-  font: { family: '"Segoe UI", system-ui, sans-serif', color: CHART_COLORS.ink, size: 13 },
+  font: { family: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif', color: CHART_COLORS.ink, size: 13 },
   paper_bgcolor: "#ffffff",
   plot_bgcolor: "#ffffff",
   xaxis: { gridcolor: CHART_COLORS.border, zerolinecolor: CHART_COLORS.border },
