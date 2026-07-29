@@ -283,6 +283,43 @@
   }
   .status-box.error .status-dismiss { display: inline-block; }
 
+  /* ---- staged pipeline progress (client-side simulated) ---- */
+  #stage-list { display: none; flex-direction: column; margin-top: var(--space-2); }
+  #stage-list.visible { display: flex; }
+  .stage {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+  }
+  .stage-marker {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+    font-size: 11px;
+  }
+  .stage.done .stage-marker { background: var(--good); color: var(--panel); }
+  .stage.active .stage-marker {
+    border: 2px solid var(--accent);
+    background: var(--accent-soft);
+    animation: stage-pulse 1.5s ease-in-out infinite;
+  }
+  .stage.pending .stage-marker { border: 2px solid var(--line-strong); }
+  @keyframes stage-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft-line); }
+    50% { box-shadow: 0 0 0 4px transparent; }
+  }
+  .stage-label { font-size: var(--text-sm); padding-top: 1px; }
+  .stage.pending .stage-label { color: var(--ink-faint); }
+  @media (prefers-reduced-motion: reduce) {
+    .stage.active .stage-marker { animation: none; }
+  }
+
   /* ---- warnings notice ---- */
   #warnings-notice {
     display: none;
@@ -511,6 +548,12 @@
           <div class="status-body" id="result-body"></div>
           <button type="button" class="status-dismiss" id="result-dismiss">Dismiss</button>
         </div>
+        <div id="stage-list">
+          <div class="stage" data-stage="0"><div class="stage-marker"></div><div class="stage-label">Reading file</div></div>
+          <div class="stage" data-stage="1"><div class="stage-marker"></div><div class="stage-label">Detecting scale labels</div></div>
+          <div class="stage" data-stage="2"><div class="stage-marker"></div><div class="stage-label">Excluding low-quality respondents</div></div>
+          <div class="stage" data-stage="3"><div class="stage-marker"></div><div class="stage-label">Building findings sheet</div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -603,6 +646,50 @@ function formatLoadedAgo(loadedAtMs) {
 
 let currentFileName = null;
 let currentLoadedAtMs = null;
+
+const stageListEl = document.getElementById("stage-list");
+const STAGE_ADVANCE_MS = 650;
+let stageTimerId = null;
+let stageIndex = -1;
+
+function setStageClasses() {
+  stageListEl.querySelectorAll(".stage").forEach((el) => {
+    const i = Number(el.dataset.stage);
+    el.classList.remove("done", "active", "pending");
+    if (i < stageIndex) el.classList.add("done");
+    else if (i === stageIndex) el.classList.add("active");
+    else el.classList.add("pending");
+  });
+}
+
+// Advances a client-side-only progress illusion while the single real
+// /api/upload request is in flight. Never claims a step is done unless the
+// simulation reached it — if the real response returns first,
+// stopStageSimulation jumps straight to the true outcome instead of letting
+// a stale "in progress" step linger.
+function startStageSimulation() {
+  stageIndex = 0;
+  stageListEl.classList.add("visible");
+  setStageClasses();
+  stageTimerId = setInterval(() => {
+    if (stageIndex < 3) {
+      stageIndex += 1;
+      setStageClasses();
+    } else {
+      clearInterval(stageTimerId);
+      stageTimerId = null;
+    }
+  }, STAGE_ADVANCE_MS);
+}
+
+function stopStageSimulation() {
+  if (stageTimerId !== null) {
+    clearInterval(stageTimerId);
+    stageTimerId = null;
+  }
+  stageListEl.classList.remove("visible");
+  stageIndex = -1;
+}
 
 let currentSessionId = null;
 let currentExportDir = null;
@@ -786,6 +873,7 @@ function showUploadWorking() {
   resultBody.textContent = "Running pipeline…";
   resultBox.className = "status-box visible";
   resultTitle.textContent = "Working";
+  startStageSimulation();
 }
 
 function showUploadError(errorObj, { retryFile } = {}) {
@@ -839,6 +927,7 @@ async function uploadFile(file) {
     });
   } catch (err) {
     clearTimeout(timeoutId);
+    stopStageSimulation();
     if (err.name === "AbortError") {
       showUploadError(
         {
@@ -861,10 +950,12 @@ async function uploadFile(file) {
 
   const body = await parseJsonResponse(response);
   if (!response.ok) {
+    stopStageSimulation();
     showUploadError(errorFromBody(body));
     return;
   }
 
+  stopStageSimulation();
   setStatusBox(
     resultBox,
     resultTitle,
