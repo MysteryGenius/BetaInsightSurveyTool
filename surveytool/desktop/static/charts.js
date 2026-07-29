@@ -222,6 +222,14 @@ function crossTabTraceAndLayout(result) {
     c.status === "suppressed" ? `suppressed (n=${c.n})` :
     c.status === "grey" ? `n=${c.n} — below threshold` : ""
   );
+  // "grey" (below-threshold) and "ok" fills are close enough in hue/lightness
+  // that they can't be told apart by color alone (especially in grayscale or
+  // print) — so grey cells also get a distinctly heavier, darker outline than
+  // ok cells, the same way suppressed cells already get a pattern fill. This
+  // mirrors the pattern-fill treatment above: status must be readable without
+  // the legend.
+  const lineColors = result.cells.map(c => c.status === "grey" ? CHART_COLORS.ink : CHART_COLORS.border);
+  const lineWidths = result.cells.map(c => c.status === "grey" ? 3 : 1);
 
   return {
     data: [{
@@ -231,7 +239,7 @@ function crossTabTraceAndLayout(result) {
       marker: {
         color: colors,
         pattern: { shape: patterns, fgcolor: CHART_COLORS.inkSoft, size: 6 },
-        line: { color: CHART_COLORS.border, width: 1 },
+        line: { color: lineColors, width: lineWidths },
       },
       customdata: result.cells.map(c => [c.n, c.status]),
       text: text,
