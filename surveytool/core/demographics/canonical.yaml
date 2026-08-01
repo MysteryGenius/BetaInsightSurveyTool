@@ -1,0 +1,173 @@
+# Canonical demographic registry.
+#
+# One entry per cross-vendor demographic dimension. Every category listed here
+# must be reachable from every vendor mapping (vendor_*.yaml) that declares
+# the dimension — see surveytool/core/demographic_registry.py and
+# breaks-core-build-plan.md section 3 for the rules this file is validated
+# against.
+#
+# Populated from real inspection of the vendor fixture files at the project
+# root (rakuten_survey_support_measures_data.xlsx, rakuten_survey_chn_clans_data.xlsx,
+# toluna_survey_misinformation_data.xlsx, milieu_survey_coe_data.csv), not
+# assumed from column names. No non_response category is declared anywhere
+# below because none was found in the real data for any dimension.
+dimensions:
+  gender:
+    label: "Gender"
+    multi_select: false
+    categories:
+      - value: "male"
+        label: "Male"
+        order: 1
+      - value: "female"
+        label: "Female"
+        order: 2
+
+  age_band:
+    label: "Age band"
+    multi_select: false
+    categories:
+      - value: "under_18"
+        label: "Below 18"
+        order: 1
+      - value: "18_24"
+        label: "18-24"
+        order: 2
+      - value: "25_34"
+        label: "25-34"
+        order: 3
+      - value: "35_44"
+        label: "35-44"
+        order: 4
+      - value: "45_54"
+        label: "45-54"
+        order: 5
+      - value: "55_64"
+        label: "55-64"
+        order: 6
+      - value: "65_plus"
+        label: "65+"
+        order: 7
+
+  ethnicity:
+    label: "Ethnicity"
+    multi_select: false
+    categories:
+      - value: "chinese"
+        label: "Chinese"
+        order: 1
+      - value: "malay"
+        label: "Malay"
+        order: 2
+      - value: "indian"
+        label: "Indian"
+        order: 3
+      - value: "other"
+        label: "Other"
+        order: 4
+
+  residential_status:
+    label: "Residential status"
+    multi_select: false
+    categories:
+      - value: "citizen"
+        label: "Singapore Citizen"
+        order: 1
+      - value: "pr"
+        label: "Singapore Permanent Resident"
+        order: 2
+      - value: "other"
+        label: "Others"
+        order: 3
+
+  car_ownership:
+    label: "Car ownership"
+    multi_select: false
+    categories:
+      - value: "owns"
+        label: "Yes, I own a car"
+        order: 1
+      - value: "shares"
+        label: "Yes, I share a car with others"
+        order: 2
+      - value: "rents_or_shares_service"
+        label: "Yes, I use car rental or car-sharing services"
+        order: 3
+      - value: "none"
+        label: "No, I do not drive or have access to a car"
+        order: 4
+
+  car_ownership_reasons:
+    label: "Reasons for not owning or driving a car"
+    multi_select: true
+    categories:
+      - value: "no_licence"
+        label: "I do not have a driving licence"
+        order: 1
+      - value: "prefers_other_modes"
+        label: "I prefer other modes of transport"
+        order: 2
+      - value: "cost_too_high"
+        label: "General cost of car ownership is too high"
+        order: 3
+      - value: "sufficient_public_transport"
+        label: "Sufficient public transport options"
+        order: 4
+      - value: "environmental_concerns"
+        label: "Environmental or sustainability concerns"
+        order: 5
+      - value: "coe_too_high"
+        label: "Certificate of Entitlement (COE) prices are too high"
+        order: 6
+      - value: "other"
+        label: "Other"
+        order: 7
+
+  income:
+    label: "Monthly household income"
+    multi_select: false
+    categories:
+      - value: "under_2000"
+        label: "Less than 2,000 SGD"
+        order: 1
+      - value: "2000_4999"
+        label: "2,000 to 4,999 SGD"
+        order: 2
+      - value: "5000_7999"
+        label: "5,000 to 7,999 SGD"
+        order: 3
+      - value: "8000_10999"
+        label: "8,000 to 10,999 SGD"
+        order: 4
+      - value: "11000_13999"
+        label: "11,000 to 13,999 SGD"
+        order: 5
+      - value: "14000_16999"
+        label: "14,000 to 16,999 SGD"
+        order: 6
+      - value: "17000_plus"
+        label: "17,000 SGD and above"
+        order: 7
+
+  education:
+    label: "Highest level of education completed"
+    multi_select: false
+    categories:
+      - value: "secondary_and_below"
+        label: "Secondary and below"
+        order: 1
+      - value: "post_secondary"
+        label: "Post-Secondary (ITE/JC)"
+        order: 2
+      - value: "diploma"
+        label: "Diploma"
+        order: 3
+      - value: "degree"
+        label: "Degree"
+        order: 4
+      - value: "postgraduate"
+        label: "Postgraduate"
+        order: 5
+      - value: "other"
+        label: "Others"
+        order: 6

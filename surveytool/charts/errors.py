@@ -16,6 +16,9 @@ class ErrorCode(str, Enum):
     CONFIG_INVALID = "CONFIG_INVALID"
     NO_SESSION = "NO_SESSION"
     INTERNAL = "INTERNAL"
+    DIMENSION_NOT_IN_CANONICAL = "DIMENSION_NOT_IN_CANONICAL"
+    CANONICAL_CATEGORY_UNREACHABLE = "CANONICAL_CATEGORY_UNREACHABLE"
+    UNMAPPED_SOURCE_VALUE = "UNMAPPED_SOURCE_VALUE"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -32,6 +35,9 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.CONFIG_INVALID: 400,
     ErrorCode.NO_SESSION: 404,
     ErrorCode.INTERNAL: 500,
+    ErrorCode.DIMENSION_NOT_IN_CANONICAL: 400,
+    ErrorCode.CANONICAL_CATEGORY_UNREACHABLE: 400,
+    ErrorCode.UNMAPPED_SOURCE_VALUE: 400,
 }
 
 
@@ -132,4 +138,76 @@ class UnresolvedScaleLabelsError(SurveyToolError, ValueError):
             "This file has response labels this tool doesn't recognise.",
             detail=detail,
             next_action="Add the missing labels to the scale library, or check the vendor setting.",
+        )
+
+
+class DimensionNotInCanonicalError(SurveyToolError):
+    """Raised when a vendor mapping declares a dimension not present in the canonical registry.
+
+    A registry-loading failure (YAML authoring bug), distinct from and prior
+    to the request-time DEMOGRAPHIC_NOT_IN_REGISTRY check on a break/filter
+    spec. Fails loudly rather than silently ignoring the extra dimension.
+    """
+
+    def __init__(self, vendor: str, dimension: str) -> None:
+        self.vendor = vendor
+        self.dimension = dimension
+        detail = (
+            f"Vendor mapping {vendor!r} declares dimension {dimension!r}, "
+            f"which is not present in the canonical demographic registry."
+        )
+        super().__init__(
+            ErrorCode.DIMENSION_NOT_IN_CANONICAL,
+            "A vendor demographic mapping refers to a dimension this tool doesn't recognise.",
+            detail=detail,
+            next_action="Add the dimension to canonical.yaml, or remove it from the vendor mapping.",
+        )
+
+
+class CanonicalCategoryUnreachableError(SurveyToolError):
+    """Raised when a canonical category has no source value mapping to it in a
+    vendor mapping that declares the dimension.
+
+    Cheap, YAML-only check (build plan section 3, rule 1) — runs before the
+    unmapped-source-value check, which needs loaded response data.
+    """
+
+    def __init__(self, vendor: str, dimension: str, category: str) -> None:
+        self.vendor = vendor
+        self.dimension = dimension
+        self.category = category
+        detail = (
+            f"Vendor {vendor!r} mapping for dimension {dimension!r} has no source value "
+            f"mapping to canonical category {category!r}. Every canonical category must "
+            f"be reachable from every vendor mapping that declares the dimension."
+        )
+        super().__init__(
+            ErrorCode.CANONICAL_CATEGORY_UNREACHABLE,
+            "A vendor demographic mapping is missing a category this tool expects.",
+            detail=detail,
+            next_action="Add a value_map entry in the vendor YAML that reaches this category, or remove the dimension from that vendor's mapping.",
+        )
+
+
+class UnmappedSourceValueError(SurveyToolError):
+    """Raised when a source value present in the actual loaded response data
+    for a dimension's source column has no entry in that vendor's value_map.
+
+    Hard failure — never bucketed into "other" and never silently dropped
+    (build plan section 3, rule 2).
+    """
+
+    def __init__(self, vendor: str, dimension: str, raw_value: object) -> None:
+        self.vendor = vendor
+        self.dimension = dimension
+        self.raw_value = raw_value
+        detail = (
+            f"Vendor {vendor!r}, dimension {dimension!r}: source value {raw_value!r} "
+            f"was found in the loaded data but has no entry in this vendor's value_map."
+        )
+        super().__init__(
+            ErrorCode.UNMAPPED_SOURCE_VALUE,
+            "This file has a demographic response value this tool doesn't recognise.",
+            detail=detail,
+            next_action="Add a value_map entry for this value in the vendor YAML.",
         )

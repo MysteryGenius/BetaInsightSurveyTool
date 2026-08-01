@@ -1,0 +1,44 @@
+# Rakuten vendor mapping.
+#
+# Verified against surveytool/ingest/rakuten.py's Datamap parsing and the real
+# fixtures rakuten_survey_support_measures_data.xlsx and
+# rakuten_survey_chn_clans_data.xlsx: demographic questions are qids S1-S4,
+# qtype=demographic, codes are the small integers from the Datamap sheet.
+#
+# age_band is the only dimension where Rakuten's codebook (7 bands, including
+# "Below 18") is more granular than Toluna's (5 bands, no "Below 18" band) —
+# Rakuten fully covers the canonical age_band category set; Toluna does not
+# (see vendor_toluna.yaml, which omits age_band entirely as a real vendor gap).
+vendor: rakuten
+dimensions:
+  gender:
+    source_column: "S1"
+    value_map:
+      "1": "male"
+      "2": "female"
+
+  age_band:
+    source_column: "S3"
+    value_map:
+      "1": "under_18"
+      "2": "18_24"
+      "3": "25_34"
+      "4": "35_44"
+      "5": "45_54"
+      "6": "55_64"
+      "7": "65_plus"
+
+  ethnicity:
+    source_column: "S4"
+    value_map:
+      "1": "chinese"
+      "2": "malay"
+      "3": "indian"
+      "4": "other"
+
+  residential_status:
+    source_column: "S2"
+    value_map:
+      "1": "citizen"
+      "2": "pr"
+      "3": "other"

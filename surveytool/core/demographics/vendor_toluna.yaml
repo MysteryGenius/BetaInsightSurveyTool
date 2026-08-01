@@ -1,0 +1,53 @@
+# Toluna vendor mapping.
+#
+# Verified against surveytool/ingest/toluna.py and the real fixture
+# toluna_survey_misinformation_data.xlsx: demographic questions are the
+# numbered columns 1-5 (qtype=single_choice; the ingest adapter assigns bare
+# numeric qids for non-grid columns).
+#
+# age_band (column 2) is deliberately NOT mapped here. The column is banded
+# (5 discrete codes, not raw/open numeric as the task brief speculated it
+# might be), but the bands do not cover the canonical age_band category set:
+# there is no "Below 18" band, and the top band is a single "55 years old and
+# above" bucket that cannot be split into the canonical 55_64 / 65_plus
+# categories without inventing a boundary. Declaring age_band here would fail
+# the reachability rule (build plan section 3, rule 1) for three canonical
+# categories (under_18, 55_64, 65_plus), so it is left out entirely rather
+# than faked. This is a legitimate VENDOR_MISMATCH-shaped gap for later
+# tasks, not something resolved by binning.
+vendor: toluna
+dimensions:
+  gender:
+    source_column: "1"
+    value_map:
+      "1": "female"
+      "2": "male"
+
+  ethnicity:
+    source_column: "3"
+    value_map:
+      "1": "chinese"
+      "2": "indian"
+      "3": "other"
+      "4": "malay"
+
+  income:
+    source_column: "4"
+    value_map:
+      "1": "8000_10999"
+      "2": "17000_plus"
+      "3": "11000_13999"
+      "4": "14000_16999"
+      "5": "2000_4999"
+      "6": "5000_7999"
+      "7": "under_2000"
+
+  education:
+    source_column: "5"
+    value_map:
+      "1": "diploma"
+      "2": "secondary_and_below"
+      "3": "postgraduate"
+      "4": "degree"
+      "5": "post_secondary"
+      "6": "other"

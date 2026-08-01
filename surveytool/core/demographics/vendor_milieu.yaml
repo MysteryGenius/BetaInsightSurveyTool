@@ -1,0 +1,57 @@
+# Milieu vendor mapping.
+#
+# Verified against surveytool/ingest/milieu.py and the real fixture
+# milieu_survey_coe_data.csv: demographic questions are qids q5-q8 (parsed
+# from the "[qid]: qtype - text" CSV header convention). q5/q6/q7 are
+# single-select; q8 is multi-select with the "; " delimiter, which is
+# surveytool.ingest.milieu._MULTI_DELIMITER — the multi_select prototype case
+# named in the build plan.
+#
+# Milieu has no age question anywhere in its column list (checked the full
+# parsed question set: q5, q6, q7, q8, q10-q14 are the only questions) so
+# age_band is intentionally absent from this mapping — not a gap, just not
+# collected by this vendor.
+vendor: milieu
+dimensions:
+  gender:
+    source_column: "q5"
+    value_map:
+      "1": "male"
+      "2": "female"
+
+  ethnicity:
+    # Milieu's codebook has 5 codes (Others/Chinese/Malay/Indian/Caucasian),
+    # one more granular than the canonical ethnicity set (which matches
+    # Rakuten's and Toluna's 4-category codebooks: Chinese/Malay/Indian/
+    # Other). Caucasian has no canonical home of its own — both Rakuten and
+    # Toluna would fail reachability for a "caucasian" category — so it maps
+    # to "other" alongside Milieu's own "Others" code, consistent with how
+    # Rakuten/Toluna already use their "Others" code as the catch-all for
+    # any ethnicity outside Chinese/Malay/Indian.
+    source_column: "q6"
+    value_map:
+      "1": "other"
+      "2": "chinese"
+      "3": "malay"
+      "4": "indian"
+      "5": "other"
+
+  car_ownership:
+    source_column: "q7"
+    value_map:
+      "1": "rents_or_shares_service"
+      "2": "none"
+      "3": "shares"
+      "4": "owns"
+
+  car_ownership_reasons:
+    source_column: "q8"
+    multi_select: true
+    value_map:
+      "1": "no_licence"
+      "2": "other"
+      "3": "prefers_other_modes"
+      "4": "cost_too_high"
+      "5": "sufficient_public_transport"
+      "6": "environmental_concerns"
+      "7": "coe_too_high"
