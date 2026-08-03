@@ -15,39 +15,53 @@
 # categories (under_18, 55_64, 65_plus), so it is left out entirely rather
 # than faked. This is a legitimate VENDOR_MISMATCH-shaped gap for later
 # tasks, not something resolved by binning.
+#
+# IMPORTANT: unlike Rakuten, Toluna has no fixed vendor codebook — the
+# ingest adapter (surveytool/ingest/toluna.py::_collect_single_values)
+# assigns numeric codes purely by first-appearance order of each label
+# within the loaded rows. Those numbers are an artifact of THIS fixture
+# file's row order, not stable vendor codes: a re-export with a different
+# first respondent (or reordered rows) would assign different numbers to
+# the same labels. So value_map here keys on the normalized label text
+# itself (via normalize_label(), see surveytool/core/hygiene.py) rather
+# than the derived numeric code — the label text is what's actually stable
+# across re-ingests of different files. demographic_registry.py's
+# _raw_values_for_column() resolves each response's numeric raw_value back
+# to its label (via the Question's ScaleCode.code -> .label) before
+# checking it against this value_map.
 vendor: toluna
 dimensions:
   gender:
     source_column: "1"
     value_map:
-      "1": "female"
-      "2": "male"
+      "Female": "female"
+      "Male": "male"
 
   ethnicity:
     source_column: "3"
     value_map:
-      "1": "chinese"
-      "2": "indian"
-      "3": "other"
-      "4": "malay"
+      "Chinese": "chinese"
+      "Indian": "indian"
+      "Others": "other"
+      "Malay": "malay"
 
   income:
     source_column: "4"
     value_map:
-      "1": "8000_10999"
-      "2": "17000_plus"
-      "3": "11000_13999"
-      "4": "14000_16999"
-      "5": "2000_4999"
-      "6": "5000_7999"
-      "7": "under_2000"
+      "8,000 to 10,999 SGD": "8000_10999"
+      "17,000 SGD and above": "17000_plus"
+      "11,000 to 13,999 SGD": "11000_13999"
+      "14,000 to 16,999 SGD": "14000_16999"
+      "2,000 to 4,999 SGD": "2000_4999"
+      "5,000 to 7,999 SGD": "5000_7999"
+      "Less than 2,000 SGD": "under_2000"
 
   education:
     source_column: "5"
     value_map:
-      "1": "diploma"
-      "2": "secondary_and_below"
-      "3": "postgraduate"
-      "4": "degree"
-      "5": "post_secondary"
-      "6": "other"
+      "Diploma": "diploma"
+      "Secondary and below": "secondary_and_below"
+      "Postgraduate": "postgraduate"
+      "Degree": "degree"
+      "Post-Secondary (ITE/JC)": "post_secondary"
+      "Others": "other"

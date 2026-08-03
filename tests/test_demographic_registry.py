@@ -21,7 +21,15 @@ from surveytool.charts.errors import (
     UnmappedSourceValueError,
 )
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
-from surveytool.core.model import Response, ResponseState, Survey
+from surveytool.core.model import (
+    CodeRole,
+    Question,
+    QuestionType,
+    Response,
+    ResponseState,
+    ScaleCode,
+    Survey,
+)
 
 ROOT = Path(__file__).parent.parent
 DEMOGRAPHICS_DIR = ROOT / "surveytool" / "core" / "demographics"
@@ -286,6 +294,109 @@ def test_multi_select_unmapped_value_in_delimited_list_raises(tmp_path):
         load_registry(canonical_path, {"acme": vendor_path}, surveys={"acme": survey})
 
     assert exc_info.value.raw_value == "9"
+
+
+def _milieu_like_question(qid: str, label_order: list[str]) -> Question:
+    """Build a Question the way surveytool.ingest.milieu._build_single_choice_question
+    does: code = 1-indexed position in first-appearance order within the
+    loaded rows. label_order simulates a different row ordering producing a
+    different code assignment for the same underlying labels."""
+    return Question(
+        qid=qid,
+        text="What is your gender?",
+        qtype=QuestionType.single_choice,
+        labels=[
+            ScaleCode(code=i, label=label, role=CodeRole.excluded)
+            for i, label in enumerate(label_order, start=1)
+        ],
+    )
+
+
+def _milieu_like_survey(qid: str, label_order: list[str], respondent_labels: list[str]) -> Survey:
+    code_by_label = {label: i for i, label in enumerate(label_order, start=1)}
+    return Survey(
+        id="s1",
+        n_raw=len(respondent_labels),
+        n_analysis=len(respondent_labels),
+        questions=[_milieu_like_question(qid, label_order)],
+        responses=[
+            Response(
+                respondent_id=f"r{i}",
+                qid=qid,
+                raw_value=code_by_label[label],
+                state=ResponseState.answered,
+            )
+            for i, label in enumerate(respondent_labels)
+        ],
+    )
+
+
+def test_label_keyed_value_map_is_robust_to_row_order(tmp_path, canonical_path):
+    """Reproduces the finding: Milieu/Toluna assign numeric codes to labels
+    purely by first-appearance order within the loaded rows (see
+    surveytool/ingest/milieu.py::_collect_single_values). A value_map keyed
+    on those numbers would silently flip meaning if a different respondent
+    answered first in a re-export. A value_map keyed on the label text
+    itself must load correctly and identically regardless of which
+    respondent appears first — i.e. regardless of which numeric code ends
+    up attached to which label."""
+    vendor_label_keyed = {
+        "vendor": "acme",
+        "dimensions": {
+            "gender": {
+                "source_column": "G1",
+                "value_map": {"Male": "male", "Female": "female", "Prefer not to say": "not_stated"},
+            },
+        },
+    }
+    vendor_path = _write_yaml(tmp_path / "vendor_acme.yaml", vendor_label_keyed)
+
+    # Ordering A: Male appears first (code 1=Male, 2=Female, 3=Prefer not to say)
+    survey_a = _milieu_like_survey(
+        "G1",
+        label_order=["Male", "Female", "Prefer not to say"],
+        respondent_labels=["Male", "Female", "Male", "Prefer not to say"],
+    )
+    registry_a = load_registry(canonical_path, {"acme": vendor_path}, surveys={"acme": survey_a})
+    assert isinstance(registry_a, ResolvedRegistry)
+
+    # Ordering B: same labels, different first-appearance order (Female
+    # appears first this time), so the SAME label gets a DIFFERENT numeric
+    # code than in ordering A. A code-keyed value_map would silently swap
+    # meaning here; a label-keyed value_map must still resolve correctly.
+    survey_b = _milieu_like_survey(
+        "G1",
+        label_order=["Female", "Prefer not to say", "Male"],
+        respondent_labels=["Female", "Male", "Female", "Prefer not to say"],
+    )
+    registry_b = load_registry(canonical_path, {"acme": vendor_path}, surveys={"acme": survey_b})
+    assert isinstance(registry_b, ResolvedRegistry)
+
+
+def test_real_milieu_and_toluna_value_maps_are_label_keyed_not_code_keyed():
+    """Guards the actual fix: vendor_milieu.yaml and vendor_toluna.yaml must
+    key value_map on label text (e.g. "Male"), not on the derived numeric
+    code (e.g. "1"), because neither vendor has a fixed codebook. Rakuten,
+    which has a genuine fixed Datamap codebook, is expected to keep keying
+    on its real numeric codes."""
+    with VENDOR_PATHS["milieu"].open(encoding="utf-8") as f:
+        milieu_map = yaml.safe_load(f)
+    with VENDOR_PATHS["toluna"].open(encoding="utf-8") as f:
+        toluna_map = yaml.safe_load(f)
+    with VENDOR_PATHS["rakuten"].open(encoding="utf-8") as f:
+        rakuten_map = yaml.safe_load(f)
+
+    for mapping in (milieu_map, toluna_map):
+        for dim in mapping["dimensions"].values():
+            for key in dim["value_map"]:
+                assert not key.isdigit(), (
+                    f"{mapping['vendor']} value_map key {key!r} looks like a "
+                    "derived numeric code, not a stable label"
+                )
+
+    # Rakuten's codebook is genuinely fixed (Datamap sheet) — its value_map
+    # legitimately keys on real numeric codebook codes, unchanged.
+    assert rakuten_map["dimensions"]["gender"]["value_map"] == {"1": "male", "2": "female"}
 
 
 # ── Section B: real registry files against real vendor Survey objects ───────

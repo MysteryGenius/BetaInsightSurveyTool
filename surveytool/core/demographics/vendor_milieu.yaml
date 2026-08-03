@@ -11,13 +11,27 @@
 # parsed question set: q5, q6, q7, q8, q10-q14 are the only questions) so
 # age_band is intentionally absent from this mapping — not a gap, just not
 # collected by this vendor.
+#
+# IMPORTANT: unlike Rakuten, Milieu has no fixed vendor codebook — the
+# ingest adapter (surveytool/ingest/milieu.py::_collect_single_values /
+# _collect_multi_values) assigns numeric codes purely by first-appearance
+# order of each label within the loaded rows. Those numbers are an artifact
+# of THIS fixture file's row order, not stable vendor codes: a re-export
+# with a different first respondent (or reordered rows) would assign
+# different numbers to the same labels. So value_map here keys on the
+# normalized label text itself (via normalize_label(), see
+# surveytool/core/hygiene.py) rather than the derived numeric code — the
+# label text is what's actually stable across re-ingests of different files.
+# demographic_registry.py's _raw_values_for_column() resolves each
+# response's numeric raw_value back to its label (via the Question's
+# ScaleCode.code -> .label) before checking it against this value_map.
 vendor: milieu
 dimensions:
   gender:
     source_column: "q5"
     value_map:
-      "1": "male"
-      "2": "female"
+      "Male": "male"
+      "Female": "female"
 
   ethnicity:
     # Milieu's codebook has 5 codes (Others/Chinese/Malay/Indian/Caucasian),
@@ -30,28 +44,28 @@ dimensions:
     # any ethnicity outside Chinese/Malay/Indian.
     source_column: "q6"
     value_map:
-      "1": "other"
-      "2": "chinese"
-      "3": "malay"
-      "4": "indian"
-      "5": "other"
+      "Others": "other"
+      "Chinese": "chinese"
+      "Malay": "malay"
+      "Indian": "indian"
+      "Caucasian": "other"
 
   car_ownership:
     source_column: "q7"
     value_map:
-      "1": "rents_or_shares_service"
-      "2": "none"
-      "3": "shares"
-      "4": "owns"
+      "Yes, I use car rental or car-sharing services": "rents_or_shares_service"
+      "No, I do not drive or have access to a car": "none"
+      "Yes, I share a car with others (e.g. family, friends)": "shares"
+      "Yes, I own a car": "owns"
 
   car_ownership_reasons:
     source_column: "q8"
     multi_select: true
     value_map:
-      "1": "no_licence"
-      "2": "other"
-      "3": "prefers_other_modes"
-      "4": "cost_too_high"
-      "5": "sufficient_public_transport"
-      "6": "environmental_concerns"
-      "7": "coe_too_high"
+      "I do not have a driving licence": "no_licence"
+      "Other": "other"
+      "I prefer other modes of transport (e.g. cycling, ride-hailing)": "prefers_other_modes"
+      "General cost of car ownership is too high (e.g. maintenance, fuel, insurance)": "cost_too_high"
+      "Sufficient public transport options": "sufficient_public_transport"
+      "Environmental or sustainability concerns": "environmental_concerns"
+      "Certificate of Entitlement (COE) prices are too high": "coe_too_high"

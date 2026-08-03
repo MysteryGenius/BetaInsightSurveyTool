@@ -94,13 +94,44 @@ def _check_reachability(canonical: CanonicalRegistry, vendor_mapping: VendorMapp
                 )
 
 
+def _code_to_label_for_column(survey: Survey, source_column: str) -> dict[str, str]:
+    """Build a {code: label} lookup (both as strings) from the Question
+    matching source_column, if the survey carries parsed Question metadata.
+
+    This exists because Milieu and Toluna have no fixed vendor codebook: their
+    ingest adapters (surveytool.ingest.milieu / .toluna) assign numeric codes
+    to labels purely by first-appearance order within the loaded rows (see
+    _collect_single_values / _collect_multi_values). Those numbers are an
+    artifact of a specific file's row order, not stable vendor codes, so
+    those vendors' value_map YAML keys on the label text instead. Resolving
+    a response's numeric raw_value back to its label here lets the same
+    lookup logic work uniformly regardless of whether a vendor's value_map
+    happens to key on codes (Rakuten, which has a genuine fixed Datamap
+    codebook) or on labels (Milieu, Toluna).
+    """
+    for question in survey.questions:
+        if question.qid == source_column:
+            return {str(sc.code): sc.label for sc in question.labels}
+    return {}
+
+
 def _raw_values_for_column(
-    survey: Survey, source_column: str, multi_select: bool
+    survey: Survey, source_column: str, multi_select: bool, value_map: dict[str, str]
 ) -> set[str]:
     """Collect the distinct source values actually present in a survey's
-    responses for a given source column (qid). For multi_select dimensions,
-    splits on the module-level delimiter used by the multi-response ingest
-    path (surveytool.ingest.milieu._MULTI_DELIMITER, "; ")."""
+    responses for a given source column (qid), resolved to whatever form
+    that vendor's value_map expects. For multi_select dimensions, splits on
+    the module-level delimiter used by the multi-response ingest path
+    (surveytool.ingest.milieu._MULTI_DELIMITER, "; ").
+
+    A response's raw_value is the code assigned by the ingest adapter. If
+    that code isn't itself a value_map key but resolves (via the Question's
+    ScaleCode.code -> .label) to a label that IS a value_map key, the label
+    is used instead — this is what makes Milieu/Toluna's label-keyed
+    value_map work, while leaving Rakuten's genuine code-keyed value_map
+    (whose codes are already stable, from the Datamap codebook) unaffected.
+    """
+    code_to_label = _code_to_label_for_column(survey, source_column)
     values: set[str] = set()
     for response in survey.responses:
         if response.qid != source_column:
@@ -109,12 +140,14 @@ def _raw_values_for_column(
             continue
         raw = str(response.raw_value)
         if multi_select:
-            for part in raw.split("; "):
-                part = part.strip()
-                if part:
-                    values.add(part)
+            parts = [p.strip() for p in raw.split("; ") if p.strip()]
         else:
-            values.add(raw)
+            parts = [raw]
+        for part in parts:
+            if part in value_map:
+                values.add(part)
+            else:
+                values.add(code_to_label.get(part, part))
     return values
 
 
@@ -129,7 +162,9 @@ def _check_unmapped_source_values(
     for dimension_name, dim_mapping in vendor_mapping.dimensions.items():
         canonical_dim = canonical.dimensions[dimension_name]
         multi_select = canonical_dim.multi_select
-        raw_values = _raw_values_for_column(survey, dim_mapping.source_column, multi_select)
+        raw_values = _raw_values_for_column(
+            survey, dim_mapping.source_column, multi_select, dim_mapping.value_map
+        )
         for raw_value in raw_values:
             if raw_value not in dim_mapping.value_map:
                 raise UnmappedSourceValueError(vendor_mapping.vendor, dimension_name, raw_value)
