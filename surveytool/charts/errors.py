@@ -19,6 +19,11 @@ class ErrorCode(str, Enum):
     DIMENSION_NOT_IN_CANONICAL = "DIMENSION_NOT_IN_CANONICAL"
     CANONICAL_CATEGORY_UNREACHABLE = "CANONICAL_CATEGORY_UNREACHABLE"
     UNMAPPED_SOURCE_VALUE = "UNMAPPED_SOURCE_VALUE"
+    DEMOGRAPHIC_NOT_IN_REGISTRY = "DEMOGRAPHIC_NOT_IN_REGISTRY"
+    DUPLICATE_BREAK_DIMENSION = "DUPLICATE_BREAK_DIMENSION"
+    DIMENSION_IN_BREAK_AND_FILTER = "DIMENSION_IN_BREAK_AND_FILTER"
+    MULTISELECT_BREAK_REJECTED = "MULTISELECT_BREAK_REJECTED"
+    FILTER_ZERO_MATCH = "FILTER_ZERO_MATCH"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -38,6 +43,11 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.DIMENSION_NOT_IN_CANONICAL: 400,
     ErrorCode.CANONICAL_CATEGORY_UNREACHABLE: 400,
     ErrorCode.UNMAPPED_SOURCE_VALUE: 400,
+    ErrorCode.DEMOGRAPHIC_NOT_IN_REGISTRY: 400,
+    ErrorCode.DUPLICATE_BREAK_DIMENSION: 400,
+    ErrorCode.DIMENSION_IN_BREAK_AND_FILTER: 400,
+    ErrorCode.MULTISELECT_BREAK_REJECTED: 400,
+    ErrorCode.FILTER_ZERO_MATCH: 400,
 }
 
 
@@ -210,4 +220,94 @@ class UnmappedSourceValueError(SurveyToolError):
             "This file has a demographic response value this tool doesn't recognise.",
             detail=detail,
             next_action="Add a value_map entry for this value in the vendor YAML.",
+        )
+
+
+class DemographicNotInRegistryError(SurveyToolError):
+    """Raised when a break or filter spec names a dimension absent from the
+    canonical demographic registry.
+
+    First check in the request-validation order (build plan section 4) —
+    every other check assumes the named dimensions are real.
+    """
+
+    def __init__(self, dimension: str) -> None:
+        self.dimension = dimension
+        detail = f"Dimension {dimension!r} is not present in the canonical demographic registry."
+        super().__init__(
+            ErrorCode.DEMOGRAPHIC_NOT_IN_REGISTRY,
+            f"'{dimension}' isn't a demographic this tool recognises.",
+            detail=detail,
+            next_action="Choose a demographic from the list this tool supports.",
+        )
+
+
+class DuplicateBreakDimensionError(SurveyToolError):
+    """Raised when the same dimension appears more than once in a break spec."""
+
+    def __init__(self, dimension: str) -> None:
+        self.dimension = dimension
+        detail = f"Dimension {dimension!r} appears more than once in the break spec."
+        super().__init__(
+            ErrorCode.DUPLICATE_BREAK_DIMENSION,
+            f"'{dimension}' is selected more than once for Break by.",
+            detail=detail,
+            next_action="Remove the duplicate so each demographic appears only once in Break by.",
+        )
+
+
+class DimensionInBreakAndFilterError(SurveyToolError):
+    """Raised when a dimension appears in both the break spec and the filter spec.
+
+    Nesting a dimension while also filtering on it is contradictory —
+    filtering it fixes its value while breaking by it asks to see every value.
+    """
+
+    def __init__(self, dimension: str) -> None:
+        self.dimension = dimension
+        detail = f"Dimension {dimension!r} appears in both the break spec and the filter spec."
+        super().__init__(
+            ErrorCode.DIMENSION_IN_BREAK_AND_FILTER,
+            f"'{dimension}' is used in both Break by and Filter by.",
+            detail=detail,
+            next_action="Use each demographic in only one of Break by or Filter by, not both.",
+        )
+
+
+class MultiselectBreakRejectedError(SurveyToolError):
+    """Raised when a break spec includes a multi_select dimension.
+
+    A respondent may hold more than one value for a multi-select dimension,
+    so columns built from it would not sum to the sample. Message is shown
+    verbatim to non-technical analysts.
+    """
+
+    def __init__(self, dimension: str, label: str) -> None:
+        self.dimension = dimension
+        self.label = label
+        detail = (
+            f"Dimension {dimension!r} ({label}) allows a respondent to hold more than one "
+            f"value, so it cannot be used to build columns."
+        )
+        super().__init__(
+            ErrorCode.MULTISELECT_BREAK_REJECTED,
+            f"'{label}' can't be used to Break by, because a respondent can hold more than "
+            f"one value here — the columns wouldn't add up to the total sample.",
+            detail=detail,
+            next_action="Use a different demographic for Break by, or move this one to Filter by instead.",
+        )
+
+
+class FilterZeroMatchError(SurveyToolError):
+    """Raised when a filter spec, once applied, matches zero respondents."""
+
+    def __init__(self, filter_spec: dict[str, list[str]]) -> None:
+        self.filter_spec = filter_spec
+        clauses = "; ".join(f"{dim}={values}" for dim, values in filter_spec.items())
+        detail = f"No respondents matched this filter: {clauses}."
+        super().__init__(
+            ErrorCode.FILTER_ZERO_MATCH,
+            "No respondents match this filter combination.",
+            detail=detail,
+            next_action="Remove or loosen one of the filter selections and try again.",
         )
