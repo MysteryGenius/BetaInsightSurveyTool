@@ -177,6 +177,28 @@ def test_vendor_mismatch_raises_when_break_dimension_unavailable_for_vendor():
     assert "age_band" in exc_info.value.detail
 
 
+def test_vendor_mismatch_raises_when_filter_dimension_unavailable_for_vendor():
+    """A filter_spec naming a dimension that exists in the canonical registry
+    but isn't mapped for this vendor must be caught here (check 4), not left
+    to crash apply_filter's canonical_frame[dimension_name] lookup (check 6)
+    with a raw KeyError."""
+    registry = _registry(vendor_has_age=False)
+    survey = _survey([{"respondent_id": "r0", "G1": "1"}])
+    frame = to_respondent_frame(survey)
+
+    with pytest.raises(SurveyToolError) as exc_info:
+        validate_request(
+            BreakSpec(dimensions=["gender"]),
+            FilterSpec(selections={"age_band": ["18_24"]}),
+            registry,
+            survey,
+            VENDOR,
+            frame,
+        )
+    assert exc_info.value.code.value == "VENDOR_MISMATCH"
+    assert "age_band" in exc_info.value.detail
+
+
 def test_multiselect_break_rejected_raises_with_plain_english_message():
     registry = _registry(include_multiselect=True)
     rows = _default_rows(1)

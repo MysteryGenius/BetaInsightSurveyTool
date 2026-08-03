@@ -91,10 +91,15 @@ def validate_request(
         if dimension in break_set:
             raise DimensionInBreakAndFilterError(dimension)
 
-    # 4. VENDOR_MISMATCH (reused code) — every break dimension resolves for
-    #    the single loaded vendor.
+    # 4. VENDOR_MISMATCH (reused code) — every dimension named in either the
+    #    break spec or the filter spec resolves for the single loaded vendor.
+    #    Filter dimensions must be checked here too: check 6 unconditionally
+    #    calls apply_filter, which indexes the canonical frame (built from
+    #    only this vendor's declared dimensions) by every filter dimension
+    #    name — an unmapped one would otherwise raise a raw KeyError instead
+    #    of this plain-English error.
     vendor_dims = registry.dimensions_for_vendor(vendor)
-    missing = [d for d in break_spec.dimensions if d not in vendor_dims]
+    missing = [d for d in all_dimensions if d not in vendor_dims]
     if missing:
         detail = (
             f"Dimension(s) {missing!r} are not available for vendor {vendor!r}: "
