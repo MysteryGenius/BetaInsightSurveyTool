@@ -17,6 +17,9 @@ class ToolConfig(BaseModel):
     default_banner: list[str] = Field(default_factory=lambda: ["age", "ethnicity"])
     cross_tab_grey_threshold: int = 30
     cross_tab_suppress_threshold: int = 10
+    suppression_low_base_multiplier: float = 2.0
+    render_column_ceiling: int = 24
+    breaks_confirmation_gate_depth: int = 3
     per_project: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
