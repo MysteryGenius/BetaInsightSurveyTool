@@ -8,6 +8,7 @@ no fixture is fabricated. If a fixture is absent the test is skipped.
 """
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -525,6 +526,43 @@ def test_breaks_export_endpoint_renders_a_png(client):
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "image/png"
     assert len(response.content) > 0
+
+
+def test_breaks_export_endpoint_deletes_temp_file_after_response(client):
+    """The endpoint rasterizes to a uuid-named temp file
+    (breaks-export-<uuid>.png in the system temp dir) before streaming it
+    back; nothing else ever cleans that file up, so an analyst iterating on
+    chart types in a long-lived session would silently fill their temp
+    directory. The BackgroundTask wired onto the FileResponse must delete it
+    once the response has been sent. TestClient runs BackgroundTasks
+    synchronously as part of the request/response cycle, so the file must
+    already be gone by the time client.post() returns."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    tmp_dir = Path(tempfile.gettempdir())
+    before = set(tmp_dir.glob("breaks-export-*.png"))
+
+    session_id = _upload(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "table",
+            "question_id": "Q1",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    after = set(tmp_dir.glob("breaks-export-*.png"))
+    new_files = after - before
+    # The temp file must not still be sitting in the temp dir once the
+    # response has completed -- it should have been deleted by the
+    # BackgroundTask attached to the FileResponse.
+    assert new_files == set(), (
+        f"breaks-export temp file(s) leaked and were not cleaned up: {new_files}"
+    )
 
 
 def test_breaks_export_endpoint_unknown_session_is_404(client):

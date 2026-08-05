@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl.utils.exceptions import InvalidFileException
+from starlette.background import BackgroundTask
 
 from surveytool.charts import render_charts
 from surveytool.charts.chart_data import build_chart_data
@@ -502,6 +503,7 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
         out_path,
         media_type="image/png",
         filename=f"{question_result.question_id}-{request.chart_type.value}.png",
+        background=BackgroundTask(out_path.unlink, missing_ok=True),
     )
 
 
