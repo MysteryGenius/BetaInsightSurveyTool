@@ -11,13 +11,14 @@ from pathlib import Path
 import openpyxl
 import pandas as pd
 from fastapi import FastAPI, Request, UploadFile, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl.utils.exceptions import InvalidFileException
 
 from surveytool.charts import render_charts
 from surveytool.charts.chart_data import build_chart_data
 from surveytool.charts.errors import ErrorCode, NoSessionError, SurveyToolError, WarningCode
+from surveytool.charts.plotly_renderer import build_figure, rasterize
 from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_crosstab
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
 from surveytool.core.break_filter import validate_request
@@ -441,27 +442,66 @@ async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[Quest
 
 @app.post("/api/session/{session_id}/breaks-export")
 async def post_breaks_export(session_id: str, request: ExportRequest):
-    """Not yet implemented — the Plotly/kaleido renderer is a later task.
+    """Render one break/filter chart to a PNG via the Plotly/kaleido renderer
+    (build plan section 11) and return the image file.
 
-    Follows the precedent set by get_cross_tab's significance=True branch:
-    a feature that is wired to a route but has no implementation yet returns
-    a bare 400 with a plain message rather than being forced into the
-    ErrorCode taxonomy, which describes user-fixable data problems. The
-    session is still required first, so an unknown session is still a 404.
+    Follows the same pipeline post_crosstab already uses (validate_request ->
+    compute_breaks_crosstab -> attach_chart_permissions), scoped to the
+    single requested question_id, then hands the resulting QuestionResult to
+    plotly_renderer.build_figure. build_figure itself refuses (raising
+    SurveyToolError/INTERNAL, mapped to a 500 by the app-level handler) a
+    chart_type that isn't `permitted=True` in that result's permitted_charts
+    -- this endpoint does not duplicate that check, since plotly_renderer is
+    the layer that owns it (see plotly_renderer.build_figure's docstring).
 
     Routed at /breaks-export rather than /export because POST
     /api/session/{id}/export is already taken by the pre-existing
     matplotlib chart export, which must keep working unchanged.
+
+    Returns the rendered PNG directly (FileResponse), rather than a
+    manifest/out_dir pair like the legacy /export endpoint: ExportRequest
+    carries no out_dir for this endpoint to write into, and a single chart
+    is a single file, so there is no manifest to build.
     """
-    _require_session(session_id)
-    return JSONResponse(
-        status_code=400,
-        content={
-            "error": (
-                f"Exporting a {request.chart_type.value} chart for a break/filter "
-                "selection is not yet implemented."
-            )
-        },
+    session = _require_session(session_id)
+    config = _default_config()
+
+    validate_request(
+        request.break_spec,
+        request.filter_spec,
+        session.registry,
+        session.survey,
+        session.vendor,
+        session.respondent_frame,
+    )
+
+    results = compute_breaks_crosstab(
+        session.respondent_frame,
+        session.survey,
+        request.break_spec.dimensions,
+        request.filter_spec.selections,
+        [request.question_id],
+        session.registry,
+        session.vendor,
+        config,
+    )
+    results = attach_chart_permissions(results, config)
+    question_result = results[0]
+
+    fig = build_figure(
+        question_result,
+        request.chart_type,
+        break_spec=request.break_spec.dimensions,
+        filter_spec=request.filter_spec.selections,
+    )
+
+    out_path = Path(tempfile.gettempdir()) / f"breaks-export-{uuid.uuid4()}.png"
+    rasterize(fig, out_path)
+
+    return FileResponse(
+        out_path,
+        media_type="image/png",
+        filename=f"{question_result.question_id}-{request.chart_type.value}.png",
     )
 
 

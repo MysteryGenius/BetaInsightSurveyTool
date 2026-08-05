@@ -506,7 +506,9 @@ def test_crosstab_endpoint_computes_for_toluna(client):
 # --- POST .../breaks-export ------------------------------------------------
 
 
-def test_breaks_export_endpoint_is_not_yet_implemented(client):
+def test_breaks_export_endpoint_renders_a_png(client):
+    """The Plotly/kaleido renderer (build plan section 11) replaced the
+    former stub; this now actually rasterizes and returns a chart image."""
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
 
@@ -516,14 +518,13 @@ def test_breaks_export_endpoint_is_not_yet_implemented(client):
         json={
             "break_spec": {"dimensions": ["gender"]},
             "filter_spec": {"selections": {}},
-            "chart_type": "stacked_bar_100",
+            "chart_type": "table",
             "question_id": "Q1",
         },
     )
-    assert response.status_code == 400, response.text
-    body = response.json()
-    assert "not yet implemented" in body["error"]
-    assert "Traceback" not in body["error"]
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/png"
+    assert len(response.content) > 0
 
 
 def test_breaks_export_endpoint_unknown_session_is_404(client):
@@ -538,6 +539,29 @@ def test_breaks_export_endpoint_unknown_session_is_404(client):
     )
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NO_SESSION"
+
+
+def test_breaks_export_endpoint_rejects_unpermitted_chart_type(client):
+    """diverging_stacked_bar is refused for a question whose scale family has
+    no declared polarity (Toluna question 5) — build_figure must not render
+    something chart_validity said wasn't legitimate."""
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    session_id = _upload_toluna(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "diverging_stacked_bar",
+            "question_id": "5",
+        },
+    )
+    assert response.status_code >= 400, response.text
+    body = response.json()
+    assert "error" in body
+    assert "Traceback" not in str(body)
 
 
 def test_breaks_export_endpoint_rejects_unknown_chart_type(client):
