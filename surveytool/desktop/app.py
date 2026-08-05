@@ -18,20 +18,40 @@ from openpyxl.utils.exceptions import InvalidFileException
 from surveytool.charts import render_charts
 from surveytool.charts.chart_data import build_chart_data
 from surveytool.charts.errors import ErrorCode, NoSessionError, SurveyToolError, WarningCode
+from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_crosstab
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
+from surveytool.core.break_filter import validate_request
+from surveytool.core.breaks_models import (
+    CrosstabRequest,
+    ExportRequest,
+    ProjectionRequest,
+    RegistryCategory,
+    RegistryDimension,
+    RegistryPayload,
+)
+from surveytool.core.breaks_payload import attach_chart_permissions
+from surveytool.core.config import ToolConfig
+from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
 from surveytool.core.model import Survey
+from surveytool.core.projection import Projection, project
 from surveytool.core.respondent_frame import to_respondent_frame
 from surveytool.core.straightliner import detect_straightliners
 from surveytool.findings.sheet import build_findings_sheet
 from surveytool.ingest.milieu import _HEADER_RE as _MILIEU_HEADER_RE
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_DEMOGRAPHICS_DIR = Path(__file__).parent.parent / "core" / "demographics"
 _logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
 _VENDORS = ("rakuten", "milieu", "toluna")
 _VENDOR_LABELS = {"rakuten": "Rakuten", "milieu": "Milieu", "toluna": "Toluna"}
+
+_CANONICAL_PATH = _DEMOGRAPHICS_DIR / "canonical.yaml"
+_VENDOR_REGISTRY_PATHS = {
+    vendor: _DEMOGRAPHICS_DIR / f"vendor_{vendor}.yaml" for vendor in _VENDORS
+}
 
 
 @app.exception_handler(SurveyToolError)
@@ -56,6 +76,32 @@ class Session:
     survey: Survey
     respondent_frame: pd.DataFrame
     findings: list
+    vendor: str
+    registry: ResolvedRegistry
+
+
+def _default_config() -> ToolConfig:
+    """Config for the breaks endpoints.
+
+    The pre-existing endpoints let compute_cross_tab default its own config,
+    so no session-level config is loaded at upload time. The breaks core
+    functions take config as a required parameter, so this supplies the same
+    defaults explicitly. A per-project config loader is a later concern.
+    """
+    return ToolConfig()
+
+
+def _load_session_registry(vendor: str, survey: Survey) -> ResolvedRegistry:
+    """Load and validate the demographic registry for an uploaded file.
+
+    `surveys={vendor: survey}` runs the unmapped-source-value check (rule 2)
+    against the file just loaded, so a source value this vendor's mapping
+    doesn't cover fails the upload rather than silently disappearing from a
+    later break. Any failure raises a SurveyToolError, which the app-level
+    handler turns into a proper error response — the upload hard-fails and
+    no partially-usable session is created.
+    """
+    return load_registry(_CANONICAL_PATH, _VENDOR_REGISTRY_PATHS, surveys={vendor: survey})
 
 
 _SESSIONS: dict[str, Session] = {}
@@ -141,12 +187,19 @@ async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = For
         tmp_path.write_bytes(await file.read())
 
         survey = _load_survey(tmp_path, survey_id, vendor)
+        registry = _load_session_registry(vendor, survey)
         excluded = detect_straightliners(survey.responses, survey.questions)
         findings = build_findings_sheet(survey, exclude_respondent_ids=excluded or None)
 
     respondent_frame = to_respondent_frame(survey)
     session_id = str(uuid.uuid4())
-    _SESSIONS[session_id] = Session(survey=survey, respondent_frame=respondent_frame, findings=findings)
+    _SESSIONS[session_id] = Session(
+        survey=survey,
+        respondent_frame=respondent_frame,
+        findings=findings,
+        vendor=vendor,
+        registry=registry,
+    )
 
     warnings = []
     if excluded:
@@ -277,6 +330,139 @@ async def get_cross_tab(session_id: str, qid: str, demographic: str, significanc
             for c in result.cells
         ],
     }
+
+
+@app.get("/api/session/{session_id}/demographics/registry")
+async def get_demographics_registry(session_id: str) -> RegistryPayload:
+    """The canonical registry as resolved for this session's vendor.
+
+    This is the UI's sole pill-list source (build plan section 12), so
+    nothing is pruned: every canonical dimension is emitted with its full
+    category list, including categories and dimensions this vendor does not
+    map. `available` plus `source_column` record what this vendor actually
+    declares, so the UI can disable rather than hide.
+
+    Distinct from the pre-existing GET .../demographics, which serves the
+    legacy single-break picker off detect_available_demographics and is
+    unchanged.
+    """
+    session = _require_session(session_id)
+    vendor_dims = session.registry.dimensions_for_vendor(session.vendor)
+
+    dimensions = []
+    for name, canonical_dim in session.registry.canonical.dimensions.items():
+        dim_mapping = vendor_dims.get(name)
+        dimensions.append(
+            RegistryDimension(
+                dimension=name,
+                label=canonical_dim.label,
+                multi_select=canonical_dim.multi_select,
+                available=dim_mapping is not None,
+                source_column=dim_mapping.source_column if dim_mapping else None,
+                categories=[
+                    RegistryCategory(
+                        value=category.value,
+                        label=category.label,
+                        order=category.order,
+                        non_response=category.non_response,
+                    )
+                    for category in canonical_dim.categories
+                ],
+            )
+        )
+
+    return RegistryPayload(vendor=session.vendor, dimensions=dimensions)
+
+
+@app.post("/api/session/{session_id}/projection")
+async def post_projection(session_id: str, request: ProjectionRequest) -> Projection:
+    """The shape of a break/filter request, without computing any question.
+
+    Returns 200 even for an invalid spec: project() reports validation
+    failures in-band in Projection.errors rather than raising, because the
+    UI re-runs this on every pill change and an in-progress selection is
+    not an error condition (build plan section 6).
+    """
+    session = _require_session(session_id)
+    return project(
+        request.break_spec,
+        request.filter_spec,
+        session.survey,
+        session.respondent_frame,
+        session.registry,
+        session.vendor,
+        _default_config(),
+    )
+
+
+@app.post("/api/session/{session_id}/crosstab")
+async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[QuestionResult]:
+    """N-dimensional cross-tab for the requested questions.
+
+    Validates first: compute_breaks_crosstab expects an already-validated
+    request and does not check the spec itself, so validate_request is
+    called here directly. It raises on the first failure and the app-level
+    SurveyToolError handler turns that into a proper 4xx — unlike the
+    projection endpoint, an invalid spec here is a real error, since the
+    caller has asked for figures that cannot be computed.
+    """
+    session = _require_session(session_id)
+    config = _default_config()
+
+    validate_request(
+        request.break_spec,
+        request.filter_spec,
+        session.registry,
+        session.survey,
+        session.vendor,
+        session.respondent_frame,
+    )
+
+    question_ids = request.question_ids
+    if question_ids is None:
+        # Same set the existing /demographics endpoint offers.
+        question_ids = [
+            q.qid for q in session.survey.questions
+            if q.base_eligible and not q.is_demographic
+        ]
+
+    results = compute_breaks_crosstab(
+        session.respondent_frame,
+        session.survey,
+        request.break_spec.dimensions,
+        request.filter_spec.selections,
+        question_ids,
+        session.registry,
+        session.vendor,
+        config,
+    )
+    return attach_chart_permissions(results, config)
+
+
+@app.post("/api/session/{session_id}/breaks-export")
+async def post_breaks_export(session_id: str, request: ExportRequest):
+    """Not yet implemented — the Plotly/kaleido renderer is a later task.
+
+    Follows the precedent set by get_cross_tab's significance=True branch:
+    a feature that is wired to a route but has no implementation yet returns
+    a bare 400 with a plain message rather than being forced into the
+    ErrorCode taxonomy, which describes user-fixable data problems. The
+    session is still required first, so an unknown session is still a 404.
+
+    Routed at /breaks-export rather than /export because POST
+    /api/session/{id}/export is already taken by the pre-existing
+    matplotlib chart export, which must keep working unchanged.
+    """
+    _require_session(session_id)
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": (
+                f"Exporting a {request.chart_type.value} chart for a break/filter "
+                "selection is not yet implemented."
+            )
+        },
+    )
 
 
 app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
