@@ -215,16 +215,24 @@ def _column_for_cell(
     # 3. INV-6. base_valid is QuestionStats.base, built over
     #    _BASE_STATES = {answered, nonsubstantive}; everything else in the cell
     #    (not_asked / item_missing / no response row at all) is n_invalid.
-    #    n_invalid is defined as the difference, so this holds structurally --
-    #    it is asserted anyway, as a real runtime guard against a future
-    #    refactor that changes how either side is derived, per the build plan's
-    #    "this identity is a test, not a comment".
+    #    n_invalid is defined as the difference, so `base_valid + n_invalid ==
+    #    base_cell` holds structurally by construction and can never fail --
+    #    it is `a + (b - a) == b` for any integers. The real invariant worth
+    #    guarding is `0 <= base_valid <= base_cell`: qs_result.base counts
+    #    response ROWS for this qid (from compute_question_stats) while
+    #    base_cell counts distinct respondent IDS (from cohort.Cell); if a
+    #    data-quality issue ever produced duplicate response rows for one
+    #    respondent+qid, base_valid could exceed base_cell and n_invalid would
+    #    go negative, silently flowing into the payload. This assertion is a
+    #    real runtime guard against that, per the build plan's "this identity
+    #    is a test, not a comment".
     base_cell = cell.base_cell
     base_valid = qs_result.base
     n_invalid = base_cell - base_valid
-    assert base_valid + n_invalid == base_cell, (
+    assert 0 <= base_valid <= base_cell, (
         f"INV-6 violated for cell {cell.key!r} on question {question.qid!r}: "
-        f"base_valid={base_valid} + n_invalid={n_invalid} != base_cell={base_cell}"
+        f"base_valid={base_valid} out of range for base_cell={base_cell} "
+        f"(n_invalid would be {n_invalid})"
     )
 
     # 4. Counts and percentages, both read straight off the CodeStats. pct is

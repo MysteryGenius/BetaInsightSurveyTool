@@ -219,6 +219,40 @@ def test_depth1_break_shape_is_sane(frame, survey, registry):
     assert sum(c.base_cell for c in result.columns) <= result.base_filtered
 
 
+def test_inv6_assertion_fires_on_suppressed_cell():
+    """The INV-6 assertion (0 <= base_valid <= base_cell) must run on the
+    suppressed path too, before figures get nulled -- not just for populated
+    cells. We engineer a scenario where base_valid (qs_result.base, a count
+    of response ROWS for the qid) exceeds base_cell (cell.base_cell, a count
+    of distinct respondent IDS): give the cell fewer respondent_ids than
+    there are answered response rows for those same ids -- a stand-in for a
+    data-quality bug that produces duplicate response rows per respondent.
+    A suppression threshold high enough to force Band.suppressed proves the
+    assertion is reached even on the suppressed branch, ahead of nulling."""
+    from surveytool.compute.breaks_compute import _column_for_cell
+    from surveytool.core.cohort import Cell
+
+    question = _synthetic_question()
+    # Two answered response rows for the SAME respondent id -- qs_result.base
+    # (row count) will be 2, while the cell only declares 1 respondent id, so
+    # base_cell will be 1. base_valid=2 > base_cell=1 violates the invariant.
+    responses = [
+        Response(respondent_id="r1", qid="Q1", raw_value=4, state=ResponseState.answered),
+        Response(respondent_id="r1", qid="Q1", raw_value=5, state=ResponseState.answered),
+    ]
+    cell = Cell(
+        key=(("age_band", "18-24"),),
+        label_path=("18-24",),
+        respondent_ids=frozenset({"r1"}),
+    )
+    # Force suppression regardless of base size, so the assertion is proven
+    # to fire on the suppressed path (before nulling), not just the populated one.
+    config = ToolConfig(cross_tab_suppress_threshold=1000, suppression_low_base_multiplier=1)
+
+    with pytest.raises(AssertionError, match="INV-6"):
+        _column_for_cell(cell, question, responses, config)
+
+
 def test_inv6_holds_for_every_real_cell(frame, survey, registry):
     results = _run(frame, survey, registry, ["Q1", "Q2"])
     checked = 0
