@@ -1,0 +1,49 @@
+# Scale polarity registry (build plan section 9).
+#
+# Keyed by scale_family -- the same identifier already carried on
+# QuestionResult.scale_id (== Question.scale_family). This is NOT a new
+# per-question identifier; it is a lookup over the family names already
+# defined in scales.yaml.
+#
+# An entry here means the family is a genuine bipolar scale with a declared,
+# meaningful midpoint (i.e. eligible for diverging_stacked_bar). Absence of
+# an entry means undeclared -> chart_validity reports
+# SCALE_POLARITY_UNDECLARED for that family. Declaring polarity is a
+# deliberate editorial call per family, not a reflexive default -- see
+# surveytool/core/chart_validity.py module docstring and task-7-report.md
+# for the reasoning behind each decision below.
+scale_families:
+  agreement:
+    polarity: declared
+    midpoint_role: neutral
+  satisfaction:
+    polarity: declared
+    midpoint_role: neutral
+  likelihood:
+    polarity: declared
+    midpoint_role: neutral
+  importance:
+    polarity: declared
+    midpoint_role: neutral
+  effectiveness:
+    polarity: declared
+    midpoint_role: neutral
+  ability:
+    polarity: declared
+    midpoint_role: neutral
+
+  # frequency and zero_to_ten are deliberately left undeclared:
+  #
+  # frequency's top/bottom patterns (always/very often/often vs.
+  # rarely/never/very rarely) describe an amount-of-occurrence scale rather
+  # than a symmetric agree<->disagree style valence, and its "sometimes"
+  # neutral_pattern is not the same kind of explicit "neither X nor Y"
+  # midpoint the declared families above all have. Treating it as bipolar
+  # would be an inference, not a fact read off scales.yaml.
+  #
+  # zero_to_ten is a bare numeric scale (0-10) with no inherent semantic
+  # valence of its own -- what it means (agreement, likelihood, NPS, etc.)
+  # depends entirely on the question wording, which this registry has no
+  # visibility into. Declaring polarity for it would require inferring
+  # meaning from context this file doesn't have, which the build plan
+  # explicitly forbids ("never infer polarity from labels").
