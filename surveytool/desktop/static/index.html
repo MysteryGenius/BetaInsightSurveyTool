@@ -72,58 +72,66 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ---- top bar ---- */
+  /* ---- top bar (merged app name + session summary, single row) ---- */
   #topbar {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-5);
+    gap: var(--space-5);
+    padding: var(--space-2) var(--space-5);
     background: var(--ink);
     color: var(--panel);
   }
   #topbar .app-name {
-    font-size: var(--text-lg);
+    font-size: var(--text-sm);
     font-weight: 600;
     letter-spacing: 0.01em;
+    flex: 0 0 auto;
   }
   #brand-logo-slot {
     /* empty until brand assets exist — drop a logo <img> here */
     width: 1px;
-    height: 24px;
+    height: 14px;
   }
 
-  /* ---- session summary strip ---- */
+  /* ---- session summary strip (inline in topbar) ---- */
   #session-summary {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     display: none;
-    gap: var(--space-6);
-    padding: var(--space-3) var(--space-5);
-    background: var(--paper);
-    border-bottom: 1px solid var(--line);
-    font-size: var(--text-sm);
-    color: var(--ink-soft);
+    align-items: center;
+    gap: var(--space-5);
+    min-width: 0;
+    font-size: var(--text-xs);
   }
   #session-summary .stat {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
   }
   #session-summary .stat-label {
     font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--ink-soft);
+    color: var(--line-strong);
   }
   #session-summary .stat-value {
-    font-size: var(--text-base);
-    color: var(--ink);
+    font-size: var(--text-xs);
+    color: var(--panel);
   }
   #session-summary .stat-source {
     flex: 1 1 auto;
-    min-width: 200px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  #session-summary .stat-source .stat-value { color: var(--ink-soft); }
+  #session-summary .stat-source .stat-value {
+    color: var(--line-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* ---- tab nav ---- */
   #tab-nav {
@@ -139,9 +147,9 @@
     border: none;
     background: none;
     font-family: var(--font-ui);
-    font-size: var(--text-base);
+    font-size: var(--text-sm);
     color: var(--ink-soft);
-    padding: var(--space-3) var(--space-3);
+    padding: var(--space-2) var(--space-3);
     border-bottom: 2px solid transparent;
     cursor: pointer;
   }
@@ -161,12 +169,19 @@
 
   .view { display: none; }
   .view.active { display: block; }
-  #charts-view.active, #crosstab-view.active, #breaks-view.active {
+  #charts-view.active {
     display: flex;
     flex-direction: column;
     height: 100%;
   }
-  #charts, #crosstab-result, #breaks-result {
+  #breaks-view.active {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: var(--space-5);
+    height: 100%;
+  }
+  #charts, #breaks-result {
     flex: 1 1 auto;
     overflow-y: auto;
   }
@@ -339,19 +354,32 @@
   /* ---- export bar ---- */
   #export-row {
     display: none;
-    align-items: flex-end;
+    align-items: center;
     gap: var(--space-3);
-    padding: var(--space-4);
-    margin-bottom: var(--space-5);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
+    font-size: var(--text-sm);
   }
-  #export-row .field { flex: 1 1 auto; margin-bottom: 0; }
+  #export-row .field {
+    flex: 1 1 auto;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  #export-row .field label {
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
   #export-folder-display {
     font-size: var(--text-sm);
     color: var(--ink-soft);
-    padding: var(--space-2) 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .btn {
     appearance: none;
@@ -375,7 +403,7 @@
     padding: var(--space-1) var(--space-3);
     font-size: var(--text-sm);
   }
-  #export-result { margin-bottom: var(--space-5); }
+  #export-result:has(.status-box.visible) { margin-bottom: var(--space-3); }
   .chart-export-row {
     display: flex;
     align-items: center;
@@ -390,44 +418,12 @@
   .chart-export-row .status-body.success { color: var(--good); }
   .chart-export-row .status-body.error { color: var(--danger); }
 
-  /* ---- significance chip ---- */
-  .chip-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    padding: 2px var(--space-2);
-    border-radius: 999px;
-    background: var(--paper);
-    border: 1px solid var(--line);
-    color: var(--ink-soft);
-    font-size: var(--text-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .chip-note {
-    color: var(--ink-soft);
-    font-size: var(--text-sm);
-  }
-
   /* ---- cross-tab section ---- */
-  #crosstab-section h2,
+  #breaks-view h2,
   #charts-view h2 {
     font-size: var(--text-lg);
     margin: 0 0 var(--space-4) 0;
   }
-  .picker-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    margin-bottom: var(--space-4);
-  }
-  .picker-row .field { flex: 1 1 240px; margin-bottom: 0; }
 
   /* status legend for cross-tab */
   .status-legend {
@@ -462,30 +458,46 @@
     border: 1px solid var(--line-strong);
   }
 
-  /* ---- breaks-and-filters view ---- */
-  .pill-zones {
+  /* ---- cross-tab view: sidebar shelves + persistent chart ---- */
+  #breaks-sidebar {
+    flex: 0 0 260px;
+    min-width: 0;
+    max-width: 260px;
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-5);
-    margin-bottom: var(--space-4);
+    flex-direction: column;
+    gap: var(--space-4);
+    overflow-y: auto;
+    overflow-x: hidden;
   }
-  .pill-zone {
-    flex: 1 1 320px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    padding: var(--space-4);
+  #breaks-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
-  .pill-zone h3 {
-    margin: 0 0 var(--space-3) 0;
-    font-size: var(--text-base);
+  #breaks-main #breaks-result { flex: 1 1 auto; }
+  .sidebar-section h3 {
+    margin: 0 0 var(--space-2) 0;
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  #breaks-question-select {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
   }
   .pill-list {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    min-height: 40px;
-    margin-bottom: var(--space-3);
+    min-height: 28px;
+    margin-bottom: var(--space-2);
   }
   .pill-list.drag-over {
     outline: 2px dashed var(--accent);
@@ -529,9 +541,15 @@
   }
   .picker-add-row {
     display: flex;
+    flex-direction: column;
     gap: var(--space-2);
   }
-  .picker-add-row select { flex: 1 1 auto; }
+  .picker-add-row select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .picker-add-row button { width: 100%; }
 
   #breaks-projection-notice {
     margin-bottom: var(--space-4);
@@ -590,12 +608,20 @@
   .breaks-column .col-base { font-size: var(--text-xs); color: var(--ink-soft); font-family: var(--font-num); }
   .breaks-column .col-band-note { font-size: var(--text-xs); margin-top: var(--space-1); }
 
+  .chart-controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
   .chart-type-row {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    margin-bottom: var(--space-3);
   }
+  .axis-flip-btn { flex: 0 0 auto; }
   .chart-type-btn {
     appearance: none;
     border: 1px solid var(--line-strong);
@@ -630,9 +656,10 @@
   }
   .breaks-empty-state h3 { color: var(--ink); margin: 0 0 var(--space-2) 0; }
 
-  #charts, #crosstab-result { margin-top: var(--space-2); max-width: 100%; }
-  #charts > div, #crosstab-result > div { max-width: 100%; }
-  #charts:not(:has(> div)), #crosstab-result:not(:has(> div)) {
+  #charts { margin-top: var(--space-2); max-width: 100%; }
+  #charts > div { max-width: 88%; }
+  #charts .js-plotly-plot { min-height: 420px; }
+  #charts:not(:has(> div)) {
     padding: var(--space-4);
     font-size: var(--text-sm);
     color: var(--ink-soft);
@@ -643,9 +670,13 @@
 
   /* ---- narrow window / display scaling fallback ---- */
   @media (max-width: 1024px) {
+    #topbar {
+      flex-wrap: wrap;
+      row-gap: var(--space-1);
+    }
     #session-summary {
       flex-wrap: wrap;
-      row-gap: var(--space-2);
+      row-gap: var(--space-1);
     }
   }
 </style>
@@ -655,36 +686,34 @@
 <div id="topbar">
   <span class="app-name">SurveyTool</span>
   <div id="brand-logo-slot" aria-hidden="true"></div>
-</div>
-
-<div id="session-summary">
-  <div class="stat">
-    <span class="stat-label">Vendor</span>
-    <span class="stat-value" id="summary-vendor"></span>
+  <div id="session-summary">
+    <div class="stat">
+      <span class="stat-label">Vendor</span>
+      <span class="stat-value" id="summary-vendor"></span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Survey ID</span>
+      <span class="stat-value" id="summary-survey-id"></span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Respondents</span>
+      <span class="stat-value num" id="summary-respondents"></span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Questions</span>
+      <span class="stat-value num" id="summary-questions"></span>
+    </div>
+    <div class="stat stat-source">
+      <span class="stat-label">Source</span>
+      <span class="stat-value" id="summary-source"></span>
+    </div>
+    <button type="button" class="btn btn-secondary btn-small" id="summary-reset-btn">Load a different file</button>
   </div>
-  <div class="stat">
-    <span class="stat-label">Survey ID</span>
-    <span class="stat-value" id="summary-survey-id"></span>
-  </div>
-  <div class="stat">
-    <span class="stat-label">Respondents</span>
-    <span class="stat-value num" id="summary-respondents"></span>
-  </div>
-  <div class="stat">
-    <span class="stat-label">Questions</span>
-    <span class="stat-value num" id="summary-questions"></span>
-  </div>
-  <div class="stat stat-source">
-    <span class="stat-label">Source</span>
-    <span class="stat-value" id="summary-source"></span>
-  </div>
-  <button type="button" class="btn btn-secondary btn-small" id="summary-reset-btn">Load a different file</button>
 </div>
 
 <div id="tab-nav">
   <button type="button" class="tab-btn" data-view="charts-view">Charts</button>
-  <button type="button" class="tab-btn" data-view="crosstab-view">Cross-tab</button>
-  <button type="button" class="tab-btn" data-view="breaks-view">Breaks &amp; filters</button>
+  <button type="button" class="tab-btn" data-view="breaks-view">Cross-tab</button>
 </div>
 
 <div id="main">
@@ -750,40 +779,14 @@
     <div id="charts"></div>
   </div>
 
-  <div id="crosstab-view" class="view">
-    <div id="crosstab-section">
-      <h2>Cross-tab</h2>
-      <div class="picker-row">
-        <div class="field">
-          <label for="ct-question">Question</label>
-          <select id="ct-question"></select>
-        </div>
-        <div class="field">
-          <label for="ct-demographic">Demographic</label>
-          <select id="ct-demographic"></select>
-        </div>
-      </div>
-
-      <div class="chip-row">
-        <span class="chip">Significance &mdash; coming in v1.1</span>
-        <span class="chip-note">Subgroup differences are not yet flagged in this build.</span>
-      </div>
-
-      <div class="status-legend">
-        <span class="legend-item"><span class="legend-tick ok"></span> Ok</span>
-        <span class="legend-item"><span class="legend-tick grey"></span> Below threshold</span>
-        <span class="legend-item"><span class="legend-tick suppressed"></span> Suppressed</span>
-      </div>
-
-      <div id="crosstab-result"></div>
-    </div>
-  </div>
-
   <div id="breaks-view" class="view">
-    <h2>Breaks &amp; filters</h2>
+    <div id="breaks-sidebar">
+      <div class="sidebar-section">
+        <h3>Question</h3>
+        <select id="breaks-question-select"></select>
+      </div>
 
-    <div class="pill-zones">
-      <div class="pill-zone" id="break-zone">
+      <div class="sidebar-section" id="break-zone">
         <h3>Break by</h3>
         <div class="pill-list" id="break-pill-list" data-zone="break"></div>
         <div class="picker-add-row">
@@ -791,7 +794,7 @@
           <button type="button" class="btn btn-secondary btn-small" id="break-add-btn">Add</button>
         </div>
       </div>
-      <div class="pill-zone" id="filter-zone">
+      <div class="sidebar-section" id="filter-zone">
         <h3>Filter by</h3>
         <div class="pill-list" id="filter-pill-list" data-zone="filter"></div>
         <div class="picker-add-row">
@@ -799,30 +802,32 @@
           <button type="button" class="btn btn-secondary btn-small" id="filter-add-btn">Add</button>
         </div>
       </div>
-    </div>
 
-    <div id="breaks-projection-notice"></div>
-
-    <div id="breaks-gate">
-      <h3>Confirm this break</h3>
-      <dl>
-        <dt>Columns</dt><dd id="gate-columns"></dd>
-        <dt>Suppressed</dt><dd id="gate-suppressed"></dd>
-        <dt>Low base</dt><dd id="gate-low-base"></dd>
-        <dt>Filtered base</dt><dd id="gate-base"></dd>
-      </dl>
-      <div class="gate-actions">
-        <button type="button" class="btn" id="gate-proceed-btn">Proceed</button>
-        <button type="button" class="btn btn-secondary" id="gate-adjust-btn">Adjust</button>
+      <div id="breaks-export-row" style="display:none;">
+        <button type="button" class="btn btn-secondary btn-small" id="breaks-export-btn">Export current chart</button>
+        <span class="status-body" id="breaks-export-status"></span>
       </div>
     </div>
 
-    <div id="breaks-export-row" style="display:none;">
-      <button type="button" class="btn btn-secondary btn-small" id="breaks-export-btn">Export current chart</button>
-      <span class="status-body" id="breaks-export-status"></span>
-    </div>
+    <div id="breaks-main">
+      <div id="breaks-projection-notice"></div>
 
-    <div id="breaks-result"></div>
+      <div id="breaks-gate">
+        <h3>Confirm this break</h3>
+        <dl>
+          <dt>Columns</dt><dd id="gate-columns"></dd>
+          <dt>Suppressed</dt><dd id="gate-suppressed"></dd>
+          <dt>Low base</dt><dd id="gate-low-base"></dd>
+          <dt>Filtered base</dt><dd id="gate-base"></dd>
+        </dl>
+        <div class="gate-actions">
+          <button type="button" class="btn" id="gate-proceed-btn">Proceed</button>
+          <button type="button" class="btn btn-secondary" id="gate-adjust-btn">Adjust</button>
+        </div>
+      </div>
+
+      <div id="breaks-result"></div>
+    </div>
   </div>
 
 </div>
@@ -1051,9 +1056,6 @@ function resetToUpload() {
   tabNav.style.display = "none";
   exportRow.style.display = "none";
   chartsContainer.innerHTML = "";
-  crosstabResult.innerHTML = "";
-  ctQuestionSelect.innerHTML = "";
-  ctDemographicSelect.innerHTML = "";
   resetBreaksState();
 
   resultBox.className = "status-box";
@@ -1206,30 +1208,15 @@ async function uploadFile(file) {
   activateTab("charts-view");
   await loadCharts(currentSessionId, chartsContainer);
 
-  await loadCrossTabPickers(currentSessionId);
-  await refreshCrossTab();
-
   await initBreaksView(currentSessionId);
 }
 
-const ctQuestionSelect = document.getElementById("ct-question");
-const ctDemographicSelect = document.getElementById("ct-demographic");
-const crosstabResult = document.getElementById("crosstab-result");
-
-async function refreshCrossTab() {
-  if (!currentSessionId || !ctQuestionSelect.value || !ctDemographicSelect.value) return;
-  await loadCrossTab(currentSessionId, ctQuestionSelect.value, ctDemographicSelect.value, crosstabResult);
-}
-
-ctQuestionSelect.addEventListener("change", refreshCrossTab);
-ctDemographicSelect.addEventListener("change", refreshCrossTab);
-
 // Chart containers can change width from container layout (e.g. the
-// internal scrollbar in #charts/#crosstab-result appearing) without the
+// internal scrollbar in #charts/#breaks-result appearing) without the
 // window itself firing a resize event. Watch the containers directly so
 // Plotly stays in sync with the space it actually has.
 const chartContainerResizeObserver = new ResizeObserver(scheduleActiveViewResize);
-[chartsContainer, crosstabResult, document.getElementById("breaks-result")].forEach((el) => {
+[chartsContainer, document.getElementById("breaks-result")].forEach((el) => {
   if (el) chartContainerResizeObserver.observe(el);
 });
 </script>

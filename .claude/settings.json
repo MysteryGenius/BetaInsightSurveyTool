@@ -74,7 +74,14 @@
       "Bash(git pull *)",
       "Bash(git merge *)",
       "Bash(git branch *)",
-      "Bash(python3 -m pytest -v)"
+      "Bash(python3 -m pytest -v)",
+      "Bash(python -m pytest tests/test_desktop_crosstab.py tests/test_desktop_breaks_api.py tests/test_desktop_charts.py -q)",
+      "Bash(python -c \"import playwright\")",
+      "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_ui.py)",
+      "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_ui2.py)",
+      "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_gate.py)",
+      "Bash(git -C /Users/jodie/Desktop/Projects/surveytool status --short)",
+      "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_flip.py)"
     ],
     "additionalDirectories": [
       "/tmp"

@@ -12,22 +12,29 @@ const BREAKS_RENDER_CEILING_FALLBACK_NOTE = "figures are complete and exportable
 // --- registry / pill state --------------------------------------------------
 
 let breaksRegistry = null; // RegistryPayload, cached for the session
+let breaksQuestions = []; // [{qid, text}], cached for the session
+let breaksSelectedQuestionId = null; // qid currently shown in the main chart area
 let breakPills = []; // ordered list of dimension names in Break by
 let filterPills = {}; // dimension -> list of selected category values
 let breaksSessionId = null;
-let breaksLatestResults = null; // list[QuestionResult] currently on screen
+let breaksLatestResults = null; // list[QuestionResult] currently on screen (single element: the selected question)
 let breaksActiveChartType = {}; // question_id -> chart_type currently displayed
 let breaksPendingSpec = null; // spec the gate is currently confirming
+let breaksAxisFlipped = false; // false = break columns on X (default); true = answer options on X
 
 function resetBreaksState() {
   breaksRegistry = null;
+  breaksQuestions = [];
+  breaksSelectedQuestionId = null;
   breakPills = [];
   filterPills = {};
   breaksSessionId = null;
   breaksLatestResults = null;
   breaksActiveChartType = {};
   breaksPendingSpec = null;
+  breaksAxisFlipped = false;
 
+  document.getElementById("breaks-question-select").innerHTML = "";
   document.getElementById("break-pill-list").innerHTML = "";
   document.getElementById("filter-pill-list").innerHTML = "";
   document.getElementById("break-add-select").innerHTML = "";
@@ -56,9 +63,9 @@ async function initBreaksView(sessionId) {
   breaksSessionId = sessionId;
   const container = document.getElementById("breaks-result");
 
-  let response;
+  let registryResponse;
   try {
-    response = await fetch(`/api/session/${sessionId}/demographics/registry`);
+    registryResponse = await fetch(`/api/session/${sessionId}/demographics/registry`);
   } catch {
     renderInlineError(container, {
       code: "INTERNAL",
@@ -68,13 +75,35 @@ async function initBreaksView(sessionId) {
     return;
   }
 
-  const body = await parseJsonResponse(response);
-  if (!response.ok) {
-    renderInlineError(container, errorFromBody(body));
+  const registryBody = await parseJsonResponse(registryResponse);
+  if (!registryResponse.ok) {
+    renderInlineError(container, errorFromBody(registryBody));
     return;
   }
 
-  breaksRegistry = body;
+  breaksRegistry = registryBody;
+
+  let questionsResponse;
+  try {
+    questionsResponse = await fetch(`/api/session/${sessionId}/demographics`);
+  } catch {
+    renderInlineError(container, {
+      code: "INTERNAL",
+      message: "Could not reach the local server.",
+      next_action: "Try again. If it keeps happening, restart the app.",
+    });
+    return;
+  }
+
+  const questionsBody = await parseJsonResponse(questionsResponse);
+  if (!questionsResponse.ok) {
+    renderInlineError(container, errorFromBody(questionsBody));
+    return;
+  }
+
+  breaksQuestions = questionsBody.questions;
+  breaksSelectedQuestionId = breaksQuestions.length > 0 ? breaksQuestions[0].qid : null;
+  renderBreaksQuestionSelect();
 
   // Zero-column resolution (see plan): Break by always ships with one pill.
   // The core rejects an empty break_spec outright (BreakSpec.dimensions has
@@ -88,10 +117,27 @@ async function initBreaksView(sessionId) {
   renderFilterPills();
   renderAddSelects();
 
-  if (breakPills.length > 0) {
+  if (breakPills.length > 0 && breaksSelectedQuestionId) {
     await runProjectionAndMaybeGate();
   }
 }
+
+function renderBreaksQuestionSelect() {
+  const select = document.getElementById("breaks-question-select");
+  select.innerHTML = "";
+  breaksQuestions.forEach((q) => {
+    const opt = document.createElement("option");
+    opt.value = q.qid;
+    opt.textContent = `${q.qid} — ${q.text}`;
+    select.appendChild(opt);
+  });
+  select.value = breaksSelectedQuestionId || "";
+}
+
+document.getElementById("breaks-question-select").addEventListener("change", async (e) => {
+  breaksSelectedQuestionId = e.target.value;
+  await runProjectionAndMaybeGate();
+});
 
 function renderAddSelects() {
   const breakSelect = document.getElementById("break-add-select");
@@ -394,13 +440,14 @@ async function runProjectionAndMaybeGate() {
   document.getElementById("breaks-projection-notice").innerHTML = "";
   document.getElementById("breaks-gate").classList.remove("visible");
 
-  if (breakPills.length === 0) {
-    return; // no valid spec to project yet
+  if (breakPills.length === 0 || !breaksSelectedQuestionId) {
+    return; // no valid spec, or no question selected, to project yet
   }
 
   const requestBody = {
     break_spec: currentBreakSpec(),
     filter_spec: currentFilterSpec(),
+    question_ids: [breaksSelectedQuestionId],
   };
 
   let response;
@@ -530,8 +577,7 @@ function renderFilterZeroMatchEmptyState(err) {
   backBtn.className = "btn btn-secondary";
   backBtn.textContent = "Back to Break by / Filter by";
   backBtn.addEventListener("click", () => {
-    container.scrollIntoView({ block: "start" });
-    document.querySelector(".pill-zones").scrollIntoView({ behavior: "smooth" });
+    document.getElementById("breaks-sidebar").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   box.appendChild(backBtn);
 
@@ -619,8 +665,16 @@ function renderBreaksResults(questionResults) {
 
     block.appendChild(buildColumnStrip(qr));
 
+    const controlsRow = document.createElement("div");
+    controlsRow.className = "chart-controls-row";
+
     const chartTypeRow = buildChartTypeRow(qr);
-    block.appendChild(chartTypeRow);
+    controlsRow.appendChild(chartTypeRow);
+
+    const flipBtn = buildAxisFlipButton(qr);
+    controlsRow.appendChild(flipBtn);
+
+    block.appendChild(controlsRow);
 
     const chartArea = document.createElement("div");
     chartArea.className = "breaks-chart-area";
@@ -630,8 +684,33 @@ function renderBreaksResults(questionResults) {
 
     const defaultType = defaultChartTypeFor(qr);
     breaksActiveChartType[qr.question_id] = defaultType;
+    updateAxisFlipButtonVisibility(flipBtn, defaultType);
     renderChartArea(qr, chartArea, defaultType);
   });
+}
+
+// Chart types with a per-scale-point series to flip: the other two
+// (net_bar collapses to one value per column, table is already a full
+// matrix) have nothing meaningful to swap, so the control hides for them.
+const AXIS_FLIPPABLE_CHART_TYPES = new Set(["stacked_bar_100", "diverging_stacked_bar", "grouped_bar"]);
+
+function buildAxisFlipButton(qr) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn-secondary btn-small axis-flip-btn";
+  btn.textContent = "Swap axes";
+  btn.title = "Swap which axis shows answer options vs. break columns";
+  btn.addEventListener("click", () => {
+    breaksAxisFlipped = !breaksAxisFlipped;
+    const chartType = breaksActiveChartType[qr.question_id];
+    const chartArea = btn.closest(".breaks-question").querySelector(".breaks-chart-area");
+    renderChartArea(qr, chartArea, chartType);
+  });
+  return btn;
+}
+
+function updateAxisFlipButtonVisibility(flipBtn, chartType) {
+  flipBtn.style.display = AXIS_FLIPPABLE_CHART_TYPES.has(chartType) ? "" : "none";
 }
 
 function defaultChartTypeFor(qr) {
@@ -662,7 +741,10 @@ function buildChartTypeRow(qr) {
         breaksActiveChartType[qr.question_id] = perm.chart_type;
         row.querySelectorAll(".chart-type-btn").forEach((b) => { b.classList.remove("active"); });
         btn.classList.add("active");
-        const chartArea = row.parentElement.querySelector(".breaks-chart-area");
+        const block = row.closest(".breaks-question");
+        const chartArea = block.querySelector(".breaks-chart-area");
+        const flipBtn = block.querySelector(".axis-flip-btn");
+        if (flipBtn) updateAxisFlipButtonVisibility(flipBtn, perm.chart_type);
         renderChartArea(qr, chartArea, perm.chart_type);
       });
     }
@@ -788,6 +870,8 @@ function renderBreaksChart(qr, chartArea, chartType) {
   });
   const patterns = qr.columns.map((c) => (c.band === "suppressed" ? "/" : ""));
 
+  const flippable = AXIS_FLIPPABLE_CHART_TYPES.has(chartType);
+
   let traces;
   if (chartType === "net_bar") {
     const primaryNet = qr.nets[0];
@@ -801,6 +885,24 @@ function renderBreaksChart(qr, chartArea, chartType) {
       marker: { color: bandColors, pattern: { shape: patterns, fgcolor: CHART_COLORS.inkSoft, size: 6 } },
       name: primaryNet.label,
     }];
+  } else if (flippable && breaksAxisFlipped) {
+    // Flipped: answer options on X, one trace per break column — same
+    // percentages matrix as the unflipped view, just read column-major
+    // instead of scale-point-major. Suppressed columns still contribute no
+    // values (an all-null trace), same rule as the unflipped path.
+    const scaleLabels = qr.scale_points.map((sp) => sp.label);
+    traces = qr.columns.map((c, i) => ({
+      type: "bar",
+      x: scaleLabels,
+      y: qr.scale_points.map((sp) =>
+        c.band === "suppressed" || !c.percentages ? null : (c.percentages[String(sp.code)] ?? null)
+      ),
+      name: labels[i],
+      marker: {
+        color: bandColors[i],
+        pattern: { shape: patterns[i], fgcolor: CHART_COLORS.inkSoft, size: 6 },
+      },
+    }));
   } else {
     // stacked_bar_100 / diverging_stacked_bar / grouped_bar: one trace per
     // scale point, using percentages already computed by the core.
@@ -814,10 +916,13 @@ function renderBreaksChart(qr, chartArea, chartType) {
     }));
   }
 
+  // Flipped: each trace is now a break column, not a scale point, so
+  // stacking traces per answer option would sum unrelated columns' shares
+  // past 100% — group them instead, same as grouped_bar. Unflipped behavior
+  // (stack scale points per column) is unchanged.
+  const stackWhenUnflipped = chartType === "stacked_bar_100" || chartType === "diverging_stacked_bar" || chartType === "net_bar";
   const layout = withChartTemplate({
-    barmode: chartType === "stacked_bar_100" || chartType === "diverging_stacked_bar" || chartType === "net_bar"
-      ? "stack"
-      : "group",
+    barmode: stackWhenUnflipped && !(flippable && breaksAxisFlipped) ? "stack" : "group",
     margin: { l: 60, r: 20, t: 20, b: 100 },
     yaxis: { title: "%" },
   });
