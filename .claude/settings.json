@@ -81,7 +81,10 @@
       "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_ui2.py)",
       "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_gate.py)",
       "Bash(git -C /Users/jodie/Desktop/Projects/surveytool status --short)",
-      "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_flip.py)"
+      "Bash(python /private/tmp/claude-501/-Users-jodie-Desktop-Projects-surveytool/91f7953c-697b-41ef-a221-d1998e4c2e4f/scratchpad/drive_flip.py)",
+      "Bash(python3 -m PyInstaller surveytool.spec --noconfirm)",
+      "Bash(git check-ignore *)",
+      "Bash(git status *)"
     ],
     "additionalDirectories": [
       "/tmp"

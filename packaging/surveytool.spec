@@ -1,7 +1,13 @@
+import glob
+import os
+
 from PyInstaller.utils.hooks import copy_metadata
 
 datas = copy_metadata("surveytool")
 datas += [("../surveytool/desktop/static", "surveytool/desktop/static")]
+for yaml_path in glob.glob("../surveytool/core/**/*.yaml", recursive=True):
+    dest_dir = os.path.dirname(os.path.relpath(yaml_path, ".."))
+    datas += [(yaml_path, dest_dir)]
 
 a = Analysis(
     ["../surveytool/desktop/main.py"],
