@@ -20,9 +20,9 @@ from surveytool.core.model import (
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import identify_family, resolve_roles
+from surveytool.ingest.vendor_profile import RAKUTEN_PROFILE
 
 _QID_RE = re.compile(r"\[([^\]]+)\]")
-_SKIP_QIDS = frozenset({"record", "uuid", "uid"})
 
 
 def _iter_until_blank(ws) -> Iterator[tuple]:
@@ -51,7 +51,7 @@ def parse_codebook(ws_datamap) -> list[Question]:
     def _flush() -> None:
         if current_qid is None:
             return
-        if current_qid in _SKIP_QIDS:
+        if current_qid in RAKUTEN_PROFILE.reserved_metadata_columns:
             return
         _build_question(current_qid, current_text or "", current_qtype_hint, current_codes, questions)
 
@@ -215,7 +215,7 @@ def load_respondents(
         str(h): i for i, h in enumerate(header) if h is not None
     }
 
-    flag_col: int | None = col_index.get("FLAG")
+    flag_col: int | None = col_index.get(RAKUTEN_PROFILE.quality_flag_column)
     uuid_col: int | None = col_index.get("uuid")
     record_col: int | None = col_index.get("record")
 
@@ -285,22 +285,22 @@ def load(path: Path, survey_id: str) -> Survey:
 
     try:
         try:
-            ws_datamap = wb["Datamap"]
+            ws_datamap = wb[RAKUTEN_PROFILE.codebook_sheet]
         except KeyError as exc:
             raise SurveyToolError(
                 ErrorCode.MISSING_SHEET,
                 "This file does not look like a Rakuten export.",
-                detail="No Datamap sheet was found.",
+                detail=f"No {RAKUTEN_PROFILE.codebook_sheet} sheet was found.",
                 next_action="Check the vendor setting, or pick a different file.",
             ) from exc
 
         try:
-            ws_respondents = wb["A1"]
+            ws_respondents = wb[RAKUTEN_PROFILE.data_sheet]
         except KeyError as exc:
             raise SurveyToolError(
                 ErrorCode.MISSING_SHEET,
                 "This file does not look like a Rakuten export.",
-                detail="No A1 respondent-data sheet was found.",
+                detail=f"No {RAKUTEN_PROFILE.data_sheet} respondent-data sheet was found.",
                 next_action="Check the vendor setting, or pick a different file.",
             ) from exc
 
