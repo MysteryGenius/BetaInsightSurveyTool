@@ -1,6 +1,12 @@
 import pytest
 
-from surveytool.ingest.vendor_profile import VendorProfile
+from surveytool.ingest.vendor_profile import (
+    MILIEU_PROFILE,
+    RAKUTEN_PROFILE,
+    TOLUNA_PROFILE,
+    VendorProfile,
+    get_vendor_profile,
+)
 
 
 def test_vendor_profile_quality_flag_and_verification_sheet_default_none():
@@ -43,3 +49,42 @@ def test_vendor_profile_is_frozen():
     import dataclasses
     with pytest.raises(dataclasses.FrozenInstanceError):
         profile.vendor_id = "changed"
+
+
+def test_rakuten_profile_matches_current_constants():
+    p = RAKUTEN_PROFILE
+    assert p.vendor_id == "rakuten"
+    assert p.data_sheet == "A1"
+    assert p.codebook_sheet == "Datamap"
+    assert p.reserved_metadata_columns == frozenset({"record", "uuid", "uid"})
+    assert p.quality_columns == frozenset({"FLAG"})
+    assert p.quality_flag_column == "FLAG"
+    assert p.verification_sheet == "HC"
+    assert p.date_format is None
+    assert p.multiselect_column_pattern is None
+    assert p.other_specify_suffix is None
+    assert get_vendor_profile("rakuten") is p
+
+
+def test_milieu_profile_matches_current_constants():
+    p = MILIEU_PROFILE
+    assert p.vendor_id == "milieu"
+    assert p.data_sheet is None
+    assert p.codebook_sheet is None
+    assert p.reserved_metadata_columns == frozenset({"profile_id"})
+    assert p.quality_columns == frozenset()
+    assert p.quality_flag_column is None
+    assert p.verification_sheet is None
+    assert get_vendor_profile("milieu") is p
+
+
+def test_toluna_profile_matches_current_constants():
+    p = TOLUNA_PROFILE
+    assert p.vendor_id == "toluna"
+    assert p.data_sheet == "RespondentData.Text"
+    assert p.codebook_sheet is None
+    assert p.reserved_metadata_columns == frozenset({"respid"})
+    assert p.quality_columns == frozenset()
+    assert p.quality_flag_column is None
+    assert p.verification_sheet is None
+    assert get_vendor_profile("toluna") is p

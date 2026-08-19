@@ -49,3 +49,62 @@ def register_vendor_profile(profile: VendorProfile) -> None:
 
 def get_vendor_profile(vendor_id: str) -> VendorProfile:
     return _REGISTRY[vendor_id]
+
+
+RAKUTEN_PROFILE = VendorProfile(
+    vendor_id="rakuten",
+    data_sheet="A1",
+    codebook_sheet="Datamap",
+    reserved_metadata_columns=frozenset({"record", "uuid", "uid"}),
+    quality_columns=frozenset({"FLAG"}),
+    quality_flag_column="FLAG",
+    quality_flag_pass_value=None,
+    quality_flag_fail_value=None,
+    verification_sheet="HC",
+    date_format=None,
+    multiselect_column_pattern=None,
+    other_specify_suffix=None,
+    signature=VendorSignature(
+        expected_sheets=frozenset({"A1", "Datamap"}),
+        expected_columns=frozenset({"record", "uuid"}),
+    ),
+)
+
+MILIEU_PROFILE = VendorProfile(
+    vendor_id="milieu",
+    data_sheet=None,
+    codebook_sheet=None,
+    reserved_metadata_columns=frozenset({"profile_id"}),
+    quality_columns=frozenset(),
+    quality_flag_column=None,
+    quality_flag_pass_value=None,
+    quality_flag_fail_value=None,
+    verification_sheet=None,
+    date_format=None,
+    multiselect_column_pattern=None,
+    other_specify_suffix=None,
+    signature=VendorSignature(),
+)
+
+TOLUNA_PROFILE = VendorProfile(
+    vendor_id="toluna",
+    data_sheet="RespondentData.Text",
+    codebook_sheet=None,
+    reserved_metadata_columns=frozenset({"respid"}),
+    quality_columns=frozenset(),
+    quality_flag_column=None,
+    quality_flag_pass_value=None,
+    quality_flag_fail_value=None,
+    verification_sheet=None,
+    date_format=None,
+    multiselect_column_pattern=None,
+    other_specify_suffix=None,
+    signature=VendorSignature(
+        expected_sheets=frozenset({"RespondentData.Text"}),
+        expected_columns=frozenset({"respid"}),
+    ),
+)
+
+register_vendor_profile(RAKUTEN_PROFILE)
+register_vendor_profile(MILIEU_PROFILE)
+register_vendor_profile(TOLUNA_PROFILE)
