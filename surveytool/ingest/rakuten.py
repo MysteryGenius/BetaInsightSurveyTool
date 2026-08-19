@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import re
 import zipfile
 from pathlib import Path
-from typing import Iterator
 
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
@@ -20,72 +18,18 @@ from surveytool.core.model import (
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import identify_family, resolve_roles
+from surveytool.ingest.datamap_reader import Codebook, DatamapReader
 from surveytool.ingest.vendor_profile import RAKUTEN_PROFILE
-
-_QID_RE = re.compile(r"\[([^\]]+)\]")
-
-
-def _iter_until_blank(ws) -> Iterator[tuple]:
-    """Yield rows, stopping as soon as every cell in a row is None."""
-    for row in ws.iter_rows(values_only=True):
-        if all(v is None for v in row):
-            break
-        yield row
 
 
 def parse_codebook(ws_datamap) -> list[Question]:
-    """
-    Parse the Rakuten Datamap sheet into a list of Questions.
+    """Parse the Rakuten Datamap sheet into a list of Questions."""
+    reader = DatamapReader(RAKUTEN_PROFILE)
+    codebook: Codebook = reader.read_codebook(ws_datamap)
 
-    The sheet has 3 columns:
-      col 0: question header ('[QID]: text') or '' for code rows
-      col 1: numeric code (for code rows) or None
-      col 2: label text (for code rows) or None
-    """
     questions: list[Question] = []
-    current_qid: str | None = None
-    current_text: str | None = None
-    current_qtype_hint: str | None = None  # 'open_numeric' | 'open_text' | None
-    current_codes: list[tuple[int, str]] = []  # (code, raw_label)
-
-    def _flush() -> None:
-        if current_qid is None:
-            return
-        if current_qid in RAKUTEN_PROFILE.reserved_metadata_columns:
-            return
-        _build_question(current_qid, current_text or "", current_qtype_hint, current_codes, questions)
-
-    for row in ws_datamap.iter_rows(values_only=True):
-        col0, col1, col2 = (row[i] if i < len(row) else None for i in range(3))
-
-        # All-None rows terminate the sheet (or are blank separators between blocks)
-        if col0 is None and col1 is None and col2 is None:
-            continue
-
-        if col0 and isinstance(col0, str) and col0.strip():
-            cell = col0.strip()
-            m = _QID_RE.match(cell)
-            if m:
-                # Flush previous block
-                _flush()
-                current_qid = m.group(1)
-                current_text = cell[m.end():].lstrip(":").strip()
-                current_qtype_hint = None
-                current_codes = []
-            elif cell.startswith("Open numeric"):
-                current_qtype_hint = "open_numeric"
-            elif cell.startswith("Open text"):
-                current_qtype_hint = "open_text"
-            # 'Values: N-M' rows — skip
-        elif col1 is not None and col2 is not None:
-            # Code row: ('', code, label)
-            try:
-                code = int(col1)
-            except (TypeError, ValueError):
-                continue
-            current_codes.append((code, str(col2)))
-
-    _flush()
+    for qid, (text, codes, qtype_hint) in codebook.items():
+        _build_question(qid, text, qtype_hint, codes, questions)
     return questions
 
 
