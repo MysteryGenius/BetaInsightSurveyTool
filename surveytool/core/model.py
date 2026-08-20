@@ -9,6 +9,8 @@ from pydantic import BaseModel, model_validator
 
 class QuestionType(str, Enum):
     scale = "scale"
+    binary = "binary"
+    categorical = "categorical"
     single_choice = "single_choice"
     multi_response = "multi_response"
     numeric_open = "numeric_open"

@@ -25,6 +25,7 @@ class ErrorCode(str, Enum):
     MULTISELECT_BREAK_REJECTED = "MULTISELECT_BREAK_REJECTED"
     FILTER_ZERO_MATCH = "FILTER_ZERO_MATCH"
     UNCLASSIFIED_COLUMN = "UNCLASSIFIED_COLUMN"
+    NETTING_NOT_ALLOWED = "NETTING_NOT_ALLOWED"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -50,6 +51,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.MULTISELECT_BREAK_REJECTED: 400,
     ErrorCode.FILTER_ZERO_MATCH: 400,
     ErrorCode.UNCLASSIFIED_COLUMN: 400,
+    ErrorCode.NETTING_NOT_ALLOWED: 400,
 }
 
 

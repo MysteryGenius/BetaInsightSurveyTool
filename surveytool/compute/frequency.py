@@ -12,6 +12,7 @@ from surveytool.core.model import (
     Survey,
 )
 from surveytool.compute.stats import CodeStat, QuestionStats
+from surveytool.core.netting_gate import require_scale_for_netting
 
 _BASE_STATES: frozenset[ResponseState] = frozenset(
     {ResponseState.answered, ResponseState.nonsubstantive}
@@ -120,6 +121,14 @@ def compute_question_stats(
 
     has_top = any(sc.role is CodeRole.top for sc in question.labels)
     has_bottom = any(sc.role is CodeRole.bottom for sc in question.labels)
+    if (has_top or has_bottom) and question.qtype in (QuestionType.binary, QuestionType.categorical):
+        # Binary/categorical questions (Task 9) never carry genuine netting
+        # semantics even if a label happens to carry a top/bottom role —
+        # gate explicitly rather than trusting adapters never assign those
+        # roles to non-scale questions. Scale and multi_response questions
+        # are unaffected: multi_response legitimately computes t2b/b2b today
+        # (see tests/fixtures/multi_response.py) and must keep doing so.
+        require_scale_for_netting(question, "top_two_box" if has_top else "bottom_two_box")
     t2b = sum(cs.pct for cs in code_stats if cs.role is CodeRole.top) if has_top else None
     b2b = sum(cs.pct for cs in code_stats if cs.role is CodeRole.bottom) if has_bottom else None
 
