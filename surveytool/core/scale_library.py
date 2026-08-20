@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 from surveytool.charts.errors import UnresolvedScaleLabelsError
-from surveytool.core.model import CodeRole
+from surveytool.core.model import CodeRole, QuestionType
 
 _NEITHER_NOR = re.compile(r"neither.+nor", re.IGNORECASE)
 
@@ -98,3 +98,34 @@ def identify_family(labels: list[str]) -> str | None:
         if all(_label_in_family(n, family) for n in normed):
             matches.append(name)
     return matches[0] if len(matches) == 1 else None
+
+
+def classify_question_type(
+    labels: list[str],
+) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None]:
+    """Classify a question's substantive labels as SCALE, BINARY, or
+    CATEGORICAL.
+
+    SCALE: every label matches a single family (identify_family succeeds).
+    Netting applies; returns the resolved roles and family name.
+
+    BINARY: exactly two labels, and they match the 'binary' family
+    (added by a later task). No netting; roles/family are None since a
+    binary question has no top/neutral/bottom ordering to net over.
+
+    CATEGORICAL: neither of the above, including a genuine partial match
+    (some labels match a family, others don't) — this is the fallback that
+    replaces the old hard error. Never raises.
+    """
+    normed = [_normalise(lb) for lb in labels]
+    family = identify_family(labels)
+    if family is not None:
+        roles = {lb: role for lb, role in zip(labels, (_match_role(n) for n in normed))}
+        return QuestionType.scale, roles, family
+
+    if len(labels) == 2:
+        binary_family = _FAMILIES.get("binary")
+        if binary_family is not None and all(_label_in_family(n, binary_family) for n in normed):
+            return QuestionType.binary, None, None
+
+    return QuestionType.categorical, None, None
