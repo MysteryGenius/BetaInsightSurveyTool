@@ -71,6 +71,20 @@ def _build_question(
     if qtype is QuestionType.scale:
         for ns_label, ns_role in ns_overrides.items():
             roles[ns_label] = ns_role
+
+        substantive_codes_sorted = [
+            (code, normalize_label(label))
+            for code, label in sorted(codes, key=lambda x: x[0])
+            if normalize_label(label) not in ns_overrides
+        ]
+        direction: str | None = None
+        if substantive_codes_sorted:
+            lowest_role = roles.get(substantive_codes_sorted[0][1])
+            if lowest_role is CodeRole.bottom:
+                direction = "ascending"
+            elif lowest_role is CodeRole.top:
+                direction = "descending"
+
         scale_codes = [
             ScaleCode(code=code, label=normalize_label(label), role=roles[normalize_label(label)], numeric_value=code)
             for code, label in codes
@@ -78,7 +92,7 @@ def _build_question(
         out.append(
             Question(
                 qid=qid, text=text, qtype=QuestionType.scale, labels=scale_codes,
-                scale_family=family, base_eligible=True,
+                scale_direction=direction, scale_family=family, base_eligible=True,
             )
         )
         return
