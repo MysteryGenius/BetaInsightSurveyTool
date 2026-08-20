@@ -258,3 +258,95 @@ def test_toluna_real_file_scales_fully_resolve():
         "Expected at least one scale question in the Toluna fixture"
     )
     _assert_all_scales_fully_resolved(survey.questions, "toluna")
+
+
+# ── Section C: shared conformance assertion set across four vendors ────────────
+#
+# Per spec Prompt 11: every vendor profile must satisfy a shared assertion
+# set — the file parses, every question receives a question type, and the
+# fingerprint pre-check recognises the file under its own vendor and rejects
+# it under each other vendor. Milieu is intentionally excluded from this
+# section (see note below _shared_conformance_assertions) because its
+# VendorSignature is empty — it is sniffed by CSV header regex, not
+# sheet/column fingerprinting, so a fingerprint-based conformance check
+# would be meaningless for it.
+
+from surveytool.core.column_classification import ColumnClassification
+from surveytool.ingest.fingerprint import VendorMismatchError, check_fingerprint
+from surveytool.ingest.vendor_profile import get_vendor_profile
+
+_PURESPECTRUM_PATH = _ROOT / "purespectrum_survey_wcs_data.xlsx"
+
+
+def _shared_conformance_assertions(vendor_id: str, survey, sheet_names: frozenset[str], column_names: frozenset[str]) -> None:
+    """The assertion set every vendor profile must satisfy per spec Prompt 11:
+    the file parses (implied by the caller already having a `survey`), every
+    question receives a question type, and the fingerprint pre-check
+    recognises the file under its own vendor and rejects it under each
+    other vendor."""
+    from surveytool.core.model import QuestionType
+
+    assert len(survey.questions) > 0, f"{vendor_id}: file parsed but produced zero questions"
+    for q in survey.questions:
+        assert q.qtype in QuestionType, f"{vendor_id} question {q.qid!r} has no question type"
+
+    check_fingerprint(vendor_id, sheet_names=sheet_names, column_names=column_names)  # must not raise
+
+    for other_vendor in ("rakuten", "milieu", "toluna", "purespectrum"):
+        if other_vendor == vendor_id:
+            continue
+        other_profile = get_vendor_profile(other_vendor)
+        if other_profile.signature is None or not other_profile.signature.expected_sheets and not other_profile.signature.expected_columns:
+            continue  # Milieu has no meaningful signature to check rejection against
+        with pytest.raises(VendorMismatchError):
+            check_fingerprint(other_vendor, sheet_names=sheet_names, column_names=column_names)
+
+
+@pytest.mark.skipif(not _RAKUTEN_PATH.exists(), reason="rakuten_survey_support_measures_data.xlsx not found")
+def test_rakuten_shared_conformance_assertions():
+    import openpyxl
+
+    from surveytool.ingest.rakuten import load
+
+    survey = load(_RAKUTEN_PATH, "support-measures")
+    wb = openpyxl.load_workbook(_RAKUTEN_PATH, read_only=True, data_only=True)
+    sheet_names = frozenset(wb.sheetnames)
+    header = next(wb["A1"].iter_rows(values_only=True))
+    column_names = frozenset(str(h) for h in header if h is not None)
+    wb.close()
+    _shared_conformance_assertions("rakuten", survey, sheet_names, column_names)
+
+
+@pytest.mark.skipif(not _TOLUNA_PATH.exists(), reason="toluna_survey_misinformation_data.xlsx not found")
+def test_toluna_shared_conformance_assertions():
+    import openpyxl
+
+    from surveytool.ingest.toluna import load
+
+    survey = load(_TOLUNA_PATH, "misinformation")
+    wb = openpyxl.load_workbook(_TOLUNA_PATH, read_only=True, data_only=True)
+    sheet_names = frozenset(wb.sheetnames)
+    header = next(wb["RespondentData.Text"].iter_rows(values_only=True))
+    column_names = frozenset(str(h) for h in header if h is not None)
+    wb.close()
+    _shared_conformance_assertions("toluna", survey, sheet_names, column_names)
+
+
+@pytest.mark.skipif(
+    not _PURESPECTRUM_PATH.exists(),
+    reason="purespectrum_survey_wcs_data.xlsx not found in project root — vendor tabulation to verify PureSpectrum topline "
+           "numbers has been requested from the client and has not arrived. Structural assertions only, once the file exists; "
+           "no numerical golden fixture is written against numbers we produced ourselves.",
+)
+def test_purespectrum_shared_conformance_assertions():
+    import openpyxl
+
+    from surveytool.ingest.purespectrum import load
+
+    survey = load(_PURESPECTRUM_PATH, "wcs")
+    wb = openpyxl.load_workbook(_PURESPECTRUM_PATH, read_only=True, data_only=True)
+    sheet_names = frozenset(wb.sheetnames)
+    header = next(wb["A1"].iter_rows(values_only=True))
+    column_names = frozenset(str(h) for h in header if h is not None)
+    wb.close()
+    _shared_conformance_assertions("purespectrum", survey, sheet_names, column_names)
