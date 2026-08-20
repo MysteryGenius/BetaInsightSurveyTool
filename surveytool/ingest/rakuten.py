@@ -17,7 +17,7 @@ from surveytool.core.model import (
     Survey,
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
-from surveytool.core.scale_library import identify_family, resolve_roles
+from surveytool.core.scale_library import classify_question_type
 from surveytool.ingest.datamap_reader import Codebook, DatamapReader
 from surveytool.ingest.vendor_profile import RAKUTEN_PROFILE
 
@@ -81,62 +81,77 @@ def _build_question(
         )
         return
 
-    # Analysis question: try to resolve as scale
+    # Analysis question: classify as scale, binary, or categorical
     if not codes:
         return
 
     norm_labels = [normalize_label(label) for _, label in codes]
 
-    # Detect non-substantive labels before passing to scale library
     ns_overrides: dict[str, CodeRole] = {}
     for nl in norm_labels:
         if is_nonsubstantive_label(nl):
             ns_overrides[nl] = CodeRole.nonsubstantive
 
-    # Substantive labels only go to the scale library
     substantive_norm = [nl for nl in norm_labels if nl not in ns_overrides]
 
-    roles = resolve_roles(substantive_norm, override=ns_overrides)
-    # resolve_roles only processes labels it receives; merge ns_overrides back
-    for ns_label, ns_role in ns_overrides.items():
-        roles[ns_label] = ns_role
+    qtype, roles, family = classify_question_type(substantive_norm)
 
-    # Determine direction from the lowest-code substantive label's role
-    substantive_codes_sorted = [
-        (code, normalize_label(label))
-        for code, label in sorted(codes, key=lambda x: x[0])
-        if normalize_label(label) not in ns_overrides
-    ]
-    direction: str | None = None
-    if substantive_codes_sorted:
-        lowest_role = roles.get(substantive_codes_sorted[0][1])
-        if lowest_role is CodeRole.bottom:
-            direction = "ascending"
-        elif lowest_role is CodeRole.top:
-            direction = "descending"
+    if qtype is QuestionType.scale:
+        for ns_label, ns_role in ns_overrides.items():
+            roles[ns_label] = ns_role
 
-    scale_codes = [
+        substantive_codes_sorted = [
+            (code, normalize_label(label))
+            for code, label in sorted(codes, key=lambda x: x[0])
+            if normalize_label(label) not in ns_overrides
+        ]
+        direction: str | None = None
+        if substantive_codes_sorted:
+            lowest_role = roles.get(substantive_codes_sorted[0][1])
+            if lowest_role is CodeRole.bottom:
+                direction = "ascending"
+            elif lowest_role is CodeRole.top:
+                direction = "descending"
+
+        scale_codes = [
+            ScaleCode(
+                code=code,
+                label=normalize_label(label),
+                role=roles[normalize_label(label)],
+                numeric_value=code,
+            )
+            for code, label in codes
+        ]
+
+        out.append(
+            Question(
+                qid=qid,
+                text=text,
+                qtype=QuestionType.scale,
+                labels=scale_codes,
+                scale_direction=direction,
+                scale_family=family,
+                base_eligible=True,
+            )
+        )
+        return
+
+    # BINARY or CATEGORICAL: no role/family resolution, no netting.
+    labels_out = [
         ScaleCode(
             code=code,
             label=normalize_label(label),
-            role=roles[normalize_label(label)],
+            role=CodeRole.nonsubstantive if normalize_label(label) in ns_overrides else CodeRole.excluded,
             numeric_value=code,
         )
         for code, label in codes
     ]
-
-    family = identify_family(
-        [normalize_label(label) for _, label in codes if normalize_label(label) not in ns_overrides]
-    )
-
     out.append(
         Question(
             qid=qid,
             text=text,
-            qtype=QuestionType.scale,
-            labels=scale_codes,
-            scale_direction=direction,
-            scale_family=family,
+            qtype=qtype,
+            labels=labels_out,
             base_eligible=True,
         )
     )
