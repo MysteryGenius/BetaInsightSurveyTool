@@ -105,6 +105,33 @@ TOLUNA_PROFILE = VendorProfile(
     ),
 )
 
+PURESPECTRUM_PROFILE = VendorProfile(
+    vendor_id="purespectrum",
+    data_sheet="A1",
+    codebook_sheet="Datamap",
+    reserved_metadata_columns=frozenset({
+        "record", "uuid", "date", "status", "dtrack", "qtime", "start_date", "transaction_id",
+    }),
+    # QC2 / QC2Flag classify as QUALITY per spec Prompt 9 and are excluded
+    # from question tables. Pass/fail coding is unconfirmed by the vendor —
+    # quality_flag_column stays None so nothing implements filtering on an
+    # unverified coding. This is a deliberate, marked placeholder, not an
+    # oversight: see quality_flag_pass_value/fail_value below.
+    quality_columns=frozenset({"QC2", "QC2Flag"}),
+    quality_flag_column=None,  # PLACEHOLDER: PureSpectrum's QC2/QC2Flag pass/fail coding is unconfirmed by the vendor. Do not implement filtering on it until confirmed.
+    quality_flag_pass_value=None,
+    quality_flag_fail_value=None,
+    verification_sheet=None,
+    date_format=None,
+    multiselect_column_pattern=r"^Q10r[1-8]$",
+    other_specify_suffix="oe",
+    signature=VendorSignature(
+        expected_sheets=frozenset({"A1", "Datamap"}),
+        expected_columns=frozenset({"record", "uuid", "date", "status", "dtrack"}),
+    ),
+)
+
 register_vendor_profile(RAKUTEN_PROFILE)
 register_vendor_profile(MILIEU_PROFILE)
 register_vendor_profile(TOLUNA_PROFILE)
+register_vendor_profile(PURESPECTRUM_PROFILE)

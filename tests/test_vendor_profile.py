@@ -2,6 +2,7 @@ import pytest
 
 from surveytool.ingest.vendor_profile import (
     MILIEU_PROFILE,
+    PURESPECTRUM_PROFILE,
     RAKUTEN_PROFILE,
     TOLUNA_PROFILE,
     VendorProfile,
@@ -88,3 +89,17 @@ def test_toluna_profile_matches_current_constants():
     assert p.quality_flag_column is None
     assert p.verification_sheet is None
     assert get_vendor_profile("toluna") is p
+
+
+def test_purespectrum_profile():
+    p = PURESPECTRUM_PROFILE
+    assert p.vendor_id == "purespectrum"
+    assert p.data_sheet == "A1"
+    assert p.codebook_sheet == "Datamap"
+    assert p.verification_sheet is None
+    assert p.quality_flag_column is None
+    assert p.reserved_metadata_columns == frozenset({
+        "record", "uuid", "date", "status", "dtrack", "qtime", "start_date", "transaction_id",
+    })
+    assert p.quality_columns == frozenset({"QC2", "QC2Flag"})
+    assert get_vendor_profile("purespectrum") is p
