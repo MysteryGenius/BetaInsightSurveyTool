@@ -11,6 +11,7 @@ from surveytool.ingest.overrides import (
     ProjectOverrides,
     QuestionOverride,
     apply_override,
+    check_override_still_needed,
     load_overrides,
     write_override,
 )
@@ -98,3 +99,28 @@ def test_write_override_incomplete_raises_before_writing(tmp_path: Path):
     write_override(override_path := tmp_path / "overrides.yaml", override)
     result = load_overrides(override_path)
     assert result.overrides["Q9"].label_roles == {}
+
+
+def test_override_notice_when_library_now_matches():
+    override = QuestionOverride(
+        variable="Q3",
+        question_type="scale",
+        label_roles={"Strongly Agree": "top", "Strongly Disagree": "bottom"},
+        resolved_at=datetime.now(timezone.utc),
+        library_version="0.9.0",
+    )
+    notice = check_override_still_needed("Q3", ["Strongly Agree", "Strongly Disagree"], override)
+    assert notice is not None
+    assert "Q3" in notice.message
+
+
+def test_no_notice_when_library_still_does_not_match():
+    override = QuestionOverride(
+        variable="Q9",
+        question_type="scale",
+        label_roles={"Bunches": "top", "None": "bottom"},
+        resolved_at=datetime.now(timezone.utc),
+        library_version="0.9.0",
+    )
+    notice = check_override_still_needed("Q9", ["Bunches", "None"], override)
+    assert notice is None

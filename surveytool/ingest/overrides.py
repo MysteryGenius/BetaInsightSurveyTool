@@ -1,6 +1,7 @@
 # surveytool/ingest/overrides.py
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.core.model import CodeRole
+from surveytool.core.scale_library import identify_family
 
 
 class QuestionOverride(BaseModel):
@@ -70,4 +72,29 @@ def write_override(path: Path, override: QuestionOverride) -> None:
     path.write_text(
         yaml.dump(existing.model_dump(mode="json")),
         encoding="utf-8",
+    )
+
+
+@dataclass(frozen=True)
+class OverrideNotice:
+    variable: str
+    message: str
+
+
+def check_override_still_needed(
+    variable: str,
+    labels: list[str],
+    override: QuestionOverride,
+) -> OverrideNotice | None:
+    """Return a notice if the shared scale library would now resolve this
+    question without the override. The override still wins — this never
+    switches behaviour, only surfaces the fact for the run summary."""
+    if override.question_type != "scale":
+        return None
+    family = identify_family(labels)
+    if family is None:
+        return None
+    return OverrideNotice(
+        variable=variable,
+        message=f"'{variable}' is resolved by a saved override, but the shared scale library would now also resolve it (as '{family}'). The override is still being used.",
     )
