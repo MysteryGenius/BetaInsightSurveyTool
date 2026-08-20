@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -152,6 +153,40 @@ class UnresolvedScaleLabelsError(SurveyToolError, ValueError):
             "This file has response labels this tool doesn't recognise.",
             detail=detail,
             next_action="Add the missing labels to the scale library, or check the vendor setting.",
+        )
+
+
+@dataclass(frozen=True)
+class UnresolvedQuestion:
+    variable: str
+    question_text: str
+    codes: list[tuple[int, str]]
+    reason: str
+
+
+class UnresolvedQuestionsError(SurveyToolError):
+    """Raised once per load, after a single validation pass over every
+    question in the file, listing every question that failed to resolve.
+
+    Replaces stop-at-first-failure: a file with several unresolved
+    questions is reported completely in one error, not discovered one
+    question per load attempt. The message and next_action are addressed to
+    a non-technical analyst and never name scales.yaml, YAML, an overrides
+    file, or any repository path — the remediation path is 'use the
+    resolver', described in plain English.
+    """
+
+    def __init__(self, entries: list[UnresolvedQuestion]) -> None:
+        self.detail_entries = entries
+        count = len(entries)
+        plural = "question" if count == 1 else "questions"
+        variables = ", ".join(e.variable for e in entries)
+        detail = f"Unresolved {plural}: {variables}."
+        super().__init__(
+            ErrorCode.UNRESOLVED_SCALE_LABELS,
+            f"This file has {count} {plural} with response labels this tool doesn't recognise.",
+            detail=detail,
+            next_action="Open the resolver to assign each unrecognised response a role, or mark the question as not a scale.",
         )
 
 
