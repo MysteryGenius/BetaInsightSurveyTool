@@ -24,7 +24,13 @@ def _build_label_map(question: Question) -> dict[str | int, ScaleCode]:
     return {sc.code: sc for sc in question.labels}
 
 
-def _base_responses(responses: list[Response]) -> list[Response]:
+def _base_responses(
+    responses: list[Response],
+    *,
+    exclude_nonsubstantive: bool = False,
+) -> list[Response]:
+    if exclude_nonsubstantive:
+        return [r for r in responses if r.state is ResponseState.answered]
     return [r for r in responses if r.state in _BASE_STATES]
 
 
@@ -88,12 +94,22 @@ def _count_multi_response_codes(
 def compute_question_stats(
     question: Question,
     responses: list[Response],
+    *,
+    exclude_nonsubstantive_from_base: bool = False,
 ) -> QuestionStats:
     """Compute frequency statistics for a single question.
 
     ``responses`` must already be filtered to only this question's qid.
+    ``exclude_nonsubstantive_from_base``, when True, removes nonsubstantive
+    responses from the percentage base (default keeps them in the base,
+    per project setting default). Demographic questions never call this
+    with the flag set — banner variables are unaffected by construction,
+    since callers only pass the flag through for question tables, not
+    cross-tab banner computation (cross_tab.py is untouched by this task).
+    The base is always present on the returned QuestionStats regardless of
+    the setting.
     """
-    base_resps = _base_responses(responses)
+    base_resps = _base_responses(responses, exclude_nonsubstantive=exclude_nonsubstantive_from_base)
     base = len(base_resps)
 
     if base == 0:

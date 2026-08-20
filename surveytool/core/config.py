@@ -14,6 +14,10 @@ class ToolConfig(BaseModel):
     base_policy: Literal["total_answering", "total_asked"] = "total_answering"
     rounding_decimals: int = 1
     rounding_mode: Literal["half_up"] = "half_up"
+    nonsubstantive_labels: list[str] = Field(
+        default_factory=lambda: ["prefer not to say", "don't know", "not applicable"]
+    )
+    exclude_nonsubstantive_from_base: bool = False
     default_banner: list[str] = Field(default_factory=lambda: ["age", "ethnicity"])
     cross_tab_grey_threshold: int = 30
     cross_tab_suppress_threshold: int = 10

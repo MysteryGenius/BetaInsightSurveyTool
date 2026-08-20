@@ -316,3 +316,54 @@ def test_support_measures_hc_q5():
     assert q5.base == 1000
     assert q5.t2b == pytest.approx(53.1, abs=0.05)
     assert q5.mean == pytest.approx(3.44, abs=0.005)
+
+
+from surveytool.compute.frequency import compute_question_stats
+from surveytool.core.model import CodeRole, Question, QuestionType, Response, ResponseState, ScaleCode
+
+
+def _make_nonsubstantive_question() -> Question:
+    return Question(
+        qid="S7",
+        text="How would you rate this?",
+        qtype=QuestionType.scale,
+        labels=[
+            ScaleCode(code=1, label="Good", role=CodeRole.top, numeric_value=1),
+            ScaleCode(code=2, label="Bad", role=CodeRole.bottom, numeric_value=2),
+            ScaleCode(code=99, label="Prefer not to say", role=CodeRole.nonsubstantive, numeric_value=None),
+        ],
+        scale_family="agreement",
+        base_eligible=True,
+    )
+
+
+def test_nonsubstantive_kept_in_base_when_setting_off():
+    question = _make_nonsubstantive_question()
+    responses = [
+        Response(respondent_id="r1", qid="S7", raw_value=1, state=ResponseState.answered),
+        Response(respondent_id="r2", qid="S7", raw_value=2, state=ResponseState.answered),
+        Response(respondent_id="r3", qid="S7", raw_value=99, state=ResponseState.nonsubstantive),
+    ]
+    stats = compute_question_stats(question, responses, exclude_nonsubstantive_from_base=False)
+    assert stats.base == 3
+
+
+def test_nonsubstantive_excluded_from_base_when_setting_on():
+    question = _make_nonsubstantive_question()
+    responses = [
+        Response(respondent_id="r1", qid="S7", raw_value=1, state=ResponseState.answered),
+        Response(respondent_id="r2", qid="S7", raw_value=2, state=ResponseState.answered),
+        Response(respondent_id="r3", qid="S7", raw_value=99, state=ResponseState.nonsubstantive),
+    ]
+    stats_off = compute_question_stats(question, responses, exclude_nonsubstantive_from_base=False)
+    stats_on = compute_question_stats(question, responses, exclude_nonsubstantive_from_base=True)
+
+    assert stats_on.base == stats_off.base - 1
+    assert stats_on.base == 2
+
+    good_stat_off = next(cs for cs in stats_off.code_stats if cs.code == 1)
+    good_stat_on = next(cs for cs in stats_on.code_stats if cs.code == 1)
+    assert good_stat_on.pct > good_stat_off.pct  # same n=1, smaller base => higher pct
+
+    for stats in (stats_off, stats_on):
+        assert stats.base is not None  # base explicit on output in both cases
