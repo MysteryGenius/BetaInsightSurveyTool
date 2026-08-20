@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from surveytool.charts.errors import UnresolvedScaleLabelsError
+from surveytool.core.hygiene import fold_label
 from surveytool.core.model import CodeRole, QuestionType
 
 _NEITHER_NOR = re.compile(r"neither.+nor", re.IGNORECASE)
@@ -22,7 +23,7 @@ _FAMILIES: dict[str, dict[str, list[str]]] = _load_families()
 
 
 def _normalise(label: str) -> str:
-    return label.replace("\xa0", " ").strip().lower()
+    return fold_label(label)
 
 
 def _is_neutral_label(norm: str, family: dict[str, list[str]]) -> bool:
@@ -118,14 +119,15 @@ def classify_question_type(
     replaces the old hard error. Never raises.
     """
     normed = [_normalise(lb) for lb in labels]
-    family = identify_family(labels)
-    if family is not None:
-        roles = {lb: role for lb, role in zip(labels, (_match_role(n) for n in normed))}
-        return QuestionType.scale, roles, family
 
     if len(labels) == 2:
         binary_family = _FAMILIES.get("binary")
         if binary_family is not None and all(_label_in_family(n, binary_family) for n in normed):
             return QuestionType.binary, None, None
+
+    family = identify_family(labels)
+    if family is not None:
+        roles = {lb: role for lb, role in zip(labels, (_match_role(n) for n in normed))}
+        return QuestionType.scale, roles, family
 
     return QuestionType.categorical, None, None

@@ -112,3 +112,36 @@ families:
       - "0"
       - "1"
       - "2"
+
+  binary:
+    top_patterns:
+      - "yes"
+      - "true"
+    neutral_patterns: []
+    bottom_patterns:
+      - "no"
+      - "false"
+
+  calendar_frequency:
+    top_patterns:
+      - "daily"
+      - "weekly"
+    neutral_patterns:
+      - "monthly"
+      - "occasionally"
+      - "sometimes"
+    bottom_patterns:
+      - "rarely"
+      - "never"
+
+  intensity:
+    top_patterns:
+      - "a lot"
+      - "a great deal"
+    neutral_patterns:
+      - "somewhat"
+      - "a little"
+      - "moderately"
+    bottom_patterns:
+      - "not at all"
+      - "none"
