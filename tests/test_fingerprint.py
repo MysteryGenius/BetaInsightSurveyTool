@@ -39,3 +39,31 @@ def test_selection_stays_authoritative_never_auto_switches():
     import inspect
     sig = inspect.signature(check_fingerprint)
     assert sig.return_annotation in (None, "None")
+
+
+def test_purespectrum_shaped_file_under_rakuten_selection_names_purespectrum():
+    """Rakuten's signature ({A1, Datamap} / {record, uuid}) is a strict
+    subset of PureSpectrum's ({A1, Datamap} / {record, uuid, date, status,
+    dtrack}). A file that satisfies PureSpectrum's fuller signature also
+    trivially satisfies Rakuten's — but PureSpectrum is the more specific,
+    better explanation for the file, so selecting rakuten against this
+    input must raise and name purespectrum, not silently pass."""
+    with pytest.raises(VendorMismatchError) as exc_info:
+        check_fingerprint(
+            "rakuten",
+            sheet_names=frozenset({"A1", "Datamap"}),
+            column_names=frozenset({"record", "uuid", "date", "status", "dtrack"}),
+        )
+    assert exc_info.value.matched_vendor == "purespectrum"
+
+
+def test_rakuten_own_real_file_still_matches_rakuten_with_no_raise():
+    """A genuine Rakuten file (only record/uuid, no PureSpectrum-only
+    columns) must still pass under rakuten selection: Rakuten's signature
+    is the unique matching (and thus unique most-specific-among-matches)
+    profile for this input."""
+    check_fingerprint(
+        "rakuten",
+        sheet_names=frozenset({"A1", "Datamap", "HC"}),
+        column_names=frozenset({"record", "uuid", "S1"}),
+    )  # must not raise

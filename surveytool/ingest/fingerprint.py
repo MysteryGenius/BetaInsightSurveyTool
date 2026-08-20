@@ -57,6 +57,19 @@ def _signature_matches(profile: VendorProfile, sheet_names: frozenset[str], colu
     return sheets_ok and columns_ok
 
 
+def _specificity(profile: VendorProfile) -> int:
+    """A profile's specificity is how much signature information it
+    declares. Used to break ties when a file's sheets/columns satisfy more
+    than one profile's signature (e.g. Rakuten's signature is a strict
+    subset of PureSpectrum's — any PureSpectrum file trivially also
+    'matches' Rakuten). The more specific profile is the better
+    explanation for the file."""
+    sig = profile.signature
+    if sig is None:
+        return 0
+    return len(sig.expected_sheets) + len(sig.expected_columns)
+
+
 def check_fingerprint(
     selected_vendor: str,
     *,
@@ -66,10 +79,29 @@ def check_fingerprint(
     """Check a loaded file against the selected vendor's signature. Raises
     VendorMismatchError on mismatch. Never auto-switches — the caller's
     vendor selection is unaffected either way; this only decides whether to
-    raise."""
+    raise.
+
+    A profile matching isn't sufficient on its own: some profiles'
+    signatures are strict subsets of others' (Rakuten's is a subset of
+    PureSpectrum's), so a PureSpectrum-shaped file trivially 'matches'
+    Rakuten too. To discriminate, whenever the selected vendor's signature
+    matches, we also check whether it is the *unique* most-specific match
+    among all profiles whose signatures match. If some other matching
+    profile is equally or more specific, the selected vendor's match isn't
+    trustworthy, and we fall through to the existing mismatch-naming logic
+    exactly as it already works for a non-matching file."""
     selected_profile = get_vendor_profile(selected_vendor)
     if _signature_matches(selected_profile, sheet_names, column_names):
-        return
+        all_matches = [p for p in _ALL_PROFILES if _signature_matches(p, sheet_names, column_names)]
+        specificities = [_specificity(p) for p in all_matches]
+        selected_specificity = _specificity(selected_profile)
+        max_specificity = max(specificities)
+        is_unique_most_specific = (
+            selected_specificity == max_specificity
+            and specificities.count(max_specificity) == 1
+        )
+        if is_unique_most_specific:
+            return
 
     matches = [
         p.vendor_id
