@@ -125,11 +125,18 @@ def build_findings_sheet(
     survey: Survey,
     banner: list[str] | None = None,
     exclude_respondent_ids: set[str] | None = None,
+    exclude_nonsubstantive_from_base: bool = False,
 ) -> list[FindingsRow]:
     """Build the long-format findings sheet.
 
     Returns one FindingsRow per (question, breakdown variable, breakdown level, metric).
     Every label field carries the real ScaleCode label, never a bare code.
+
+    ``exclude_nonsubstantive_from_base`` is passed straight through to every
+    compute_question_stats call (total and each banner cell) — the project
+    setting from UI build prompt 9. Never applied to the banner/demographic
+    breakdown itself (only to each question's own base), matching
+    compute_question_stats's own documented scope.
     """
     if banner is None:
         banner = _DEFAULT_BANNER
@@ -173,7 +180,9 @@ def build_findings_sheet(
         q_responses = response_index.get(question.qid, [])
 
         # Total breakdown
-        qs_total = compute_question_stats(question, q_responses)
+        qs_total = compute_question_stats(
+            question, q_responses, exclude_nonsubstantive_from_base=exclude_nonsubstantive_from_base,
+        )
         rows.extend(_emit_rows(
             qs_total, survey.id, question,
             breakdown_variable="total",
@@ -197,7 +206,9 @@ def build_findings_sheet(
                     rid for rid, demo_sc in rid_to_sc.items() if demo_sc.code == sc.code
                 }
                 cell_responses = [r for r in q_responses if r.respondent_id in cell_respondents]
-                qs_cell = compute_question_stats(question, cell_responses)
+                qs_cell = compute_question_stats(
+                    question, cell_responses, exclude_nonsubstantive_from_base=exclude_nonsubstantive_from_base,
+                )
                 rows.extend(_emit_rows(
                     qs_cell, survey.id, question,
                     breakdown_variable=bname,

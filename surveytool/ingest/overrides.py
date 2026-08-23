@@ -10,13 +10,13 @@ import yaml
 from pydantic import BaseModel, Field
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
-from surveytool.core.model import CodeRole
+from surveytool.core.model import CodeRole, QuestionType
 from surveytool.core.scale_library import identify_family
 
 
 class QuestionOverride(BaseModel):
     variable: str
-    question_type: Literal["scale", "binary", "categorical"]
+    question_type: Literal["scale", "binary", "categorical", "excluded"]
     label_roles: dict[str, Literal["top", "neutral", "bottom"]] = Field(default_factory=dict)
     resolved_at: datetime
     library_version: str
@@ -61,6 +61,38 @@ def apply_override(question_labels: list[str], override: QuestionOverride) -> di
     if missing:
         raise IncompleteOverrideError(override.variable, missing)
     return {lb: _ROLE_MAP[override.label_roles[lb]] for lb in question_labels}
+
+
+_QTYPE_MAP = {"scale": QuestionType.scale, "binary": QuestionType.binary, "categorical": QuestionType.categorical}
+
+
+def resolve_with_override(
+    substantive_labels: list[str],
+    overrides: dict[str, "QuestionOverride"],
+    qid: str,
+) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None] | None:
+    """Adapter-facing entry point: if `qid` has a project override, resolve
+    this question's classification and roles from the override instead of
+    the shared scale library, and return the same (qtype, roles, family)
+    shape classify_question_type returns so it drops into each adapter's
+    existing branch structure unchanged. Returns None when there's no
+    override for this qid, so the caller falls through to its normal
+    classify_question_type/resolve_roles call.
+
+    An "excluded" override maps to QuestionType.excluded with roles=None —
+    adapters use this to build a placeholder Question that stays out of
+    reporting (base_eligible=False) instead of calling classify at all.
+    """
+    override = overrides.get(qid)
+    if override is None:
+        return None
+    if override.question_type == "excluded":
+        return QuestionType.excluded, None, None
+    if override.question_type == "scale":
+        roles = apply_override(substantive_labels, override)
+        family = identify_family(substantive_labels)
+        return QuestionType.scale, roles, family
+    return _QTYPE_MAP[override.question_type], None, None
 
 
 def write_override(path: Path, override: QuestionOverride) -> None:

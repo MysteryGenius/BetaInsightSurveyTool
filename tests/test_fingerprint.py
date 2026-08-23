@@ -57,6 +57,19 @@ def test_purespectrum_shaped_file_under_rakuten_selection_names_purespectrum():
     assert exc_info.value.matched_vendor == "purespectrum"
 
 
+def test_vendor_with_no_declared_signature_never_raises():
+    """Milieu declares an empty signature (sniffed by CSV header regex, not
+    sheet/column names). _signature_matches's vacuous-match guard means an
+    empty signature can never 'match' anything, including its own file — so
+    check_fingerprint must special-case this and always pass, rather than
+    raising VENDOR_MISMATCH on every genuine Milieu upload."""
+    check_fingerprint(
+        "milieu",
+        sheet_names=frozenset(),
+        column_names=frozenset({"[Q1]: Some milieu-style header"}),
+    )  # must not raise
+
+
 def test_rakuten_own_real_file_still_matches_rakuten_with_no_raise():
     """A genuine Rakuten file (only record/uuid, no PureSpectrum-only
     columns) must still pass under rakuten selection: Rakuten's signature

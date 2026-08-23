@@ -18,6 +18,7 @@ from surveytool.core.model import (
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import any_label_matches_family, identify_family, resolve_roles
+from surveytool.ingest.overrides import QuestionOverride, apply_override
 
 _HEADER_RE = re.compile(r"^\[(?P<qid>[^\]]+)\]:\s*(?P<qtype>.+?)\s+-\s+(?P<text>.*)$")
 _MULTI_DELIMITER = "; "
@@ -92,13 +93,17 @@ def _build_scale_question(
     info: _HeaderInfo,
     values: list[str],
     grid_group: str | None,
+    override: QuestionOverride | None = None,
 ) -> Question:
     ns_overrides: dict[str, CodeRole] = {
         v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v)
     }
     substantive_values = [v for v in values if v not in ns_overrides]
 
-    roles = resolve_roles(substantive_values, override=ns_overrides)
+    if override is not None:
+        roles = apply_override(substantive_values, override)
+    else:
+        roles = resolve_roles(substantive_values, override=ns_overrides)
     for label, role in ns_overrides.items():
         roles[label] = role
 
@@ -136,7 +141,16 @@ def _build_scale_question(
     )
 
 
-def _build_single_choice_question(info: _HeaderInfo, values: list[str]) -> Question:
+def _build_single_choice_question(
+    info: _HeaderInfo,
+    values: list[str],
+    qtype: QuestionType = QuestionType.single_choice,
+) -> Question:
+    """Builds a non-scale question. `qtype` defaults to single_choice (the
+    auto-detected shape), but a binary/categorical override passes its real
+    question_type through here so the override's classification choice
+    survives rather than collapsing to single_choice regardless of which
+    the analyst actually picked (see resolve_with_override)."""
     labels = [
         ScaleCode(
             code=i,
@@ -148,7 +162,7 @@ def _build_single_choice_question(info: _HeaderInfo, values: list[str]) -> Quest
     return Question(
         qid=info.qid,
         text=info.text,
-        qtype=QuestionType.single_choice,
+        qtype=qtype,
         labels=labels,
         base_eligible=True,
         is_demographic=text_matches_demographic(info.text),
@@ -174,14 +188,24 @@ def _build_multi_response_question(info: _HeaderInfo, values: list[str]) -> Ques
     )
 
 
-def parse_header(fieldnames: list[str], rows: list[dict[str, str]]) -> list[Question]:
+def parse_header(
+    fieldnames: list[str],
+    rows: list[dict[str, str]],
+    overrides: dict[str, QuestionOverride] | None = None,
+) -> list[Question]:
     """Parse Milieu CSV column headers into canonical Questions."""
+    overrides = overrides or {}
     questions: list[Question] = []
     grid_group_by_stem: dict[str, str] = {}
 
     for column in fieldnames:
         info = _parse_header_cell(column)
         if info is None:
+            continue
+
+        override = overrides.get(info.qid)
+        if override is not None and override.question_type == "excluded":
+            questions.append(Question(qid=info.qid, text=info.text, qtype=QuestionType.excluded, base_eligible=False))
             continue
 
         if info.qtype_token == "Multi-select":
@@ -195,10 +219,22 @@ def parse_header(fieldnames: list[str], rows: list[dict[str, str]]) -> list[Ques
             grid_group = grid_group_by_stem.setdefault(
                 info.grid_stem or info.qid, f"grid_{_slugify(info.grid_stem or info.qid)}"
             )
+            if override is not None and override.question_type == "scale":
+                questions.append(_build_scale_question(info, values, grid_group, override=override))
+                continue
+            if override is not None:
+                questions.append(_build_single_choice_question(info, values, qtype=QuestionType(override.question_type)))
+                continue
             questions.append(_build_scale_question(info, values, grid_group))
             continue
 
         if info.qtype_token == "Single-select":
+            if override is not None and override.question_type == "scale":
+                questions.append(_build_scale_question(info, values, None, override=override))
+                continue
+            if override is not None:
+                questions.append(_build_single_choice_question(info, values, qtype=QuestionType(override.question_type)))
+                continue
             if not any_label_matches_family(values):
                 questions.append(_build_single_choice_question(info, values))
                 continue
@@ -267,7 +303,47 @@ def load_respondents(
     return responses, n_raw
 
 
-def load(path: Path, survey_id: str) -> Survey:
+def read_status_values(path: Path) -> list[str]:
+    """Raw values of the 'status' column across all data rows, for the run
+    summary's disposition counts (prompt 7). Milieu's real fixture carries
+    a 'status' column even though it's not part of the vendor profile's
+    reserved set — read directly from the CSV rows if present."""
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames is None or "status" not in reader.fieldnames:
+                return []
+            return [row["status"] for row in reader if row.get("status")]
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return []
+
+
+def column_qid_map(path: Path) -> tuple[list[str], dict[str, str]]:
+    """Returns (header, qid_by_column) for the run summary's column
+    inventory (prompt 7). Milieu's qid is embedded directly in each column's
+    "[qid]: ..." header, so this only needs _parse_header_cell — no
+    grid-synthesis logic to duplicate, unlike Toluna's column_qid_map."""
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            fieldnames = list(reader.fieldnames or [])
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise SurveyToolError(
+            ErrorCode.FILE_UNREADABLE,
+            "This file could not be read as a Milieu export.",
+            detail=str(exc),
+            next_action="Confirm the file is a complete, un-corrupted export, or pick a different file.",
+        ) from exc
+
+    qid_by_column: dict[str, str] = {}
+    for column in fieldnames:
+        info = _parse_header_cell(column)
+        if info is not None:
+            qid_by_column[column] = info.qid
+    return fieldnames, qid_by_column
+
+
+def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | None = None) -> Survey:
     """Load a Milieu CSV file and return a canonical Survey."""
     try:
         with path.open(encoding="utf-8-sig", newline="") as f:
@@ -282,7 +358,7 @@ def load(path: Path, survey_id: str) -> Survey:
             next_action="Confirm the file is a complete, un-corrupted export, or pick a different file.",
         ) from exc
 
-    questions = parse_header(fieldnames, rows)
+    questions = parse_header(fieldnames, rows, overrides)
     if not questions:
         raise SurveyToolError(
             ErrorCode.NO_QUESTIONS_FOUND,

@@ -19,17 +19,18 @@ from surveytool.core.model import (
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import classify_question_type
 from surveytool.ingest.datamap_reader import Codebook, DatamapReader
+from surveytool.ingest.overrides import QuestionOverride, resolve_with_override
 from surveytool.ingest.vendor_profile import RAKUTEN_PROFILE
 
 
-def parse_codebook(ws_datamap) -> list[Question]:
+def parse_codebook(ws_datamap, overrides: dict[str, QuestionOverride] | None = None) -> list[Question]:
     """Parse the Rakuten Datamap sheet into a list of Questions."""
     reader = DatamapReader(RAKUTEN_PROFILE)
     codebook: Codebook = reader.read_codebook(ws_datamap)
 
     questions: list[Question] = []
     for qid, (text, codes, qtype_hint) in codebook.items():
-        _build_question(qid, text, qtype_hint, codes, questions)
+        _build_question(qid, text, qtype_hint, codes, questions, overrides or {})
     return questions
 
 
@@ -39,6 +40,7 @@ def _build_question(
     qtype_hint: str | None,
     codes: list[tuple[int, str]],
     out: list[Question],
+    overrides: dict[str, QuestionOverride],
 ) -> None:
     if qtype_hint == "open_numeric":
         out.append(
@@ -94,7 +96,15 @@ def _build_question(
 
     substantive_norm = [nl for nl in norm_labels if nl not in ns_overrides]
 
-    qtype, roles, family = classify_question_type(substantive_norm)
+    override_result = resolve_with_override(substantive_norm, overrides, qid)
+    if override_result is not None:
+        qtype, roles, family = override_result
+    else:
+        qtype, roles, family = classify_question_type(substantive_norm)
+
+    if qtype is QuestionType.excluded:
+        out.append(Question(qid=qid, text=text, qtype=QuestionType.excluded, base_eligible=False))
+        return
 
     if qtype is QuestionType.scale:
         for ns_label, ns_role in ns_overrides.items():
@@ -230,7 +240,31 @@ def load_respondents(
     return responses, n_raw
 
 
-def load(path: Path, survey_id: str) -> Survey:
+def column_qid_map(path: Path) -> tuple[list[str], dict[str, str]]:
+    """Returns (header, qid_by_column) for the run summary's column
+    inventory (prompt 7). Rakuten's qid is the literal A1 sheet column
+    name, so this is an identity mapping over the header row."""
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
+        raise SurveyToolError(
+            ErrorCode.FILE_UNREADABLE,
+            "This file could not be opened as a Rakuten export.",
+            detail=str(exc),
+            next_action="Confirm the file is a complete, un-corrupted .xlsx export, or pick a different file.",
+        ) from exc
+    try:
+        ws = wb[RAKUTEN_PROFILE.data_sheet]
+        header = next(ws.iter_rows(max_row=1, values_only=True), None)
+    finally:
+        wb.close()
+    if header is None:
+        return [], {}
+    columns = [str(h) for h in header if h is not None]
+    return columns, {c: c for c in columns}
+
+
+def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | None = None) -> Survey:
     """Load a Rakuten xlsx file and return a canonical Survey."""
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -263,7 +297,7 @@ def load(path: Path, survey_id: str) -> Survey:
                 next_action="Check the vendor setting, or pick a different file.",
             ) from exc
 
-        questions = parse_codebook(ws_datamap)
+        questions = parse_codebook(ws_datamap, overrides)
         if not questions:
             raise SurveyToolError(
                 ErrorCode.NO_QUESTIONS_FOUND,

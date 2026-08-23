@@ -72,7 +72,11 @@ def test_milieu_profile_matches_current_constants():
     assert p.vendor_id == "milieu"
     assert p.data_sheet is None
     assert p.codebook_sheet is None
-    assert p.reserved_metadata_columns == frozenset({"profile_id"})
+    assert p.reserved_metadata_columns == frozenset({
+        "profile_id", "survey_link", "status", "survey_completion_date_time",
+        "data_pipeline", "link_source", "platform", "os", "browser", "version",
+        "ip", "market", "language", "duration_seconds",
+    })
     assert p.quality_columns == frozenset()
     assert p.quality_flag_column is None
     assert p.verification_sheet is None

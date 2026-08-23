@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 import tempfile
 import uuid
 import zipfile
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import openpyxl
 import pandas as pd
+import yaml
 from fastapi import FastAPI, Request, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl.utils.exceptions import InvalidFileException
+from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from surveytool.charts import render_charts
@@ -32,23 +37,43 @@ from surveytool.core.breaks_models import (
     RegistryPayload,
 )
 from surveytool.core.breaks_payload import attach_chart_permissions
-from surveytool.core.config import ToolConfig
+from surveytool.core.config import ToolConfig, load_config
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
-from surveytool.core.model import Survey
+from surveytool.core.model import CodeRole, Survey
 from surveytool.core.projection import Projection, project
 from surveytool.core.respondent_frame import to_respondent_frame
 from surveytool.core.straightliner import detect_straightliners
 from surveytool.findings.sheet import build_findings_sheet
-from surveytool.ingest.milieu import _HEADER_RE as _MILIEU_HEADER_RE
+from surveytool.ingest.column_inventory import build_column_classifications
+from surveytool.ingest.fingerprint import check_fingerprint
+from surveytool.ingest.overrides import (
+    QuestionOverride,
+    apply_override,
+    check_override_still_needed,
+    load_overrides,
+    write_override,
+)
+from surveytool.ingest.run_summary import RunSummary, build_run_summary
+from surveytool.ingest.vendor_profile import get_vendor_profile
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _DEMOGRAPHICS_DIR = Path(__file__).parent.parent / "core" / "demographics"
+_STORAGE_DIR = Path(tempfile.gettempdir()) / "surveytool-sessions"
+_OVERRIDES_DIR = Path(tempfile.gettempdir()) / "surveytool-overrides"
+_SETTINGS_DIR = Path(tempfile.gettempdir()) / "surveytool-settings"
 _logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-_VENDORS = ("rakuten", "milieu", "toluna")
-_VENDOR_LABELS = {"rakuten": "Rakuten", "milieu": "Milieu", "toluna": "Toluna"}
+_VENDORS = ("rakuten", "milieu", "toluna", "purespectrum")
+_VENDOR_LABELS = {
+    "rakuten": "Rakuten",
+    "milieu": "Milieu",
+    "toluna": "Toluna",
+    "purespectrum": "PureSpectrum",
+}
+
+_SCALE_LIBRARY_VERSION = "1.0.0"
 
 _CANONICAL_PATH = _DEMOGRAPHICS_DIR / "canonical.yaml"
 _VENDOR_REGISTRY_PATHS = {
@@ -80,6 +105,38 @@ class Session:
     findings: list
     vendor: str
     registry: ResolvedRegistry
+    survey_id: str
+    file_path: Path
+    run_summary: RunSummary
+
+
+def _project_settings_path(survey_id: str) -> Path:
+    """Per-survey_id project settings (prompt 9: non-substantive response
+    handling). Mirrors _project_overrides_path's validation and layout —
+    one small YAML file per survey_id, in its own directory alongside the
+    overrides store."""
+    _validate_survey_id(survey_id)
+    _SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    candidate = (_SETTINGS_DIR / f"{survey_id}.yaml").resolve()
+    if _SETTINGS_DIR.resolve() not in candidate.parents:
+        raise SurveyToolError(
+            ErrorCode.CONFIG_INVALID,
+            "Survey ID is not valid.",
+            next_action="Use a shorter ID with only letters, numbers, '-', or '_'.",
+        )
+    return candidate
+
+
+def _load_project_settings(survey_id: str) -> ToolConfig:
+    path = _project_settings_path(survey_id)
+    if not path.exists():
+        return ToolConfig()
+    return load_config(path)
+
+
+def _save_project_settings(survey_id: str, settings: ToolConfig) -> None:
+    path = _project_settings_path(survey_id)
+    path.write_text(yaml.dump(settings.model_dump(mode="json")), encoding="utf-8")
 
 
 def _default_config() -> ToolConfig:
@@ -113,39 +170,74 @@ def get_session(session_id: str) -> Session | None:
     return _SESSIONS.get(session_id)
 
 
-def _sniff_vendor(path: Path) -> str | None:
-    """Identify which supported vendor a file's format matches, if any.
+_SURVEY_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
-    Reuses each adapter's own distinguishing signal: the Datamap sheet for
-    Rakuten and the RespondentData.Text sheet for Toluna (see the
-    MISSING_SHEET checks in rakuten.py / toluna.py), and the bracketed
-    header pattern for Milieu (milieu.py's _HEADER_RE). Reads only what's
-    needed to identify the format, not a full parse. Returns None if the
-    file matches no known vendor or can't be opened at all.
+
+def _validate_survey_id(survey_id: str) -> None:
+    """survey_id is free-text the analyst types into the upload form and is
+    interpolated directly into a filesystem path (_project_overrides_path).
+    Without this check a value like '../../etc/cron.d/x' could write outside
+    _OVERRIDES_DIR — reject anything but a conservative safe charset before
+    it ever reaches a path."""
+    if not _SURVEY_ID_RE.match(survey_id):
+        raise SurveyToolError(
+            ErrorCode.CONFIG_INVALID,
+            "Survey ID can only contain letters, numbers, hyphens, and underscores.",
+            detail=f"Rejected survey_id: {survey_id!r}.",
+            next_action="Use a shorter ID with only letters, numbers, '-', or '_'.",
+        )
+
+
+def _project_overrides_path(survey_id: str) -> Path:
+    """Overrides are scoped per survey_id — the only project-like identifier
+    the analyst already provides at upload time. One YAML file per survey_id,
+    shared across re-uploads of the same survey_id so a resolved question
+    stays resolved on a later re-run of the same project."""
+    _validate_survey_id(survey_id)
+    _OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
+    candidate = (_OVERRIDES_DIR / f"{survey_id}.yaml").resolve()
+    if _OVERRIDES_DIR.resolve() not in candidate.parents:
+        raise SurveyToolError(
+            ErrorCode.CONFIG_INVALID,
+            "Survey ID is not valid.",
+            next_action="Use a shorter ID with only letters, numbers, '-', or '_'.",
+        )
+    return candidate
+
+
+def _read_fingerprint_signals(path: Path) -> tuple[frozenset[str], frozenset[str]]:
+    """Read just enough of an uploaded file to run the fingerprint pre-check:
+    its sheet names (xlsx only) and the union of every sheet's header row
+    (xlsx) or the CSV header row (Milieu). Not a full parse — read_only mode,
+    header rows only. Returns empty sets if the file can't be opened at all,
+    which check_fingerprint's vacuous-match guard treats as "no signature
+    data available" rather than a match.
     """
     if path.suffix.lower() == ".xlsx":
         try:
             wb = openpyxl.load_workbook(path, read_only=True)
         except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile):
-            return None
+            return frozenset(), frozenset()
         try:
-            sheetnames = set(wb.sheetnames)
+            sheet_names = frozenset(wb.sheetnames)
+            column_names: set[str] = set()
+            for sheetname in wb.sheetnames:
+                ws = wb[sheetname]
+                header = next(ws.iter_rows(max_row=1, values_only=True), None)
+                if header:
+                    column_names.update(str(cell) for cell in header if cell is not None)
         finally:
             wb.close()
-        if "Datamap" in sheetnames:
-            return "rakuten"
-        if "RespondentData.Text" in sheetnames:
-            return "toluna"
-        return None
+        return sheet_names, frozenset(column_names)
 
     try:
         with path.open(encoding="utf-8-sig", newline="") as f:
             header = next(csv.reader(f), None)
     except (OSError, UnicodeDecodeError, csv.Error):
-        return None
-    if header is not None and any(_MILIEU_HEADER_RE.match(cell.strip()) for cell in header):
-        return "milieu"
-    return None
+        return frozenset(), frozenset()
+    if header is None:
+        return frozenset(), frozenset()
+    return frozenset(), frozenset(cell.strip() for cell in header)
 
 
 def _load_survey(path: Path, survey_id: str, vendor: str) -> Survey:
@@ -155,6 +247,8 @@ def _load_survey(path: Path, survey_id: str, vendor: str) -> Survey:
         from surveytool.ingest.milieu import load
     elif vendor == "toluna":
         from surveytool.ingest.toluna import load
+    elif vendor == "purespectrum":
+        from surveytool.ingest.purespectrum import load
     else:
         raise SurveyToolError(
             ErrorCode.VENDOR_MISMATCH,
@@ -163,16 +257,11 @@ def _load_survey(path: Path, survey_id: str, vendor: str) -> Survey:
             next_action=f"Choose one of: {', '.join(_VENDORS)}.",
         )
 
-    detected = _sniff_vendor(path)
-    if detected is not None and detected != vendor:
-        raise SurveyToolError(
-            ErrorCode.VENDOR_MISMATCH,
-            f"This looks like a {_VENDOR_LABELS[detected]} export, but {_VENDOR_LABELS[vendor]} is selected.",
-            detail=f"Detected vendor: {detected}. Selected vendor: {vendor}.",
-            next_action="Change the vendor setting, or pick a different file.",
-        )
+    sheet_names, column_names = _read_fingerprint_signals(path)
+    check_fingerprint(vendor, sheet_names=sheet_names, column_names=column_names)
 
-    return load(path, survey_id)
+    overrides = load_overrides(_project_overrides_path(survey_id)).overrides
+    return load(path, survey_id, overrides)
 
 
 def _require_session(session_id: str) -> Session:
@@ -182,25 +271,121 @@ def _require_session(session_id: str) -> Session:
     return session
 
 
-@app.post("/api/upload")
-async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = Form(...)):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir) / Path(file.filename).name
-        tmp_path.write_bytes(await file.read())
+def _column_qid_map(vendor: str, path: Path, survey_id: str) -> tuple[list[str], dict[str, str]]:
+    """Toluna's column_qid_map re-derives qids via its own internal
+    parse_header call — without the same project overrides _load_survey
+    used, a question that only classifies successfully because of an
+    override (e.g. its raw labels would otherwise raise
+    UnresolvedScaleLabelsError) would make this second, override-blind
+    parse fail even though the real load() already succeeded. Passing the
+    same overrides here keeps both parses consistent. The other three
+    vendors' column_qid_map don't take overrides — their qid derivation
+    doesn't depend on classification, so this is a no-op for them.
+    """
+    if vendor == "rakuten":
+        from surveytool.ingest.rakuten import column_qid_map
+        return column_qid_map(path)
+    if vendor == "milieu":
+        from surveytool.ingest.milieu import column_qid_map
+        return column_qid_map(path)
+    if vendor == "toluna":
+        from surveytool.ingest.toluna import column_qid_map
+        overrides = load_overrides(_project_overrides_path(survey_id)).overrides
+        return column_qid_map(path, overrides)
+    if vendor == "purespectrum":
+        from surveytool.ingest.purespectrum import column_qid_map
+        return column_qid_map(path)
+    return [], {}
 
-        survey = _load_survey(tmp_path, survey_id, vendor)
-        registry = _load_session_registry(vendor, survey)
-        excluded = detect_straightliners(survey.responses, survey.questions)
-        findings = build_findings_sheet(survey, exclude_respondent_ids=excluded or None)
 
+def _read_status_values(vendor: str, path: Path) -> list[str]:
+    """Only PureSpectrum and Milieu's real fixtures carry a 'status'
+    column; Rakuten and Toluna have none, so disposition_counts is
+    legitimately empty for those vendors rather than an extraction bug."""
+    if vendor == "purespectrum":
+        from surveytool.ingest.purespectrum import read_status_values
+    elif vendor == "milieu":
+        from surveytool.ingest.milieu import read_status_values
+    else:
+        return []
+    return read_status_values(path)
+
+
+def _verification_sheet_used(vendor: str, path: Path) -> bool:
+    profile = get_vendor_profile(vendor)
+    if profile.verification_sheet is None or path.suffix.lower() != ".xlsx":
+        return False
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True)
+    except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile):
+        return False
+    try:
+        return profile.verification_sheet in wb.sheetnames
+    finally:
+        wb.close()
+
+
+def _build_session_run_summary(vendor: str, path: Path, survey: Survey, survey_id: str) -> RunSummary:
+    profile = get_vendor_profile(vendor)
+    header, qid_by_column = _column_qid_map(vendor, path, survey_id)
+    column_classifications = build_column_classifications(header, qid_by_column, survey, profile)
+    status_values = _read_status_values(vendor, path)
+    verification_sheet_used = _verification_sheet_used(vendor, path)
+
+    project_overrides = load_overrides(_project_overrides_path(survey_id)).overrides
+    questions_by_qid = {q.qid: q for q in survey.questions}
+    overrides_applied = [
+        (variable, override.resolved_at)
+        for variable, override in project_overrides.items()
+        if variable in questions_by_qid
+    ]
+    override_notices = []
+    for variable, override in project_overrides.items():
+        question = questions_by_qid.get(variable)
+        if question is None:
+            continue
+        substantive_labels = [sc.label for sc in question.labels if sc.role != CodeRole.nonsubstantive]
+        notice = check_override_still_needed(variable, substantive_labels, override)
+        if notice is not None:
+            override_notices.append(notice)
+
+    return build_run_summary(
+        profile=profile,
+        column_classifications=column_classifications,
+        status_values=status_values,
+        override_notices=override_notices,
+        overrides_applied=overrides_applied,
+        verification_sheet_used=verification_sheet_used,
+    )
+
+
+def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session, list[dict]]:
+    """Shared pipeline for both a fresh upload and a resolver-triggered
+    re-run: load, register demographics, detect straightliners, build
+    findings. Returns a Session (not yet stored under a session_id) and the
+    warnings list the API response includes.
+    """
+    survey = _load_survey(file_path, survey_id, vendor)
+    registry = _load_session_registry(vendor, survey)
+    excluded = detect_straightliners(survey.responses, survey.questions)
+    settings = _load_project_settings(survey_id)
+    findings = build_findings_sheet(
+        survey,
+        exclude_respondent_ids=excluded or None,
+        exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
+    )
     respondent_frame = to_respondent_frame(survey)
-    session_id = str(uuid.uuid4())
-    _SESSIONS[session_id] = Session(
+    run_summary = _build_session_run_summary(vendor, file_path, survey, survey_id)
+
+    session = Session(
         survey=survey,
         respondent_frame=respondent_frame,
         findings=findings,
         vendor=vendor,
         registry=registry,
+        survey_id=survey_id,
+        file_path=file_path,
+        run_summary=run_summary,
     )
 
     warnings = []
@@ -209,13 +394,178 @@ async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = For
             "code": WarningCode.STRAIGHTLINERS_EXCLUDED.value,
             "message": f"{len(excluded)} respondent(s) were excluded for straightlining.",
         })
+    return session, warnings
+
+
+@app.post("/api/upload")
+async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = Form(...)):
+    session_id = str(uuid.uuid4())
+    session_dir = _STORAGE_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = session_dir / Path(file.filename).name
+    stored_path.write_bytes(await file.read())
+
+    session, warnings = _run_pipeline(stored_path, survey_id, vendor)
+    _SESSIONS[session_id] = session
 
     return {
         "session_id": session_id,
-        "n_raw": survey.n_raw,
-        "n_analysis": survey.n_analysis,
-        "question_count": len(survey.questions),
+        "n_raw": session.survey.n_raw,
+        "n_analysis": session.survey.n_analysis,
+        "question_count": len(session.survey.questions),
         "warnings": warnings,
+    }
+
+
+class ResolvedQuestionPayload(BaseModel):
+    """One resolver answer: the classification the analyst chose for a
+    variable, plus the label->role assignment for the scale case (empty for
+    binary/categorical/excluded, which need no per-label roles)."""
+
+    variable: str
+    question_type: Literal["scale", "binary", "categorical", "excluded"]
+    label_roles: dict[str, Literal["top", "neutral", "bottom"]] = {}
+
+
+class ResolveRequest(BaseModel):
+    resolutions: list[ResolvedQuestionPayload]
+
+
+@app.post("/api/session/{session_id}/resolve")
+async def resolve_questions(session_id: str, request: ResolveRequest):
+    """Writes the resolver's whole answer set as project overrides, then
+    re-runs the file load so the resolved questions take effect immediately.
+
+    Writes only after every entry validates — apply_override's
+    IncompleteOverrideError is not reachable here (the resolver enforces
+    every label assigned before allowing save), but a scale entry missing a
+    role due to a client bug must still fail the whole batch rather than
+    write some overrides and skip others, so validation happens in one pass
+    before any write.
+    """
+    session = _require_session(session_id)
+    overrides_path = _project_overrides_path(session.survey_id)
+    now = datetime.now(timezone.utc)
+
+    question_labels_by_variable = {
+        q.qid: [sc.label for sc in q.labels if sc.role != CodeRole.nonsubstantive]
+        for q in session.survey.questions
+    }
+
+    validated: list[QuestionOverride] = []
+    for entry in request.resolutions:
+        override = QuestionOverride(
+            variable=entry.variable,
+            question_type=entry.question_type,
+            label_roles=entry.label_roles,
+            resolved_at=now,
+            library_version=_SCALE_LIBRARY_VERSION,
+        )
+        if override.question_type == "scale":
+            labels = question_labels_by_variable.get(entry.variable, list(entry.label_roles.keys()))
+            apply_override(labels, override)  # raises IncompleteOverrideError, caught by the app-level handler
+        validated.append(override)
+
+    for override in validated:
+        write_override(overrides_path, override)
+
+    new_session, warnings = _run_pipeline(session.file_path, session.survey_id, session.vendor)
+    _SESSIONS[session_id] = new_session
+
+    return {
+        "session_id": session_id,
+        "n_raw": new_session.survey.n_raw,
+        "n_analysis": new_session.survey.n_analysis,
+        "question_count": len(new_session.survey.questions),
+        "warnings": warnings,
+    }
+
+
+@app.post("/api/session/{session_id}/rerun")
+async def rerun_session(session_id: str):
+    """Re-runs the current session's file from scratch, picking up any
+    project setting changed since the original upload (prompt 9: changing
+    the non-substantive exclude toggle invalidates the current result and
+    requires this). Distinct from /resolve, which re-runs as a side effect
+    of writing overrides — this re-runs with no override changes, purely to
+    pick up a settings change."""
+    session = _require_session(session_id)
+    new_session, warnings = _run_pipeline(session.file_path, session.survey_id, session.vendor)
+    _SESSIONS[session_id] = new_session
+    return {
+        "session_id": session_id,
+        "n_raw": new_session.survey.n_raw,
+        "n_analysis": new_session.survey.n_analysis,
+        "question_count": len(new_session.survey.questions),
+        "warnings": warnings,
+    }
+
+
+class ProjectSettingsPayload(BaseModel):
+    nonsubstantive_labels: list[str]
+    exclude_nonsubstantive_from_base: bool
+
+
+@app.get("/api/projects/{survey_id}/settings")
+async def get_project_settings(survey_id: str) -> ProjectSettingsPayload:
+    """Project settings for non-substantive response handling (prompt 9).
+    Keyed by survey_id directly (not session_id) since these are project-
+    level, editable before or independent of any active upload session."""
+    settings = _load_project_settings(survey_id)
+    return ProjectSettingsPayload(
+        nonsubstantive_labels=settings.nonsubstantive_labels,
+        exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
+    )
+
+
+@app.post("/api/projects/{survey_id}/settings")
+async def update_project_settings(survey_id: str, payload: ProjectSettingsPayload) -> ProjectSettingsPayload:
+    """Saves the settings. Does not itself re-run anything — any existing
+    session for this survey_id is now stale (its findings were built under
+    the old setting) and the caller is responsible for re-running, exactly
+    as the resolver's own save-then-rerun flow works. The UI enforces this
+    by requiring a re-run before showing results again once a setting
+    changes underneath an open session."""
+    settings = ToolConfig(
+        nonsubstantive_labels=payload.nonsubstantive_labels,
+        exclude_nonsubstantive_from_base=payload.exclude_nonsubstantive_from_base,
+    )
+    _save_project_settings(survey_id, settings)
+    return payload
+
+
+@app.get("/api/session/{session_id}/run-summary")
+async def get_run_summary(session_id: str):
+    """The run summary panel's data source (prompt 7/8): column inventory,
+    classification counts, disposition counts, quality-flag and
+    verification statements, override resolutions, and notices. Not opened
+    automatically — the panel only fetches this when the analyst opens it
+    from the result screen.
+    """
+    session = _require_session(session_id)
+    summary = session.run_summary
+    questions_by_qid = {q.qid: q for q in session.survey.questions}
+    qid_by_column = _column_qid_map(session.vendor, session.file_path, session.survey_id)[1]
+
+    columns = []
+    for column, classification in summary.column_classifications.items():
+        qid = qid_by_column.get(column)
+        question = questions_by_qid.get(qid) if qid is not None else None
+        columns.append({
+            "column": column,
+            "question_text": question.text if question is not None else None,
+            "classification": classification.value,
+            "question_type": question.qtype.value if question is not None else None,
+        })
+
+    return {
+        "columns": columns,
+        "classification_counts": {k.value: v for k, v in summary.classification_counts.items()},
+        "disposition_counts": summary.disposition_counts,
+        "quality_flag_statement": summary.quality_flag_statement,
+        "verification_statement": summary.verification_statement,
+        "override_resolutions": summary.override_resolutions,
+        "notices": summary.notices,
     }
 
 

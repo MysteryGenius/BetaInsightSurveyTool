@@ -89,8 +89,19 @@ def check_fingerprint(
     among all profiles whose signatures match. If some other matching
     profile is equally or more specific, the selected vendor's match isn't
     trustworthy, and we fall through to the existing mismatch-naming logic
-    exactly as it already works for a non-matching file."""
+    exactly as it already works for a non-matching file.
+
+    A selected vendor with no declared signature (Milieu, sniffed by CSV
+    header regex rather than sheet/column names) has nothing for this check
+    to verify, so it always passes: _signature_matches's vacuous-match guard
+    means such a profile can never satisfy its own check, and without this
+    early return every Milieu upload would incorrectly raise."""
     selected_profile = get_vendor_profile(selected_vendor)
+    if selected_profile.signature is None or (
+        not selected_profile.signature.expected_sheets and not selected_profile.signature.expected_columns
+    ):
+        return
+
     if _signature_matches(selected_profile, sheet_names, column_names):
         all_matches = [p for p in _ALL_PROFILES if _signature_matches(p, sheet_names, column_names)]
         specificities = [_specificity(p) for p in all_matches]

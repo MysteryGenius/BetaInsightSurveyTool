@@ -21,6 +21,7 @@ from surveytool.core.model import (
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import any_label_matches_family, identify_family, resolve_roles
+from surveytool.ingest.overrides import QuestionOverride, apply_override
 
 _HEADER_RE = re.compile(r"^(?P<num>\d+)\s*:\s*(?P<rest>.+)$")
 _RESPID_COLUMN = "respid"
@@ -81,13 +82,17 @@ def _build_scale_question(
     text: str,
     values: list[str],
     grid_group: str | None,
+    override: QuestionOverride | None = None,
 ) -> Question:
     ns_overrides: dict[str, CodeRole] = {
         v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v)
     }
     substantive_values = [v for v in values if v not in ns_overrides]
 
-    roles = resolve_roles(substantive_values, override=ns_overrides)
+    if override is not None:
+        roles = apply_override(substantive_values, override)
+    else:
+        roles = resolve_roles(substantive_values, override=ns_overrides)
     for label, role in ns_overrides.items():
         roles[label] = role
 
@@ -124,7 +129,17 @@ def _build_scale_question(
     )
 
 
-def _build_single_choice_question(qid: str, text: str, values: list[str]) -> Question:
+def _build_single_choice_question(
+    qid: str,
+    text: str,
+    values: list[str],
+    qtype: QuestionType = QuestionType.single_choice,
+) -> Question:
+    """Builds a non-scale question. `qtype` defaults to single_choice (the
+    auto-detected shape), but a binary/categorical override passes its real
+    question_type through here so the override's classification choice
+    survives rather than collapsing to single_choice regardless of which
+    the analyst actually picked."""
     labels = [
         ScaleCode(
             code=i,
@@ -136,18 +151,23 @@ def _build_single_choice_question(qid: str, text: str, values: list[str]) -> Que
     return Question(
         qid=qid,
         text=text,
-        qtype=QuestionType.single_choice,
+        qtype=qtype,
         labels=labels,
         base_eligible=True,
         is_demographic=text_matches_demographic(text),
     )
 
 
-def parse_header(header: tuple, rows: list[tuple]) -> tuple[list[Question], dict[str, int]]:
+def parse_header(
+    header: tuple,
+    rows: list[tuple],
+    overrides: dict[str, QuestionOverride] | None = None,
+) -> tuple[list[Question], dict[str, int]]:
     """Parse Toluna xlsx column headers into canonical Questions.
 
     Returns (questions, col_idx_by_qid).
     """
+    overrides = overrides or {}
     header_infos: list[_HeaderInfo] = []
     col_idx_by_column: dict[str, int] = {}
     cols_by_num: dict[str, list[int]] = {}
@@ -180,8 +200,15 @@ def parse_header(header: tuple, rows: list[tuple]) -> tuple[list[Question], dict
             grid_group = None
 
         values = _collect_single_values(rows, idx)
+        override = overrides.get(qid)
 
-        if any_label_matches_family(values):
+        if override is not None and override.question_type == "excluded":
+            question = Question(qid=qid, text=text, qtype=QuestionType.excluded, base_eligible=False)
+        elif override is not None and override.question_type == "scale":
+            question = _build_scale_question(qid, text, values, grid_group, override=override)
+        elif override is not None:
+            question = _build_single_choice_question(qid, text, values, qtype=QuestionType(override.question_type))
+        elif any_label_matches_family(values):
             try:
                 question = _build_scale_question(qid, text, values, grid_group)
             except UnresolvedScaleLabelsError as exc:
@@ -248,7 +275,61 @@ def load_respondents(
     return responses, n_raw
 
 
-def load(path: Path, survey_id: str) -> Survey:
+def column_qid_map(path: Path, overrides: dict[str, QuestionOverride] | None = None) -> tuple[list[str], dict[str, str]]:
+    """Returns (header, qid_by_column) for the run summary's column
+    inventory (prompt 7). A grid question's qid (e.g.
+    "7_local_mainstream_media") is a synthesized slug, not the literal
+    column text, so the inventory needs this mapping to attribute each raw
+    column to the Question it became. Mirrors load()'s own header-reading
+    path exactly (same sheet, same parse_header call) so the mapping can
+    never drift from what load() actually parsed.
+    """
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
+        raise SurveyToolError(
+            ErrorCode.FILE_UNREADABLE,
+            "This file could not be opened as a Toluna export.",
+            detail=str(exc),
+            next_action="Confirm the file is a complete, un-corrupted .xlsx export, or pick a different file.",
+        ) from exc
+
+    try:
+        ws = wb[_SHEET_NAME]
+        row_iter = ws.iter_rows(values_only=True)
+        header = next(row_iter, None)
+        if header is None:
+            return [], {}
+
+        rows: list[tuple] = []
+        for row in row_iter:
+            if all(v is None for v in row):
+                break
+            rows.append(row)
+
+        questions, _ = parse_header(header, rows, overrides)
+
+        # parse_header iterates header_infos (built in the same header
+        # order, skipping None/respid cells) in lockstep with the
+        # questions it appends — recomputing header_infos the same way
+        # lets us zip them back together to recover each column's qid.
+        header_infos = [
+            info
+            for info in (
+                _parse_header_cell(str(cell))
+                for cell in header
+                if cell is not None and str(cell).strip() != _RESPID_COLUMN
+            )
+            if info is not None
+        ]
+        qid_by_column = {info.column: question.qid for info, question in zip(header_infos, questions)}
+
+        return [str(c) if c is not None else None for c in header], qid_by_column
+    finally:
+        wb.close()
+
+
+def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | None = None) -> Survey:
     """Load a Toluna xlsx file and return a canonical Survey."""
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -298,7 +379,7 @@ def load(path: Path, survey_id: str) -> Survey:
                 next_action="Check the vendor setting, or pick a different file.",
             ) from exc
 
-        questions, col_idx_by_qid = parse_header(header, rows)
+        questions, col_idx_by_qid = parse_header(header, rows, overrides)
         if not questions:
             raise SurveyToolError(
                 ErrorCode.NO_QUESTIONS_FOUND,

@@ -74,7 +74,17 @@ MILIEU_PROFILE = VendorProfile(
     vendor_id="milieu",
     data_sheet=None,
     codebook_sheet=None,
-    reserved_metadata_columns=frozenset({"profile_id"}),
+    # Real system/tracking columns confirmed against milieu_survey_coe_data.csv's
+    # actual header — everything preceding the bracketed "[qN]: ..." question
+    # columns. Only display-classification-affecting (see run_summary /
+    # column_inventory, prompt 7): Milieu's own header parser already skips
+    # non-bracketed columns unconditionally (parse_header's `if info is None:
+    # continue`), so this addition changes no parsing behaviour.
+    reserved_metadata_columns=frozenset({
+        "profile_id", "survey_link", "status", "survey_completion_date_time",
+        "data_pipeline", "link_source", "platform", "os", "browser", "version",
+        "ip", "market", "language", "duration_seconds",
+    }),
     quality_columns=frozenset(),
     quality_flag_column=None,
     quality_flag_pass_value=None,

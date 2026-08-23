@@ -189,6 +189,24 @@ class UnresolvedQuestionsError(SurveyToolError):
             next_action="Open the resolver to assign each unrecognised response a role, or mark the question as not a scale.",
         )
 
+    def to_response(self) -> dict:
+        """Extends the base flat-string response with the per-question list
+        the resolver UI needs. `detail`/`next_action` stay as the base class
+        renders them, for any caller still treating this generically as a
+        SurveyToolError; `detail_entries` carries the structured list a
+        resolver-aware client reads instead."""
+        body = super().to_response()
+        body["error"]["detail_entries"] = [
+            {
+                "variable": e.variable,
+                "question_text": e.question_text,
+                "codes": [[code, label] for code, label in e.codes],
+                "reason": e.reason,
+            }
+            for e in self.detail_entries
+        ]
+        return body
+
 
 class DimensionNotInCanonicalError(SurveyToolError):
     """Raised when a vendor mapping declares a dimension not present in the canonical registry.

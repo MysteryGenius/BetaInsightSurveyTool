@@ -1,0 +1,31 @@
+# PureSpectrum vendor mapping.
+#
+# Verified against surveytool/ingest/purespectrum.py's Datamap parsing and the
+# real fixture purespectrum_survey_wcs_data.xlsx: demographic questions are
+# D1 (ethnicity), D2 (age), D3 (gender). D4/D5 are substantive dialect
+# questions, not demographics, and are left unmapped here.
+#
+# age_band (D2) is deliberately NOT mapped here, for the same reason Toluna's
+# age_band is left out (see vendor_toluna.yaml): D2's 10 bands run 18-24
+# through 65+ with no "Below 18" band, so it cannot cover the canonical
+# under_18 category without inventing a boundary. Declaring it would fail the
+# reachability rule (demographic_registry.py rule 1).
+#
+# gender (D3) and ethnicity (D1) fully cover their canonical category sets
+# with a direct code-for-code match to Rakuten's own S1/S4 categories, so
+# both are mapped.
+vendor: purespectrum
+dimensions:
+  gender:
+    source_column: "D3"
+    value_map:
+      "1": "male"
+      "2": "female"
+
+  ethnicity:
+    source_column: "D1"
+    value_map:
+      "1": "chinese"
+      "2": "malay"
+      "3": "indian"
+      "4": "other"

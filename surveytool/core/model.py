@@ -16,6 +16,7 @@ class QuestionType(str, Enum):
     numeric_open = "numeric_open"
     text_open = "text_open"
     demographic = "demographic"
+    excluded = "excluded"
 
 
 class CodeRole(str, Enum):

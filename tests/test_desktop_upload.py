@@ -134,8 +134,8 @@ def test_toluna_file_with_rakuten_selected_is_vendor_mismatch_not_missing_sheet(
     assert response.status_code == 400
     body = response.json()
     assert body["error"]["code"] == "VENDOR_MISMATCH"
-    assert "Toluna" in body["error"]["message"]
-    assert "Rakuten" in body["error"]["message"]
+    assert "toluna" in body["error"]["message"].lower()
+    assert "rakuten" in body["error"]["message"].lower()
 
 
 def test_rakuten_file_with_toluna_selected_is_vendor_mismatch_not_file_unreadable(client):
@@ -153,12 +153,17 @@ def test_rakuten_file_with_toluna_selected_is_vendor_mismatch_not_file_unreadabl
     assert response.status_code == 400
     body = response.json()
     assert body["error"]["code"] == "VENDOR_MISMATCH"
-    assert "Rakuten" in body["error"]["message"]
-    assert "Toluna" in body["error"]["message"]
+    assert "rakuten" in body["error"]["message"].lower()
+    assert "toluna" in body["error"]["message"].lower()
 
 
 def test_real_rakuten_file_with_datamap_renamed_is_still_missing_sheet(client, tmp_path):
-    """A genuinely mishandled real file (not a vendor swap) must still hit MISSING_SHEET."""
+    """A genuinely mishandled real file (not a vendor swap) must still fail
+    loudly. With the Datamap sheet renamed, the file no longer satisfies
+    Rakuten's own fingerprint signature ({A1, Datamap}), so the fingerprint
+    pre-check now catches this before the adapter's own MISSING_SHEET check
+    would — VENDOR_MISMATCH is the more accurate diagnosis here (the file
+    genuinely no longer looks like a Rakuten export), not a silent pass."""
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
 
@@ -178,4 +183,4 @@ def test_real_rakuten_file_with_datamap_renamed_is_still_missing_sheet(client, t
 
     assert response.status_code == 400
     body = response.json()
-    assert body["error"]["code"] == "MISSING_SHEET"
+    assert body["error"]["code"] == "VENDOR_MISMATCH"

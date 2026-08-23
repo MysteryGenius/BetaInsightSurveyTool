@@ -298,6 +298,466 @@
   }
   .status-box.error .status-dismiss { display: inline-block; }
 
+  /* ---- unresolved-questions detail (structured UnresolvedQuestionsError) ---- */
+  .unresolved-questions { margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3); }
+  .unresolved-question {
+    border: 1px solid var(--danger-line);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    background: var(--panel);
+  }
+  .unresolved-question .uq-variable {
+    font-family: var(--font-num);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .unresolved-question .uq-text {
+    color: var(--ink-soft);
+    margin-top: var(--space-1);
+  }
+  .unresolved-question .uq-reason {
+    color: var(--danger);
+    margin-top: var(--space-1);
+  }
+  .unresolved-question .uq-labels {
+    margin-top: var(--space-2);
+    font-family: var(--font-num);
+    font-size: var(--text-xs);
+    color: var(--ink-soft);
+  }
+  .unresolved-question .uq-labels.truncated .uq-label-row:nth-child(n+6) { display: none; }
+  .uq-label-row { padding: 2px 0; }
+  .uq-expand {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--accent);
+    text-decoration: underline;
+    font-size: var(--text-xs);
+    padding: var(--space-1) 0 0;
+    cursor: pointer;
+  }
+  .uq-resolve-btn { margin-top: var(--space-3); }
+
+  /* ---- resolver overlay ---- */
+  #resolver-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 31, 0.45);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  #resolver-overlay.visible { display: flex; }
+  #resolver-panel {
+    background: var(--panel);
+    border-radius: var(--radius-md);
+    width: min(640px, 92vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(20, 24, 31, 0.25);
+  }
+  #resolver-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line);
+  }
+  #resolver-progress {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  #resolver-close {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--ink-soft);
+    font-size: var(--text-lg);
+    line-height: 1;
+    cursor: pointer;
+    padding: var(--space-1);
+  }
+  #resolver-body {
+    padding: var(--space-5);
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+  #resolver-question-text {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: var(--space-4);
+  }
+  #resolver-labels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-family: var(--font-num);
+    font-size: var(--text-sm);
+  }
+  .resolver-label-row {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+  }
+  .resolver-label-row .code {
+    color: var(--ink-faint);
+    min-width: 2.5em;
+  }
+  .resolver-label-row .label {
+    color: var(--ink);
+  }
+  #resolver-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--line);
+  }
+  #resolver-footer .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--muted);
+    border-color: var(--muted);
+  }
+
+  #resolver-hint {
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  #resolver-hint:empty { display: none; }
+
+  #resolver-classification {
+    margin-top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .classification-option {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .classification-option:hover { border-color: var(--line-strong); }
+  .classification-option.selected {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .classification-option input[type="radio"] {
+    margin-top: 3px;
+  }
+  .classification-option .co-label {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .classification-option .co-description {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    margin-top: var(--space-1);
+  }
+
+  #resolver-scale-assignment { margin-top: var(--space-4); }
+  #resolver-scale-assignment:empty { display: none; }
+  #scale-assignment-count {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    margin-bottom: var(--space-2);
+  }
+  .scale-assignment-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-1);
+  }
+  .scale-assignment-row .sar-label {
+    flex: 1 1 auto;
+    font-family: var(--font-num);
+    font-size: var(--text-sm);
+    color: var(--ink);
+  }
+  .sar-roles {
+    display: flex;
+    gap: var(--space-1);
+  }
+  .sar-role-btn {
+    appearance: none;
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--ink-soft);
+    font-size: var(--text-xs);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .sar-role-btn.selected {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--panel);
+  }
+  #scale-validation-message {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--danger);
+  }
+  #scale-validation-message:empty { display: none; }
+
+  #resolver-summary { display: flex; flex-direction: column; gap: var(--space-3); }
+  #resolver-summary:empty { display: none; }
+  .summary-entry {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+  }
+  .summary-entry .se-variable {
+    font-family: var(--font-num);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .summary-entry .se-text {
+    color: var(--ink-soft);
+    font-size: var(--text-sm);
+    margin-top: var(--space-1);
+  }
+  .summary-entry .se-classification {
+    margin-top: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .summary-entry .se-roles {
+    margin-top: var(--space-1);
+    font-family: var(--font-num);
+    font-size: var(--text-xs);
+    color: var(--ink-soft);
+  }
+  #resolver-save-error {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--danger);
+  }
+  #resolver-save-error:empty { display: none; }
+
+  /* ---- run summary overlay ---- */
+  #run-summary-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 31, 0.45);
+    z-index: 90;
+    align-items: center;
+    justify-content: center;
+  }
+  #run-summary-overlay.visible { display: flex; }
+  #run-summary-panel {
+    background: var(--panel);
+    border-radius: var(--radius-md);
+    width: min(760px, 92vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(20, 24, 31, 0.25);
+  }
+  #run-summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line);
+  }
+  #run-summary-title { font-weight: 600; font-size: var(--text-lg); color: var(--ink); }
+  #run-summary-close {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--ink-soft);
+    font-size: var(--text-lg);
+    line-height: 1;
+    cursor: pointer;
+    padding: var(--space-1);
+  }
+  #run-summary-body {
+    padding: var(--space-5);
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+  #run-summary-statements {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--ink);
+    padding-bottom: var(--space-4);
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+  .rs-group { margin-bottom: var(--space-5); }
+  .rs-group-heading {
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--line);
+  }
+  .rs-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .rs-table th {
+    text-align: left;
+    color: var(--ink-soft);
+    font-weight: 600;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .rs-table td {
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    vertical-align: top;
+  }
+  .rs-table td.rs-col { font-family: var(--font-num); white-space: nowrap; }
+  #run-summary-disposition {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 2px solid var(--line-strong);
+  }
+  #run-summary-disposition .rs-disposition-heading {
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: var(--space-2);
+  }
+  #run-summary-disposition .rs-disposition-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+    padding: 2px 0;
+  }
+  #run-summary-overrides, #run-summary-notices {
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  #run-summary-overrides:empty, #run-summary-notices:empty { display: none; }
+  .rs-override-row { padding: 2px 0; font-family: var(--font-num); }
+
+  /* ---- project settings overlay ---- */
+  #project-settings-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 31, 0.45);
+    z-index: 95;
+    align-items: center;
+    justify-content: center;
+  }
+  #project-settings-overlay.visible { display: flex; }
+  #project-settings-panel {
+    background: var(--panel);
+    border-radius: var(--radius-md);
+    width: min(520px, 92vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(20, 24, 31, 0.25);
+  }
+  #project-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line);
+  }
+  #project-settings-title { font-weight: 600; font-size: var(--text-lg); color: var(--ink); }
+  #project-settings-close {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--ink-soft);
+    font-size: var(--text-lg);
+    line-height: 1;
+    cursor: pointer;
+    padding: var(--space-1);
+  }
+  #project-settings-body {
+    padding: var(--space-5);
+    overflow-y: auto;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+  .ps-field { display: flex; flex-direction: column; gap: var(--space-2); }
+  .ps-label { font-weight: 600; color: var(--ink); font-size: var(--text-sm); }
+  #ps-labels-list { display: flex; flex-direction: column; gap: var(--space-1); }
+  .ps-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+    font-size: var(--text-sm);
+  }
+  .ps-label-remove {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    padding: 0 var(--space-1);
+  }
+  .ps-add-label-row { display: flex; gap: var(--space-2); }
+  .ps-add-label-row input {
+    flex: 1 1 auto;
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+  }
+  .ps-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 600;
+    color: var(--ink);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .ps-toggle-explanation {
+    font-size: var(--text-sm);
+    color: var(--ink-soft);
+  }
+  #ps-change-notice {
+    font-size: var(--text-sm);
+    color: var(--warn);
+    background: var(--warn-bg);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+  }
+  #ps-change-notice:empty { display: none; }
+  #project-settings-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--line);
+  }
+
   /* ---- staged pipeline progress (client-side simulated) ---- */
   #stage-list { display: none; flex-direction: column; margin-top: var(--space-2); }
   #stage-list.visible { display: flex; }
@@ -707,6 +1167,8 @@
       <span class="stat-label">Source</span>
       <span class="stat-value" id="summary-source"></span>
     </div>
+    <button type="button" class="btn btn-secondary btn-small" id="run-summary-btn">Run summary</button>
+    <button type="button" class="btn btn-secondary btn-small" id="project-settings-btn">Project settings</button>
     <button type="button" class="btn btn-secondary btn-small" id="summary-reset-btn">Load a different file</button>
   </div>
 </div>
@@ -726,8 +1188,9 @@
       <div class="field">
         <label for="vendor">Vendor</label>
         <select id="vendor">
-          <option value="rakuten">Rakuten</option>
           <option value="milieu">Milieu</option>
+          <option value="purespectrum">PureSpectrum</option>
+          <option value="rakuten">Rakuten</option>
           <option value="toluna">Toluna</option>
         </select>
       </div>
@@ -832,6 +1295,75 @@
 
 </div>
 
+<div id="resolver-overlay">
+  <div id="resolver-panel" role="dialog" aria-modal="true" aria-labelledby="resolver-question-text">
+    <div id="resolver-header">
+      <div id="resolver-progress"></div>
+      <button type="button" id="resolver-close" aria-label="Exit resolver">&times;</button>
+    </div>
+    <div id="resolver-body">
+      <div id="resolver-question-text"></div>
+      <div id="resolver-labels"></div>
+      <div id="resolver-hint"></div>
+      <div id="resolver-classification"></div>
+      <div id="resolver-scale-assignment"></div>
+      <div id="resolver-summary"></div>
+      <div id="resolver-save-error"></div>
+    </div>
+    <div id="resolver-footer">
+      <button type="button" class="btn btn-secondary" id="resolver-back">Back</button>
+      <button type="button" class="btn" id="resolver-forward">Next</button>
+    </div>
+  </div>
+</div>
+
+<div id="run-summary-overlay">
+  <div id="run-summary-panel" role="dialog" aria-modal="true" aria-labelledby="run-summary-title">
+    <div id="run-summary-header">
+      <div id="run-summary-title">Run summary</div>
+      <button type="button" id="run-summary-close" aria-label="Close run summary">&times;</button>
+    </div>
+    <div id="run-summary-body">
+      <div id="run-summary-statements"></div>
+      <div id="run-summary-groups"></div>
+      <div id="run-summary-disposition"></div>
+      <div id="run-summary-overrides"></div>
+      <div id="run-summary-notices"></div>
+    </div>
+  </div>
+</div>
+
+<div id="project-settings-overlay">
+  <div id="project-settings-panel" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
+    <div id="project-settings-header">
+      <div id="project-settings-title">Project settings</div>
+      <button type="button" id="project-settings-close" aria-label="Close project settings">&times;</button>
+    </div>
+    <div id="project-settings-body">
+      <div class="ps-field">
+        <label class="ps-label">Non-substantive response labels</label>
+        <div id="ps-labels-list"></div>
+        <div class="ps-add-label-row">
+          <input type="text" id="ps-new-label-input" placeholder="Add a label…">
+          <button type="button" class="btn btn-secondary btn-small" id="ps-add-label-btn">Add</button>
+        </div>
+      </div>
+      <div class="ps-field">
+        <label class="ps-toggle-row">
+          <input type="checkbox" id="ps-exclude-toggle">
+          <span>Exclude these responses from the base</span>
+        </label>
+        <div class="ps-toggle-explanation">Excluding these responses removes them from the base, so every percentage in the report is calculated on a smaller number of people and will read higher.</div>
+      </div>
+      <div id="ps-change-notice"></div>
+    </div>
+    <div id="project-settings-footer">
+      <button type="button" class="btn btn-secondary" id="ps-cancel-btn">Cancel</button>
+      <button type="button" class="btn" id="ps-save-btn">Save settings</button>
+    </div>
+  </div>
+</div>
+
 <script src="/vendor/plotly.min.js"></script>
 <script src="/charts.js"></script>
 <script src="/breaks.js"></script>
@@ -869,6 +1401,7 @@ function formatLoadedAgo(loadedAtMs) {
 
 let currentFileName = null;
 let currentLoadedAtMs = null;
+let currentSurveyId = null;
 
 const stageListEl = document.getElementById("stage-list");
 const STAGE_ADVANCE_MS = 650;
@@ -947,9 +1480,83 @@ function setStatusBox(boxEl, titleEl, bodyEl, kind, title, body) {
   bodyEl.textContent = body;
 }
 
-// Renders a structured {code, message, detail?, next_action?} error object:
-// message as heading, detail beneath if present, next action as body text.
+// Renders one unresolved-question block: variable, question text, its
+// ordered code/label pairs (truncated with an expand control past 5), and
+// the failure reason.
+function renderUnresolvedQuestionBlock(entry) {
+  const block = document.createElement("div");
+  block.className = "unresolved-question";
+
+  const variable = document.createElement("div");
+  variable.className = "uq-variable";
+  variable.textContent = entry.variable;
+  block.appendChild(variable);
+
+  const text = document.createElement("div");
+  text.className = "uq-text";
+  text.textContent = entry.question_text;
+  block.appendChild(text);
+
+  const labels = document.createElement("div");
+  labels.className = "uq-labels";
+  const codes = entry.codes || [];
+  if (codes.length > 5) labels.classList.add("truncated");
+  codes.forEach(([code, label]) => {
+    const row = document.createElement("div");
+    row.className = "uq-label-row";
+    row.textContent = `${code}: ${label}`;
+    labels.appendChild(row);
+  });
+  block.appendChild(labels);
+
+  if (codes.length > 5) {
+    const expandBtn = document.createElement("button");
+    expandBtn.type = "button";
+    expandBtn.className = "uq-expand";
+    expandBtn.textContent = `Show all ${codes.length} labels`;
+    expandBtn.addEventListener("click", () => {
+      labels.classList.remove("truncated");
+      expandBtn.remove();
+    });
+    block.appendChild(expandBtn);
+  }
+
+  const reason = document.createElement("div");
+  reason.className = "uq-reason";
+  reason.textContent = entry.reason;
+  block.appendChild(reason);
+
+  return block;
+}
+
+// Renders a structured {code, message, detail?, next_action?} error object.
+// When detail_entries (the UnresolvedQuestionsError list) is present, renders
+// the count in the heading, one block per unresolved question, and a
+// "Resolve these questions" button instead of the flat detail/next_action
+// text — otherwise falls back to the original single-message rendering.
 function setStatusError(boxEl, titleEl, bodyEl, errorObj) {
+  bodyEl.innerHTML = "";
+
+  const entries = errorObj.detail_entries;
+  if (Array.isArray(entries) && entries.length > 0) {
+    boxEl.className = "status-box visible error";
+    titleEl.textContent = errorObj.message;
+
+    const list = document.createElement("div");
+    list.className = "unresolved-questions";
+    entries.forEach((entry) => list.appendChild(renderUnresolvedQuestionBlock(entry)));
+    bodyEl.appendChild(list);
+
+    const resolveBtn = document.createElement("button");
+    resolveBtn.type = "button";
+    resolveBtn.className = "btn uq-resolve-btn";
+    resolveBtn.textContent = "Resolve these questions";
+    resolveBtn.addEventListener("click", () => openResolver(entries));
+    bodyEl.appendChild(resolveBtn);
+    return;
+  }
+
+  bodyEl.textContent = "";
   const body = [errorObj.detail, errorObj.next_action].filter(Boolean).join("\n");
   setStatusBox(boxEl, titleEl, bodyEl, "error", errorObj.message, body);
 }
@@ -1070,6 +1677,320 @@ function resetToUpload() {
 
 document.getElementById("summary-reset-btn").addEventListener("click", resetToUpload);
 
+// ---- Run summary panel (prompt 7/8) ----
+// Available from the result screen, never opened automatically. Fetches
+// fresh from the endpoint each time it's opened, rather than caching, so
+// it always reflects the current session (e.g. after a resolver re-run).
+const runSummaryOverlay = document.getElementById("run-summary-overlay");
+const runSummaryStatements = document.getElementById("run-summary-statements");
+const runSummaryGroups = document.getElementById("run-summary-groups");
+const runSummaryDisposition = document.getElementById("run-summary-disposition");
+const runSummaryOverrides = document.getElementById("run-summary-overrides");
+const runSummaryNotices = document.getElementById("run-summary-notices");
+
+// Questions first, then demographics, quality, metadata, open-ends.
+const RUN_SUMMARY_GROUP_ORDER = ["question", "demographic", "quality", "metadata", "open_end"];
+const RUN_SUMMARY_GROUP_LABELS = {
+  question: "Questions",
+  demographic: "Demographics",
+  quality: "Quality",
+  metadata: "Metadata",
+  open_end: "Open-ends",
+  unclassified: "Unclassified",
+};
+
+function renderRunSummaryStatements(body) {
+  runSummaryStatements.innerHTML = "";
+  [body.quality_flag_statement, body.verification_statement].filter(Boolean).forEach((text) => {
+    const p = document.createElement("div");
+    p.textContent = text;
+    runSummaryStatements.appendChild(p);
+  });
+}
+
+function renderRunSummaryGroups(body) {
+  runSummaryGroups.innerHTML = "";
+  const byClassification = {};
+  body.columns.forEach((col) => {
+    if (!byClassification[col.classification]) byClassification[col.classification] = [];
+    byClassification[col.classification].push(col);
+  });
+
+  const order = [...RUN_SUMMARY_GROUP_ORDER, ...Object.keys(byClassification).filter((k) => !RUN_SUMMARY_GROUP_ORDER.includes(k))];
+
+  order.forEach((classification) => {
+    const cols = byClassification[classification];
+    if (!cols || cols.length === 0) return;
+
+    const group = document.createElement("div");
+    group.className = "rs-group";
+
+    const heading = document.createElement("div");
+    heading.className = "rs-group-heading";
+    heading.textContent = `${RUN_SUMMARY_GROUP_LABELS[classification] || classification} (${cols.length})`;
+    group.appendChild(heading);
+
+    const table = document.createElement("table");
+    table.className = "rs-table";
+    table.innerHTML = "<thead><tr><th>Column</th><th>Question text</th><th>Type</th></tr></thead>";
+    const tbody = document.createElement("tbody");
+    cols.forEach((col) => {
+      const row = document.createElement("tr");
+      row.innerHTML =
+        `<td class="rs-col"></td><td></td><td></td>`;
+      row.children[0].textContent = col.column;
+      row.children[1].textContent = col.question_text || "";
+      row.children[2].textContent = col.question_type || "";
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    group.appendChild(table);
+    runSummaryGroups.appendChild(group);
+  });
+}
+
+function renderRunSummaryDisposition(body) {
+  runSummaryDisposition.innerHTML = "";
+  const entries = Object.entries(body.disposition_counts || {});
+  if (entries.length === 0) return;
+
+  const heading = document.createElement("div");
+  heading.className = "rs-disposition-heading";
+  heading.textContent = "Disposition counts";
+  runSummaryDisposition.appendChild(heading);
+
+  entries.forEach(([status, count]) => {
+    const row = document.createElement("div");
+    row.className = "rs-disposition-row";
+    row.innerHTML = `<span></span><span></span>`;
+    row.children[0].textContent = status;
+    row.children[1].textContent = count;
+    runSummaryDisposition.appendChild(row);
+  });
+}
+
+function renderRunSummaryOverridesAndNotices(body) {
+  runSummaryOverrides.innerHTML = "";
+  (body.override_resolutions || []).forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "rs-override-row";
+    const parsed = new Date(entry.resolved_at);
+    const when = Number.isNaN(parsed.getTime()) ? entry.resolved_at : parsed.toLocaleString();
+    row.textContent = `${entry.variable} — resolved by override at ${when}`;
+    runSummaryOverrides.appendChild(row);
+  });
+
+  runSummaryNotices.innerHTML = "";
+  (body.notices || []).forEach((notice) => {
+    const row = document.createElement("div");
+    row.textContent = notice;
+    runSummaryNotices.appendChild(row);
+  });
+}
+
+async function openRunSummary() {
+  if (!currentSessionId) return;
+  let response;
+  try {
+    response = await fetch(`/api/session/${currentSessionId}/run-summary`);
+  } catch {
+    return;
+  }
+  const body = await parseJsonResponse(response);
+  if (!response.ok) return;
+
+  renderRunSummaryStatements(body);
+  renderRunSummaryGroups(body);
+  renderRunSummaryDisposition(body);
+  renderRunSummaryOverridesAndNotices(body);
+  runSummaryOverlay.classList.add("visible");
+}
+
+function closeRunSummary() {
+  runSummaryOverlay.classList.remove("visible");
+}
+
+document.getElementById("run-summary-btn").addEventListener("click", openRunSummary);
+document.getElementById("run-summary-close").addEventListener("click", closeRunSummary);
+runSummaryOverlay.addEventListener("click", (e) => {
+  if (e.target === runSummaryOverlay) closeRunSummary();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && runSummaryOverlay.classList.contains("visible")) {
+    closeRunSummary();
+  }
+});
+
+// ---- Project settings (prompt 9): non-substantive response handling ----
+const projectSettingsOverlay = document.getElementById("project-settings-overlay");
+const psLabelsList = document.getElementById("ps-labels-list");
+const psNewLabelInput = document.getElementById("ps-new-label-input");
+const psExcludeToggle = document.getElementById("ps-exclude-toggle");
+const psChangeNotice = document.getElementById("ps-change-notice");
+
+let pendingProjectSettings = null; // { nonsubstantive_labels, exclude_nonsubstantive_from_base }
+let loadedProjectSettings = null;  // last-fetched-from-server snapshot, to detect a real change
+
+function renderPsLabelsList() {
+  psLabelsList.innerHTML = "";
+  pendingProjectSettings.nonsubstantive_labels.forEach((label, i) => {
+    const row = document.createElement("div");
+    row.className = "ps-label-row";
+    const text = document.createElement("span");
+    text.textContent = label;
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "ps-label-remove";
+    removeBtn.textContent = "Remove";
+    removeBtn.addEventListener("click", () => {
+      pendingProjectSettings.nonsubstantive_labels.splice(i, 1);
+      renderPsLabelsList();
+    });
+    row.appendChild(text);
+    row.appendChild(removeBtn);
+    psLabelsList.appendChild(row);
+  });
+}
+
+async function openProjectSettings() {
+  if (!currentSurveyId) return;
+  let response;
+  try {
+    response = await fetch(`/api/projects/${currentSurveyId}/settings`);
+  } catch {
+    return;
+  }
+  const body = await parseJsonResponse(response);
+  if (!response.ok) return;
+
+  loadedProjectSettings = body;
+  pendingProjectSettings = {
+    nonsubstantive_labels: [...body.nonsubstantive_labels],
+    exclude_nonsubstantive_from_base: body.exclude_nonsubstantive_from_base,
+  };
+  renderPsLabelsList();
+  psExcludeToggle.checked = pendingProjectSettings.exclude_nonsubstantive_from_base;
+  psChangeNotice.textContent = "";
+  projectSettingsOverlay.classList.add("visible");
+}
+
+function closeProjectSettings() {
+  projectSettingsOverlay.classList.remove("visible");
+  pendingProjectSettings = null;
+}
+
+document.getElementById("ps-add-label-btn").addEventListener("click", () => {
+  const value = psNewLabelInput.value.trim();
+  if (!value || !pendingProjectSettings) return;
+  if (!pendingProjectSettings.nonsubstantive_labels.includes(value)) {
+    pendingProjectSettings.nonsubstantive_labels.push(value);
+    renderPsLabelsList();
+  }
+  psNewLabelInput.value = "";
+});
+psNewLabelInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    document.getElementById("ps-add-label-btn").click();
+  }
+});
+
+// A settings change invalidates the current result — the analyst is told
+// this at the point of change, rather than a changed setting sitting next
+// to a stale result on screen. Saving here does not itself re-run; the
+// notice's "Re-run now" button (or the analyst re-uploading) does that.
+async function saveProjectSettings() {
+  if (!currentSurveyId || !pendingProjectSettings) return;
+  pendingProjectSettings.exclude_nonsubstantive_from_base = psExcludeToggle.checked;
+
+  const changed =
+    JSON.stringify(pendingProjectSettings.nonsubstantive_labels) !== JSON.stringify(loadedProjectSettings.nonsubstantive_labels) ||
+    pendingProjectSettings.exclude_nonsubstantive_from_base !== loadedProjectSettings.exclude_nonsubstantive_from_base;
+
+  let response;
+  try {
+    response = await fetch(`/api/projects/${currentSurveyId}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(pendingProjectSettings),
+    });
+  } catch {
+    psChangeNotice.textContent = "Could not reach the local server. Try again.";
+    return;
+  }
+
+  if (!response.ok) {
+    const body = await parseJsonResponse(response);
+    const errorObj = errorFromBody(body);
+    psChangeNotice.textContent = errorObj.message;
+    return;
+  }
+
+  if (!changed || !currentSessionId) {
+    closeProjectSettings();
+    return;
+  }
+
+  psChangeNotice.innerHTML = "";
+  const notice = document.createElement("div");
+  notice.textContent = "Settings changed — the current result no longer reflects this setting. Re-run to update it.";
+  const rerunBtn = document.createElement("button");
+  rerunBtn.type = "button";
+  rerunBtn.className = "btn btn-small";
+  rerunBtn.style.marginTop = "var(--space-2)";
+  rerunBtn.textContent = "Re-run now";
+  rerunBtn.addEventListener("click", async () => {
+    closeProjectSettings();
+    await rerunCurrentSession();
+  });
+  psChangeNotice.appendChild(notice);
+  psChangeNotice.appendChild(rerunBtn);
+}
+
+async function rerunCurrentSession() {
+  if (!currentSessionId) return;
+  showUploadWorking();
+  let response;
+  try {
+    response = await fetch(`/api/session/${currentSessionId}/rerun`, { method: "POST" });
+  } catch {
+    stopStageSimulation();
+    showUploadError({ code: "INTERNAL", message: "Could not reach the local server.", next_action: "Try again." });
+    return;
+  }
+  const body = await parseJsonResponse(response);
+  stopStageSimulation();
+  if (!response.ok) {
+    showUploadError(errorFromBody(body));
+    return;
+  }
+  setStatusBox(
+    resultBox, resultTitle, resultBody, "success", "Upload complete",
+    `Respondents: ${body.n_raw} raw / ${body.n_analysis} analysis\n` +
+      `Questions: ${body.question_count}\n` +
+      `Session: ${body.session_id}`
+  );
+  renderWarnings(body.warnings);
+  document.getElementById("summary-respondents").textContent = `${body.n_raw} raw / ${body.n_analysis} analysis`;
+  document.getElementById("summary-questions").textContent = body.question_count;
+  await loadCharts(currentSessionId, chartsContainer);
+  await initBreaksView(currentSessionId);
+  activateTab("charts-view");
+}
+
+document.getElementById("project-settings-btn").addEventListener("click", openProjectSettings);
+document.getElementById("project-settings-close").addEventListener("click", closeProjectSettings);
+document.getElementById("ps-cancel-btn").addEventListener("click", closeProjectSettings);
+document.getElementById("ps-save-btn").addEventListener("click", saveProjectSettings);
+projectSettingsOverlay.addEventListener("click", (e) => {
+  if (e.target === projectSettingsOverlay) closeProjectSettings();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && projectSettingsOverlay.classList.contains("visible")) {
+    closeProjectSettings();
+  }
+});
+
 tabNav.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => activateTab(btn.dataset.view));
 });
@@ -1096,6 +2017,462 @@ function showUploadWorking() {
   resultTitle.textContent = "Working";
   startStageSimulation();
 }
+
+// ---- Resolver ----
+// One question per view, with an answers[] slot per question that later
+// prompts populate (the classification picker, prompt 4). Forward
+// navigation is gated on that slot being non-null, so nothing is
+// classified until the analyst has made an explicit choice. Nothing here
+// writes anything — the resolver only accumulates in-memory answers until
+// the final save (a later prompt); exiting early discards nothing already
+// answered in this session, but persists nothing either.
+const resolverOverlay = document.getElementById("resolver-overlay");
+const resolverProgress = document.getElementById("resolver-progress");
+const resolverQuestionText = document.getElementById("resolver-question-text");
+const resolverLabels = document.getElementById("resolver-labels");
+const resolverHint = document.getElementById("resolver-hint");
+const resolverClassification = document.getElementById("resolver-classification");
+const resolverScaleAssignment = document.getElementById("resolver-scale-assignment");
+const resolverSummary = document.getElementById("resolver-summary");
+const resolverSaveError = document.getElementById("resolver-save-error");
+const resolverBackBtn = document.getElementById("resolver-back");
+const resolverForwardBtn = document.getElementById("resolver-forward");
+const resolverCloseBtn = document.getElementById("resolver-close");
+
+let resolverState = null; // { entries, index, answers }
+
+// Four options, in this exact order and wording. "value" is the internal
+// classification key stored in answers[index].classification.
+const CLASSIFICATION_OPTIONS = [
+  {
+    value: "scale",
+    label: "This is a scale, and I want to net it",
+    description: "Reported as top/neutral/bottom box scores. A further step will follow to assign each label a role.",
+  },
+  {
+    value: "binary",
+    label: "This is a yes or no question",
+    description: "Reported as a straight yes/no split, with no netting.",
+  },
+  {
+    value: "categorical",
+    label: "This is a list of options",
+    description: "Reported as a breakdown across each option, with no netting or ordering implied.",
+  },
+  {
+    value: "excluded",
+    label: "Leave this question out of reporting",
+    description: "This question is skipped entirely — it appears nowhere in the run summary's question tables.",
+  },
+];
+
+function openResolver(entries) {
+  if (!entries || entries.length === 0) return;
+  resolverState = {
+    entries,
+    index: 0,
+    // Each answer starts null (no default selection). Prompt 4 sets
+    // { classification }; prompt 5 adds labelRoles for the scale case.
+    answers: entries.map(() => null),
+    showingSummary: false,
+    saving: false,
+  };
+  resolverOverlay.classList.add("visible");
+  renderResolverQuestion();
+}
+
+function closeResolver() {
+  resolverOverlay.classList.remove("visible");
+  resolverState = null;
+}
+
+function requestCloseResolver() {
+  if (!resolverState) return;
+  const hasAnyAnswer = resolverState.answers.some((a) => a !== null);
+  const message = hasAnyAnswer
+    ? "Exit without saving? Nothing is written until you finish and save at the end — your answers in this session are kept only until you close this window, then discarded."
+    : "Exit the resolver? Nothing has been written yet.";
+  if (window.confirm(message)) {
+    closeResolver();
+  }
+}
+
+function renderResolverQuestion() {
+  if (resolverState.showingSummary) {
+    renderResolverSummaryView();
+    return;
+  }
+
+  const { entries, index, answers } = resolverState;
+  const entry = entries[index];
+
+  resolverSummary.innerHTML = "";
+  resolverSaveError.textContent = "";
+  resolverQuestionText.style.display = "";
+  resolverLabels.style.display = "";
+  resolverHint.style.display = "";
+  resolverClassification.style.display = "";
+
+  resolverProgress.textContent = `Question ${index + 1} of ${entries.length}`;
+  resolverQuestionText.textContent = entry.question_text;
+
+  resolverLabels.innerHTML = "";
+  (entry.codes || []).forEach(([code, label]) => {
+    const row = document.createElement("div");
+    row.className = "resolver-label-row";
+    const codeEl = document.createElement("span");
+    codeEl.className = "code";
+    codeEl.textContent = code;
+    const labelEl = document.createElement("span");
+    labelEl.className = "label";
+    labelEl.textContent = label;
+    row.appendChild(codeEl);
+    row.appendChild(labelEl);
+    resolverLabels.appendChild(row);
+  });
+
+  resolverHint.textContent = entry.close_family_hint || "";
+
+  renderClassificationOptions(answers[index]);
+  renderScaleAssignment(entry, answers[index]);
+
+  resolverBackBtn.disabled = index === 0;
+  resolverForwardBtn.disabled = !isAnswerComplete(entry, answers[index]);
+  resolverForwardBtn.textContent = index === entries.length - 1 ? "Finish" : "Next";
+}
+
+// An answer is complete (forward-nav eligible) once a classification is
+// chosen, and — for the scale classification specifically — every label
+// has an assigned role and the top/bottom validation passes. Binary,
+// categorical and excluded need nothing beyond the classification choice
+// itself.
+function isAnswerComplete(entry, answer) {
+  if (!answer) return false;
+  if (answer.classification !== "scale") return true;
+  const codes = entry.codes || [];
+  const roles = answer.labelRoles || {};
+  const assignedCount = codes.filter(([, label]) => roles[label]).length;
+  if (assignedCount < codes.length) return false;
+  return scaleValidationError(entry, answer) === null;
+}
+
+// Returns a plain-language validation message, or null if the scale
+// assignment is complete and valid. Two conditions: every label must be
+// assigned (no partial save, no "assign the rest automatically"), and at
+// least one label must be top and one bottom — a scale with no bottom (or
+// no top) isn't a scale and would produce a net that reads as valid but
+// isn't.
+function scaleValidationError(entry, answer) {
+  const codes = entry.codes || [];
+  const roles = (answer && answer.labelRoles) || {};
+  const assignedCount = codes.filter(([, label]) => roles[label]).length;
+  if (assignedCount < codes.length) {
+    return null; // incomplete, but not yet a validation failure to surface — forward just stays disabled
+  }
+  const values = Object.values(roles);
+  const hasTop = values.includes("top");
+  const hasBottom = values.includes("bottom");
+  if (!hasTop && !hasBottom) {
+    return "This scale has no label assigned to top or bottom, so there's nothing to net. Assign at least one label to top and one to bottom.";
+  }
+  if (!hasTop) {
+    return "This scale has no label assigned to top. A scale with no top isn't a scale — assign at least one label to top.";
+  }
+  if (!hasBottom) {
+    return "This scale has no label assigned to bottom. A scale with no bottom isn't a scale — assign at least one label to bottom.";
+  }
+  return null;
+}
+
+// Renders the top/neutral/bottom assignment UI, shown only when the current
+// classification choice is "scale". Every label starts unassigned — no
+// default assignment.
+function renderScaleAssignment(entry, answer) {
+  resolverScaleAssignment.innerHTML = "";
+  if (!answer || answer.classification !== "scale") return;
+
+  const codes = entry.codes || [];
+  if (!answer.labelRoles) answer.labelRoles = {};
+  const roles = answer.labelRoles;
+
+  const countEl = document.createElement("div");
+  countEl.id = "scale-assignment-count";
+  const assignedCount = codes.filter(([, label]) => roles[label]).length;
+  countEl.textContent = `${assignedCount} of ${codes.length} labels assigned`;
+  resolverScaleAssignment.appendChild(countEl);
+
+  codes.forEach(([code, label]) => {
+    const row = document.createElement("div");
+    row.className = "scale-assignment-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "sar-label";
+    labelEl.textContent = `${code}: ${label}`;
+    row.appendChild(labelEl);
+
+    const rolesWrap = document.createElement("div");
+    rolesWrap.className = "sar-roles";
+    [["top", "Top"], ["neutral", "Neutral"], ["bottom", "Bottom"]].forEach(([roleValue, roleText]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sar-role-btn" + (roles[label] === roleValue ? " selected" : "");
+      btn.textContent = roleText;
+      btn.addEventListener("click", () => assignScaleRole(label, roleValue));
+      rolesWrap.appendChild(btn);
+    });
+    row.appendChild(rolesWrap);
+
+    resolverScaleAssignment.appendChild(row);
+  });
+
+  const validationEl = document.createElement("div");
+  validationEl.id = "scale-validation-message";
+  if (assignedCount === codes.length) {
+    validationEl.textContent = scaleValidationError(entry, answer) || "";
+  }
+  resolverScaleAssignment.appendChild(validationEl);
+}
+
+function assignScaleRole(label, roleValue) {
+  if (!resolverState) return;
+  const answer = resolverState.answers[resolverState.index];
+  if (!answer) return;
+  if (!answer.labelRoles) answer.labelRoles = {};
+  answer.labelRoles[label] = roleValue;
+  renderResolverQuestion();
+}
+
+// ---- Summary / save / re-run (prompt 6) ----
+
+function classificationDisplayLabel(value) {
+  const opt = CLASSIFICATION_OPTIONS.find((o) => o.value === value);
+  return opt ? opt.label : value;
+}
+
+// Renders the confirm-everything summary: variable, question text, chosen
+// classification, and (for scale questions) the full label assignment. The
+// analyst confirms the whole set from here before anything is written.
+function renderResolverSummaryView() {
+  const { entries, answers } = resolverState;
+
+  resolverProgress.textContent = `Reviewing ${entries.length} ${entries.length === 1 ? "question" : "questions"}`;
+  resolverQuestionText.style.display = "none";
+  resolverLabels.style.display = "none";
+  resolverHint.style.display = "none";
+  resolverClassification.style.display = "none";
+  resolverScaleAssignment.innerHTML = "";
+
+  resolverSummary.innerHTML = "";
+  entries.forEach((entry, i) => {
+    const answer = answers[i];
+    const block = document.createElement("div");
+    block.className = "summary-entry";
+
+    const variableEl = document.createElement("div");
+    variableEl.className = "se-variable";
+    variableEl.textContent = entry.variable;
+    block.appendChild(variableEl);
+
+    const textEl = document.createElement("div");
+    textEl.className = "se-text";
+    textEl.textContent = entry.question_text;
+    block.appendChild(textEl);
+
+    const classificationEl = document.createElement("div");
+    classificationEl.className = "se-classification";
+    classificationEl.textContent = classificationDisplayLabel(answer.classification);
+    block.appendChild(classificationEl);
+
+    if (answer.classification === "scale" && answer.labelRoles) {
+      const rolesEl = document.createElement("div");
+      rolesEl.className = "se-roles";
+      (entry.codes || []).forEach(([code, label]) => {
+        const row = document.createElement("div");
+        row.textContent = `${code}: ${label} → ${answer.labelRoles[label] || "?"}`;
+        rolesEl.appendChild(row);
+      });
+      block.appendChild(rolesEl);
+    }
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "uq-expand";
+    editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", () => goToQuestionFromSummary(i));
+    block.appendChild(editBtn);
+
+    resolverSummary.appendChild(block);
+  });
+
+  resolverBackBtn.disabled = false;
+  resolverForwardBtn.disabled = resolverState.saving;
+  resolverForwardBtn.textContent = resolverState.saving ? "Saving…" : "Confirm and save";
+}
+
+function goToQuestionFromSummary(index) {
+  resolverState.showingSummary = false;
+  resolverState.index = index;
+  renderResolverQuestion();
+}
+
+resolverBackBtn.addEventListener("click", () => {
+  if (!resolverState) return;
+  if (resolverState.showingSummary) {
+    resolverState.showingSummary = false;
+    resolverState.index = resolverState.entries.length - 1;
+    renderResolverQuestion();
+    return;
+  }
+  if (resolverState.index === 0) return;
+  resolverState.index -= 1;
+  renderResolverQuestion();
+});
+
+// Builds the /resolve request body from the in-memory answers.
+function buildResolvePayload() {
+  return {
+    resolutions: resolverState.entries.map((entry, i) => {
+      const answer = resolverState.answers[i];
+      return {
+        variable: entry.variable,
+        question_type: answer.classification,
+        label_roles: answer.classification === "scale" ? (answer.labelRoles || {}) : {},
+      };
+    }),
+  };
+}
+
+// Confirms from the summary screen: calls the core's validated override
+// write function once with the whole set, then re-runs the file load
+// automatically. If the core rejects any entry, shows its error and leaves
+// every other answer intact so the analyst can fix just the offending
+// question. The UI never writes the file or constructs the override schema
+// itself — this only calls the endpoint and renders what comes back.
+async function saveResolvedQuestions() {
+  if (!resolverState || resolverState.saving) return;
+  resolverState.saving = true;
+  resolverSaveError.textContent = "";
+  renderResolverQuestion();
+
+  let response;
+  try {
+    response = await fetch(`/api/session/${currentSessionId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildResolvePayload()),
+    });
+  } catch (err) {
+    resolverState.saving = false;
+    resolverSaveError.textContent = "Could not reach the local server. Try again.";
+    renderResolverQuestion();
+    return;
+  }
+
+  const body = await parseJsonResponse(response);
+  resolverState.saving = false;
+
+  if (!response.ok) {
+    const errorObj = errorFromBody(body);
+    resolverSaveError.textContent = [errorObj.message, errorObj.detail, errorObj.next_action]
+      .filter(Boolean)
+      .join(" ");
+    renderResolverQuestion();
+    return;
+  }
+
+  closeResolver();
+  showUploadWorking();
+  stopStageSimulation();
+  setStatusBox(
+    resultBox,
+    resultTitle,
+    resultBody,
+    "success",
+    "Upload complete",
+    `Respondents: ${body.n_raw} raw / ${body.n_analysis} analysis\n` +
+      `Questions: ${body.question_count}\n` +
+      `Session: ${body.session_id}`
+  );
+  renderWarnings(body.warnings);
+  currentSessionId = body.session_id;
+  document.getElementById("summary-respondents").textContent =
+    `${body.n_raw} raw / ${body.n_analysis} analysis`;
+  document.getElementById("summary-questions").textContent = body.question_count;
+  currentLoadedAtMs = Date.now();
+  document.getElementById("summary-source").textContent =
+    `${currentFileName} · ${formatLoadedAgo(currentLoadedAtMs)}`;
+  await loadCharts(currentSessionId, chartsContainer);
+  await initBreaksView(currentSessionId);
+  activateTab("charts-view");
+}
+
+// Renders the four classification options for the current question. No
+// option is pre-selected, even when a close-family hint points at one of
+// them — the hint is informational text only, never a default choice, and
+// never emphasised beyond ordinary text (spec: "do not visually emphasise
+// it beyond ordinary text").
+function renderClassificationOptions(currentAnswer) {
+  resolverClassification.innerHTML = "";
+  const selectedValue = currentAnswer ? currentAnswer.classification : null;
+
+  CLASSIFICATION_OPTIONS.forEach((opt) => {
+    const optionEl = document.createElement("label");
+    optionEl.className = "classification-option" + (opt.value === selectedValue ? " selected" : "");
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "resolver-classification-choice";
+    radio.value = opt.value;
+    radio.checked = opt.value === selectedValue;
+    radio.addEventListener("change", () => selectClassification(opt.value));
+
+    const textWrap = document.createElement("div");
+    const labelEl = document.createElement("div");
+    labelEl.className = "co-label";
+    labelEl.textContent = opt.label;
+    const descEl = document.createElement("div");
+    descEl.className = "co-description";
+    descEl.textContent = opt.description;
+    textWrap.appendChild(labelEl);
+    textWrap.appendChild(descEl);
+
+    optionEl.appendChild(radio);
+    optionEl.appendChild(textWrap);
+    resolverClassification.appendChild(optionEl);
+  });
+}
+
+function selectClassification(value) {
+  if (!resolverState) return;
+  resolverState.answers[resolverState.index] = { classification: value };
+  renderResolverQuestion();
+}
+
+resolverForwardBtn.addEventListener("click", () => {
+  if (!resolverState) return;
+  if (resolverState.showingSummary) {
+    saveResolvedQuestions();
+    return;
+  }
+  if (!isAnswerComplete(resolverState.entries[resolverState.index], resolverState.answers[resolverState.index])) return;
+  if (resolverState.index < resolverState.entries.length - 1) {
+    resolverState.index += 1;
+    renderResolverQuestion();
+  } else {
+    resolverState.showingSummary = true;
+    renderResolverQuestion();
+  }
+});
+
+resolverCloseBtn.addEventListener("click", requestCloseResolver);
+resolverOverlay.addEventListener("click", (e) => {
+  if (e.target === resolverOverlay) requestCloseResolver();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && resolverOverlay.classList.contains("visible")) {
+    requestCloseResolver();
+  }
+});
 
 function showUploadError(errorObj, { retryFile } = {}) {
   setStatusError(resultBox, resultTitle, resultBody, errorObj);
@@ -1190,6 +2567,7 @@ async function uploadFile(file) {
   renderWarnings(body.warnings);
 
   currentSessionId = body.session_id;
+  currentSurveyId = surveyId;
 
   document.getElementById("summary-vendor").textContent = vendor;
   document.getElementById("summary-survey-id").textContent = surveyId;

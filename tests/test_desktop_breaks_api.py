@@ -77,7 +77,7 @@ def test_upload_stores_vendor_and_registry_on_session(client):
     assert session.vendor == "rakuten"
     assert isinstance(session.registry, ResolvedRegistry)
     # Every vendor mapping is resolved, not just the uploaded one.
-    assert set(session.registry.vendors) == {"rakuten", "milieu", "toluna"}
+    assert set(session.registry.vendors) == {"rakuten", "milieu", "toluna", "purespectrum"}
 
 
 def test_upload_hard_fails_when_registry_cannot_load(client, monkeypatch):
