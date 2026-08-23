@@ -42,6 +42,7 @@ families:
       - "important"
     neutral_patterns:
       - "moderately important"
+      - "somewhat important"
       - "neutral"
       - "neither important nor unimportant"
       - "neither"
@@ -50,6 +51,7 @@ families:
       - "very unimportant"
       - "unimportant"
       - "not important"
+      - "not very important"
       - "not at all important"
       - "not important at all"
 
@@ -145,3 +147,76 @@ families:
     bottom_patterns:
       - "not at all"
       - "none"
+      - "not really"
+
+  concern:
+    top_patterns:
+      - "very concerned"
+      - "extremely concerned"
+    neutral_patterns:
+      - "somewhat concerned"
+      - "moderately concerned"
+    bottom_patterns:
+      - "not very concerned"
+      - "not concerned at all"
+      - "not at all concerned"
+
+  worry:
+    top_patterns:
+      - "very worried"
+      - "extremely worried"
+    neutral_patterns:
+      - "somewhat worried"
+    bottom_patterns:
+      - "not very worried"
+      - "not worried at all"
+      - "not at all worried"
+
+  # PureSpectrum's Q4 (relevance) codebook pairs the scale's midpoint with a
+  # don't-know option in a single label: "Neutral/don't know enough to say"
+  # (fold_label collapses the curly apostrophe and casefolds it to
+  # "neutral/don't know enough to say", confirmed directly against the
+  # fixture — this does NOT equal the bare "neutral" pattern, so it needs
+  # its own entry). Deliberate call: treat it as the neutral role, not as
+  # non-substantive/excluded. The respondent actively selected point 3 of 5
+  # on an ordered 1-5 scale — it is a self-chosen midpoint, not a refusal or
+  # a "prefer not to answer" — so it belongs in the ordered scale and
+  # participates in netting like any other neutral response, rather than
+  # being dropped from the base as a non-answer.
+  relevance:
+    top_patterns:
+      - "extremely relevant"
+      - "very relevant"
+      - "relevant"
+    neutral_patterns:
+      - "neutral"
+      - "neutral/don't know enough to say"
+      - "moderately relevant"
+    bottom_patterns:
+      - "not very relevant"
+      - "not relevant at all"
+      - "not at all relevant"
+      - "irrelevant"
+
+  # PureSpectrum's D5 (fluency) labels carry a descriptive suffix after a
+  # dash, e.g. "Basic — a few words or phrases" (fold_label folds the em
+  # dash to ASCII "-" but does not strip the trailing text, confirmed
+  # directly against the fixture: it folds to
+  # "basic - a few words or phrases", not "basic"). Matching here is exact
+  # set membership (_match_role/_label_in_family), not substring or prefix
+  # matching, so the patterns below will NOT match D5's actual labels as
+  # they appear in this fixture. Added anyway per the brief's exact
+  # specification, in case a future vendor file uses these bare labels
+  # without the descriptive suffix. Deliberately not adding fuzzy prefix or
+  # dash-stripping logic to force a match on D5 — that is out of scope for
+  # this task (left for the resolver, Task 5) and would risk over-matching
+  # elsewhere.
+  fluency:
+    top_patterns:
+      - "fluent"
+      - "conversational"
+    neutral_patterns:
+      - "basic"
+    bottom_patterns:
+      - "none"
+      - "not at all"
