@@ -18,6 +18,7 @@ class RunSummary(BaseModel):
     disposition_counts: dict[str, int]
     quality_flag_statement: str
     verification_statement: str
+    straightliner_statement: str
     override_resolutions: list[dict]
     notices: list[str]
 
@@ -42,6 +43,14 @@ def _verification_statement(profile: VendorProfile, verification_sheet_used: boo
     return f"Verification sheet '{profile.verification_sheet}' is expected for {profile.vendor_id} but was not used for this run."
 
 
+def _straightliner_statement(count: int, action: str) -> str:
+    if count == 0:
+        return "No respondents were flagged as straightliners."
+    if action == "exclude":
+        return f"{count} respondent(s) were flagged as straightliners and excluded from the base."
+    return f"{count} respondent(s) were flagged as straightliners and kept in the base."
+
+
 def build_run_summary(
     *,
     profile: VendorProfile,
@@ -50,6 +59,8 @@ def build_run_summary(
     override_notices: list[OverrideNotice],
     overrides_applied: list[tuple[str, datetime]],
     verification_sheet_used: bool = False,
+    straightliner_count: int = 0,
+    straightliner_action: str = "keep",
 ) -> RunSummary:
     classification_counts = dict(Counter(column_classifications.values()))
     disposition_counts = dict(Counter(status_values))
@@ -60,6 +71,7 @@ def build_run_summary(
         disposition_counts=disposition_counts,
         quality_flag_statement=_quality_flag_statement(profile),
         verification_statement=_verification_statement(profile, verification_sheet_used),
+        straightliner_statement=_straightliner_statement(straightliner_count, straightliner_action),
         override_resolutions=[{"variable": v, "resolved_at": ts} for v, ts in overrides_applied],
         notices=[n.message for n in override_notices],
     )

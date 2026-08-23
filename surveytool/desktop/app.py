@@ -325,7 +325,14 @@ def _verification_sheet_used(vendor: str, path: Path) -> bool:
         wb.close()
 
 
-def _build_session_run_summary(vendor: str, path: Path, survey: Survey, survey_id: str) -> RunSummary:
+def _build_session_run_summary(
+    vendor: str,
+    path: Path,
+    survey: Survey,
+    survey_id: str,
+    straightliner_count: int = 0,
+    straightliner_action: str = "keep",
+) -> RunSummary:
     profile = get_vendor_profile(vendor)
     header, qid_by_column = _column_qid_map(vendor, path, survey_id)
     column_classifications = build_column_classifications(header, qid_by_column, survey, profile)
@@ -356,6 +363,8 @@ def _build_session_run_summary(vendor: str, path: Path, survey: Survey, survey_i
         override_notices=override_notices,
         overrides_applied=overrides_applied,
         verification_sheet_used=verification_sheet_used,
+        straightliner_count=straightliner_count,
+        straightliner_action=straightliner_action,
     )
 
 
@@ -367,15 +376,23 @@ def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session
     """
     survey = _load_survey(file_path, survey_id, vendor)
     registry = _load_session_registry(vendor, survey)
-    excluded = detect_straightliners(survey.responses, survey.questions)
+    flagged = detect_straightliners(survey.responses, survey.questions)
     settings = _load_project_settings(survey_id)
+    excluded = flagged if settings.straightliner_action == "exclude" else set()
     findings = build_findings_sheet(
         survey,
         exclude_respondent_ids=excluded or None,
         exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
     )
     respondent_frame = to_respondent_frame(survey)
-    run_summary = _build_session_run_summary(vendor, file_path, survey, survey_id)
+    run_summary = _build_session_run_summary(
+        vendor,
+        file_path,
+        survey,
+        survey_id,
+        straightliner_count=len(flagged),
+        straightliner_action=settings.straightliner_action,
+    )
 
     session = Session(
         survey=survey,
@@ -564,6 +581,7 @@ async def get_run_summary(session_id: str):
         "disposition_counts": summary.disposition_counts,
         "quality_flag_statement": summary.quality_flag_statement,
         "verification_statement": summary.verification_statement,
+        "straightliner_statement": summary.straightliner_statement,
         "override_resolutions": summary.override_resolutions,
         "notices": summary.notices,
     }
