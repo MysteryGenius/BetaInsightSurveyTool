@@ -47,6 +47,7 @@ from surveytool.findings.sheet import build_findings_sheet
 from surveytool.ingest.column_inventory import build_column_classifications
 from surveytool.ingest.fingerprint import check_fingerprint
 from surveytool.ingest.overrides import (
+    OverrideNotice,
     QuestionOverride,
     apply_override,
     check_override_still_needed,
@@ -59,7 +60,15 @@ from surveytool.ingest.vendor_profile import get_vendor_profile
 _STATIC_DIR = Path(__file__).parent / "static"
 _DEMOGRAPHICS_DIR = Path(__file__).parent.parent / "core" / "demographics"
 _STORAGE_DIR = Path(tempfile.gettempdir()) / "surveytool-sessions"
-_OVERRIDES_DIR = Path(tempfile.gettempdir()) / "surveytool-overrides"
+# Overrides are the analyst's resolved work product for a project and must
+# survive a reboot, unlike uploaded-file staging (_STORAGE_DIR) which is
+# disposable. Path.home() is the same persistence root the desktop shell
+# already treats as durable (surveytool/desktop/main.py's _default_export_dir
+# falls back to it), so project data lives under it rather than in a
+# location an OS is free to sweep (tempfile.gettempdir()).
+_APP_DATA_DIR = Path.home() / ".surveytool"
+_OVERRIDES_DIR = _APP_DATA_DIR / "overrides"
+_OLD_OVERRIDES_DIR = Path(tempfile.gettempdir()) / "surveytool-overrides"
 _SETTINGS_DIR = Path(tempfile.gettempdir()) / "surveytool-settings"
 _logger = logging.getLogger(__name__)
 
@@ -188,21 +197,68 @@ def _validate_survey_id(survey_id: str) -> None:
         )
 
 
-def _project_overrides_path(survey_id: str) -> Path:
-    """Overrides are scoped per survey_id — the only project-like identifier
-    the analyst already provides at upload time. One YAML file per survey_id,
-    shared across re-uploads of the same survey_id so a resolved question
-    stays resolved on a later re-run of the same project."""
-    _validate_survey_id(survey_id)
-    _OVERRIDES_DIR.mkdir(parents=True, exist_ok=True)
-    candidate = (_OVERRIDES_DIR / f"{survey_id}.yaml").resolve()
-    if _OVERRIDES_DIR.resolve() not in candidate.parents:
+def _resolve_under(base_dir: Path, survey_id: str) -> Path:
+    """Build `base_dir/{survey_id}.yaml` and confirm the resolved path is
+    actually contained in `base_dir`. `_validate_survey_id`'s allowlist regex
+    already blocks the traversal characters this catches, but re-deriving
+    the containment check against whichever base_dir is passed keeps the
+    belt-and-suspenders property the audit called for, independent of which
+    directory overrides happen to live in today."""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    candidate = (base_dir / f"{survey_id}.yaml").resolve()
+    if base_dir.resolve() not in candidate.parents:
         raise SurveyToolError(
             ErrorCode.CONFIG_INVALID,
             "Survey ID is not valid.",
             next_action="Use a shorter ID with only letters, numbers, '-', or '_'.",
         )
     return candidate
+
+
+_MIGRATION_NOTICES: dict[str, str] = {}
+
+
+def _migrate_legacy_override(survey_id: str, new_path: Path) -> None:
+    """One-time migration read: if survey_id has an override file at the old
+    tempdir location and none yet at the new persistent location, copy it
+    forward and record a notice for the next run summary. The old file is
+    left in place (not deleted) — this is a read, not a move, so a rollback
+    or a second process racing this one can't lose data. A no-op once the
+    new file exists, so this is safe to call on every path lookup."""
+    if new_path.exists():
+        return
+    old_path = _resolve_under(_OLD_OVERRIDES_DIR, survey_id)
+    if not old_path.exists():
+        return
+    new_path.write_text(old_path.read_text(encoding="utf-8"), encoding="utf-8")
+    _MIGRATION_NOTICES[survey_id] = (
+        f"Project overrides for '{survey_id}' were migrated from the old temporary "
+        "storage location to persistent storage. Nothing was lost."
+    )
+
+
+def _last_migration_notice(survey_id: str) -> str | None:
+    """Consumes (pops) the migration notice recorded for survey_id, if any,
+    so it surfaces in the run summary exactly once — on the run whose
+    _load_survey call actually triggered the migration."""
+    return _MIGRATION_NOTICES.pop(survey_id, None)
+
+
+def _project_overrides_path(survey_id: str) -> Path:
+    """Overrides are scoped per survey_id — the only project-like identifier
+    the analyst already provides at upload time. One YAML file per survey_id,
+    shared across re-uploads of the same survey_id so a resolved question
+    stays resolved on a later re-run of the same project.
+
+    Stored under _APP_DATA_DIR (Path.home()/.surveytool), not the OS temp
+    directory: the analyst's resolved work must survive a reboot, and temp
+    directories are not guaranteed to (this is what moved the store off
+    _OLD_OVERRIDES_DIR). Migrates forward from the old location transparently
+    on first access after the move — see _migrate_legacy_override."""
+    _validate_survey_id(survey_id)
+    new_path = _resolve_under(_OVERRIDES_DIR, survey_id)
+    _migrate_legacy_override(survey_id, new_path)
+    return new_path
 
 
 def _read_fingerprint_signals(path: Path) -> tuple[frozenset[str], frozenset[str]]:
@@ -347,6 +403,9 @@ def _build_session_run_summary(
         if variable in questions_by_qid
     ]
     override_notices = []
+    migration_notice = _last_migration_notice(survey_id)
+    if migration_notice is not None:
+        override_notices.append(OverrideNotice(variable=survey_id, message=migration_notice))
     for variable, override in project_overrides.items():
         question = questions_by_qid.get(variable)
         if question is None:
