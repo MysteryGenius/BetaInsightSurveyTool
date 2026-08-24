@@ -6,7 +6,7 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
-from surveytool.charts.errors import ErrorCode, SurveyToolError
+from surveytool.charts.errors import ErrorCode, SurveyToolError, UnresolvedQuestion, UnresolvedQuestionsError
 from surveytool.core.hygiene import normalize_label
 from surveytool.core.model import (
     CodeRole,
@@ -20,17 +20,34 @@ from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_
 from surveytool.core.scale_library import classify_question_type
 from surveytool.ingest.datamap_reader import Codebook, DatamapReader
 from surveytool.ingest.overrides import QuestionOverride, resolve_with_override
+from surveytool.ingest.validate_questions import collect_unresolved_question
 from surveytool.ingest.vendor_profile import RAKUTEN_PROFILE
 
 
 def parse_codebook(ws_datamap, overrides: dict[str, QuestionOverride] | None = None) -> list[Question]:
-    """Parse the Rakuten Datamap sheet into a list of Questions."""
+    """Parse the Rakuten Datamap sheet into a list of Questions.
+
+    Single-pass unresolved-question collection (Task 5): every analysis
+    question that doesn't achieve a full scale match via the shared scale
+    library, and isn't already covered by a stored override, is collected
+    here rather than silently demoted to categorical. S1-S4 demographics
+    never reach _build_question's classification branch at all (handled by
+    their own qid.startswith("S") path below), so they can never appear in
+    the collected set. If anything was collected across the whole file,
+    raises exactly one UnresolvedQuestionsError after every column has been
+    seen, not on the first miss.
+    """
     reader = DatamapReader(RAKUTEN_PROFILE)
     codebook: Codebook = reader.read_codebook(ws_datamap)
 
     questions: list[Question] = []
+    collected: list[UnresolvedQuestion] = []
     for qid, (text, codes, qtype_hint) in codebook.items():
-        _build_question(qid, text, qtype_hint, codes, questions, overrides or {})
+        _build_question(qid, text, qtype_hint, codes, questions, overrides or {}, collected)
+
+    if collected:
+        raise UnresolvedQuestionsError(collected)
+
     return questions
 
 
@@ -41,6 +58,7 @@ def _build_question(
     codes: list[tuple[int, str]],
     out: list[Question],
     overrides: dict[str, QuestionOverride],
+    collected: list[UnresolvedQuestion],
 ) -> None:
     if qtype_hint == "open_numeric":
         out.append(
@@ -100,7 +118,18 @@ def _build_question(
     if override_result is not None:
         qtype, roles, family = override_result
     else:
-        qtype, roles, family = classify_question_type(substantive_norm)
+        classified = classify_question_type(substantive_norm)
+        if classified is None:
+            # No override and no full scale/binary match: this is not this
+            # function's call to make silently (Task 5) — collect it for
+            # the resolver instead of demoting to categorical.
+            unresolved = collect_unresolved_question(
+                qid, text, codes, substantive_norm, override=None
+            )
+            if unresolved is not None:
+                collected.append(unresolved)
+            return
+        qtype, roles, family = classified
 
     if qtype is QuestionType.excluded:
         out.append(Question(qid=qid, text=text, qtype=QuestionType.excluded, base_eligible=False))
@@ -146,7 +175,9 @@ def _build_question(
         )
         return
 
-    # BINARY or CATEGORICAL: no role/family resolution, no netting.
+    # BINARY (full match) or CATEGORICAL (only ever reached via an override
+    # here, since the no-match/no-override case returned above): no
+    # role/family resolution, no netting.
     labels_out = [
         ScaleCode(
             code=code,
