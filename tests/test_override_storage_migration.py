@@ -24,17 +24,10 @@ from surveytool.desktop import app as appmod
 from surveytool.ingest.overrides import QuestionOverride, load_overrides, write_override
 
 
-@pytest.fixture(autouse=True)
-def _isolated_override_dirs(tmp_path: Path, monkeypatch):
-    """Redirect both the new persistent dir and the legacy temp dir into
-    tmp_path so this test can't touch a real user's home directory or a
-    real system temp directory, and clear the module-level migration-notice
-    cache before and after so tests don't leak state into each other."""
-    monkeypatch.setattr(appmod, "_OVERRIDES_DIR", tmp_path / "new-overrides")
-    monkeypatch.setattr(appmod, "_OLD_OVERRIDES_DIR", tmp_path / "old-overrides")
-    appmod._MIGRATION_NOTICES.clear()
-    yield
-    appmod._MIGRATION_NOTICES.clear()
+# Directory isolation (_OVERRIDES_DIR / _OLD_OVERRIDES_DIR redirected into
+# tmp_path, migration-notice cache cleared) is now provided suite-wide by
+# the autouse `_isolated_override_storage` fixture in tests/conftest.py —
+# see that fixture's docstring for why. No local fixture needed here.
 
 
 def _make_override(variable: str = "Q1") -> QuestionOverride:
