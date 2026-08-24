@@ -121,10 +121,16 @@ def test_demographic_columns_flagged_as_demographic():
     assert q6.qtype is QuestionType.single_choice
 
 
-def test_unresolvable_scale_label_fails_loud_not_silent_demote():
-    """A Single-select column the adapter recognises as a scale (some labels
-    match a family) but that also carries one unresolvable label must raise,
-    not silently fall back to single_choice."""
+def test_unresolvable_scale_label_is_collected_not_hard_failed_immediately():
+    """Task 5: a Single-select column the adapter recognises as close to a
+    scale (some labels match a family) but that also carries one
+    unresolvable label used to hard-fail the whole file load immediately
+    (UnresolvedScaleLabelsError from resolve_roles). It must now be
+    collected into the single end-of-file UnresolvedQuestionsError instead,
+    with a reason naming the family and the label that didn't fit —
+    letting the analyst resolve it via the resolver rather than editing
+    scales.yaml."""
+    from surveytool.charts.errors import UnresolvedQuestionsError
     from surveytool.ingest.milieu import parse_header
 
     fieldnames = ["[q99]: Single-select - Some scale question"]
@@ -134,19 +140,50 @@ def test_unresolvable_scale_label_fails_loud_not_silent_demote():
         {"[q99]: Single-select - Some scale question": "Gobbledygook"},
     ]
 
-    with pytest.raises(ValueError, match="Gobbledygook"):
+    with pytest.raises(UnresolvedQuestionsError) as exc_info:
         parse_header(fieldnames, rows)
 
+    entry = exc_info.value.detail_entries[0]
+    assert entry.variable == "q99"
+    assert "Gobbledygook" in entry.reason
 
-def test_genuine_categorical_still_demotes_to_single_choice():
-    """A Single-select column where zero labels match any scale family is a
-    genuine categorical and must resolve as single_choice, not raise."""
+
+def test_genuine_categorical_is_collected_not_silently_single_choice():
+    """Task 5: a Single-select column where zero labels match any scale
+    family, and whose qid is not a declared demographic, used to demote
+    silently to single_choice (the any_label_matches_family gate this task
+    deletes). It must now be collected instead — the tool cannot
+    distinguish "a genuine list" from "a scale it failed to match" and
+    must not guess; the analyst confirms it once via the resolver."""
+    from surveytool.charts.errors import UnresolvedQuestionsError
     from surveytool.ingest.milieu import parse_header
 
-    fieldnames = ["[q98]: Single-select - Gender"]
+    fieldnames = ["[q98]: Single-select - Favourite colour"]
     rows = [
-        {"[q98]: Single-select - Gender": "Male"},
-        {"[q98]: Single-select - Gender": "Female"},
+        {"[q98]: Single-select - Favourite colour": "Red"},
+        {"[q98]: Single-select - Favourite colour": "Blue"},
+    ]
+
+    with pytest.raises(UnresolvedQuestionsError) as exc_info:
+        parse_header(fieldnames, rows)
+
+    entry = exc_info.value.detail_entries[0]
+    assert entry.variable == "q98"
+    assert "none" in entry.reason.lower()
+
+
+def test_declared_demographic_still_demotes_to_single_choice_without_resolver():
+    """A Single-select column whose qid is one of Milieu's declared
+    demographic source_columns (q5, gender, per vendor_milieu.yaml) is
+    exempt from the collector regardless of match outcome — Male/Female
+    matches no scale family, but this must resolve straight to
+    single_choice, not appear in the resolver."""
+    from surveytool.ingest.milieu import parse_header
+
+    fieldnames = ["[q5]: Single-select - Gender"]
+    rows = [
+        {"[q5]: Single-select - Gender": "Male"},
+        {"[q5]: Single-select - Gender": "Female"},
     ]
 
     questions = parse_header(fieldnames, rows)
