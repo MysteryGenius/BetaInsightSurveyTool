@@ -7,6 +7,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
+from surveytool.core.nonsubstantive import DEFAULT_NONSUBSTANTIVE_LABELS
 
 
 class ToolConfig(BaseModel):
@@ -15,7 +16,7 @@ class ToolConfig(BaseModel):
     rounding_decimals: int = 1
     rounding_mode: Literal["half_up"] = "half_up"
     nonsubstantive_labels: list[str] = Field(
-        default_factory=lambda: ["prefer not to say", "don't know", "not applicable"]
+        default_factory=lambda: list(DEFAULT_NONSUBSTANTIVE_LABELS)
     )
     exclude_nonsubstantive_from_base: bool = False
     default_banner: list[str] = Field(default_factory=lambda: ["age", "ethnicity"])

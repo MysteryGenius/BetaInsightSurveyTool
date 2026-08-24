@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from surveytool.core.nonsubstantive import DEFAULT_NONSUBSTANTIVE_LABELS
+
 ROOT = Path(__file__).parent.parent
 RAKUTEN_PATH = ROOT / "rakuten_survey_support_measures_data.xlsx"
 _XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -27,7 +29,7 @@ def test_get_settings_returns_defaults_for_new_project(client):
     response = client.get(f"/api/projects/{survey_id}/settings")
     assert response.status_code == 200
     body = response.json()
-    assert body["nonsubstantive_labels"] == ["prefer not to say", "don't know", "not applicable"]
+    assert body["nonsubstantive_labels"] == list(DEFAULT_NONSUBSTANTIVE_LABELS)
     assert body["exclude_nonsubstantive_from_base"] is False
 
 
