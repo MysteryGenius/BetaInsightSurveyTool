@@ -1,4 +1,30 @@
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
 from surveytool.charts.errors import UnresolvedQuestion, UnresolvedQuestionsError
+from surveytool.core.scale_library import MatchOutcome, match_family
+from surveytool.ingest.validate_questions import close_family_hint_for_match
+
+_ROOT = Path(__file__).parent.parent
+_PURESPECTRUM_PATH = _ROOT / "purespectrum_survey_wcs_data.xlsx"
+
+
+def _labels_for_question(path: Path, tag: str) -> list[str]:
+    """Extract a question's response labels straight from a vendor Datamap
+    sheet, mirroring the helper in tests/test_match_family.py."""
+    df = pd.read_excel(path, sheet_name="Datamap", header=None)
+    matches = df.index[df[0].astype(str).str.contains(rf"\[{tag}\]", na=False, regex=True)]
+    assert len(matches) == 1, f"expected exactly one row tagged [{tag}], found {len(matches)}"
+    idx = matches[0]
+    labels: list[str] = []
+    i = idx + 1
+    while i < len(df) and not (pd.isna(df.loc[i, 0]) and pd.isna(df.loc[i, 1]) and pd.isna(df.loc[i, 2])):
+        if not pd.isna(df.loc[i, 2]):
+            labels.append(str(df.loc[i, 2]))
+        i += 1
+    return labels
 
 
 def test_unresolved_questions_error_message_states_count():
@@ -43,3 +69,148 @@ def test_unresolved_questions_error_to_response_serializes_detail_entries():
         "reason": "No family matched 'purple'.",
     }
     assert detail_entries[1]["variable"] == "Q7"
+
+
+# ---------------------------------------------------------------------------
+# close_family_hint regression coverage (Task 6 fix round 1)
+#
+# Task 6's original report demonstrated close_family_hint against
+# PureSpectrum Q9, believing it to be a genuine partial match. A review
+# investigation found that Q9's "partial match" is actually an artifact of
+# a pre-existing DatamapReader parsing bug (Q10's un-bracketed header row
+# is never recognised as a new question boundary, so Q9's code-parsing
+# loop bleeds into Q10's rows and appends two stray labels). Verified
+# independently: match_family on Q9's correct 4 labels alone returns
+# MatchOutcome.full against 'worry', not partial — so Q9 exercises the
+# parser bug, not this feature. That bug is out of scope here (flagged
+# separately, not fixed in this file) — these tests replace the Q9 demo
+# with a clean partial-match case built the same way
+# test_purespectrum_q7_partial_match_against_pre_task3_importance_family
+# in tests/test_match_family.py does: reconstructing the pre-Task-3
+# `importance` family definition (verified against `git show
+# e3215ae:surveytool/core/scales.yaml`) and matching it against Q7's real,
+# correctly-parsed labels, which involves no datamap-parsing bug at all.
+#
+# These were previously only exercised by the implementer's one-off manual
+# demonstration in the task-6 report, not by any test in tests/ — this
+# closes that gap.
+# ---------------------------------------------------------------------------
+
+_PRE_TASK3_IMPORTANCE = {
+    "top_patterns": ["extremely important", "very important", "important"],
+    "neutral_patterns": [
+        "moderately important",
+        "neutral",
+        "neither important nor unimportant",
+        "neither",
+    ],
+    "bottom_patterns": [
+        "slightly important",
+        "very unimportant",
+        "unimportant",
+        "not important",
+        "not at all important",
+        "not important at all",
+    ],
+}
+
+
+def _match_against_pre_task3_importance(labels: list[str]):
+    """Build a genuine FamilyMatch by evaluating `labels` against the
+    reconstructed pre-Task-3 `importance` family, bypassing the current
+    (Task-3-extended) scales.yaml entirely. Uses match_family's own
+    private helpers the same way tests/test_match_family.py does, so this
+    stays a real FamilyMatch object (same shape close_family_hint_for_match
+    expects), not a hand-built stand-in."""
+    from surveytool.core.model import CodeRole
+    from surveytool.core.scale_library import FamilyMatch, _label_in_family, _normalise, _role_in_family
+
+    normed = [_normalise(lb) for lb in labels]
+    matched_labels: dict[str, CodeRole] = {}
+    unmatched_labels: list[str] = []
+    for label, norm in zip(labels, normed):
+        if _label_in_family(norm, _PRE_TASK3_IMPORTANCE):
+            role = _role_in_family(norm, _PRE_TASK3_IMPORTANCE)
+            assert role is not None
+            matched_labels[label] = role
+        else:
+            unmatched_labels.append(label)
+
+    outcome = MatchOutcome.partial if matched_labels and unmatched_labels else MatchOutcome.full
+    return FamilyMatch(
+        outcome=outcome,
+        family="importance",
+        matched_labels=matched_labels,
+        unmatched_labels=unmatched_labels,
+        ambiguous=False,
+    )
+
+
+@pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="purespectrum fixture not present")
+def test_close_family_hint_present_for_genuine_partial_match():
+    """A genuine partial match (no datamap-parsing bug involved) must
+    produce a close_family_hint naming the family and the specific labels
+    that didn't fit, and that hint must survive serialization via
+    UnresolvedQuestionsError.to_response()."""
+    labels = _labels_for_question(_PURESPECTRUM_PATH, "Q7")
+    assert labels == [
+        "Very important",
+        "Somewhat important",
+        "Not very important",
+        "Not at all important",
+    ]
+
+    match = _match_against_pre_task3_importance(labels)
+    assert match.outcome is MatchOutcome.partial
+    assert set(match.unmatched_labels) == {"Somewhat important", "Not very important"}
+
+    hint = close_family_hint_for_match(match)
+    assert hint is not None
+    assert "importance" in hint
+    assert "Somewhat important" in hint
+    assert "Not very important" in hint
+
+    entry = UnresolvedQuestion(
+        variable="Q7",
+        question_text="How important is this to you?",
+        codes=list(enumerate(labels, start=1)),
+        reason="This looks close to the 'importance' scale, but these response(s) don't match it: "
+        "Somewhat important, Not very important.",
+        close_family_hint=hint,
+    )
+    response = UnresolvedQuestionsError([entry]).to_response()
+    entry_dict = response["error"]["detail_entries"][0]
+    assert "close_family_hint" in entry_dict
+    assert entry_dict["close_family_hint"] == hint
+    assert "importance" in entry_dict["close_family_hint"]
+    assert "Somewhat important" in entry_dict["close_family_hint"]
+    assert "Not very important" in entry_dict["close_family_hint"]
+
+
+@pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="purespectrum fixture not present")
+def test_close_family_hint_absent_for_genuine_no_match():
+    """PureSpectrum D5 is a real, current, non-buggy no-match (confirmed by
+    Task 3/4/5's reports and tests/test_match_family.py): its labels carry
+    a descriptive suffix that doesn't match any family in the CURRENT
+    scales.yaml, no datamap-parsing bug involved. close_family_hint must be
+    None from close_family_hint_for_match, and the 'close_family_hint' key
+    must be entirely absent (not null, not empty string) from the
+    serialized detail entry."""
+    labels = _labels_for_question(_PURESPECTRUM_PATH, "D5")
+    match = match_family(labels)
+    assert match.outcome is MatchOutcome.none
+
+    hint = close_family_hint_for_match(match)
+    assert hint is None
+
+    entry = UnresolvedQuestion(
+        variable="D5",
+        question_text="How fluent are you?",
+        codes=list(enumerate(labels, start=1)),
+        reason="None of this question's response labels match any known scale.",
+        close_family_hint=hint,
+    )
+    response = UnresolvedQuestionsError([entry]).to_response()
+    entry_dict = response["error"]["detail_entries"][0]
+    assert "close_family_hint" not in entry_dict
+    assert set(entry_dict.keys()) == {"variable", "question_text", "codes", "reason"}
