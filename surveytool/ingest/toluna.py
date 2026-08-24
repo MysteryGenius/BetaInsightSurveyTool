@@ -7,7 +7,8 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
-from surveytool.charts.errors import ErrorCode, SurveyToolError, UnresolvedScaleLabelsError
+from surveytool.charts.errors import ErrorCode, SurveyToolError, UnresolvedQuestion, UnresolvedQuestionsError
+from surveytool.core.demographic_registry import declared_demographic_source_columns
 from surveytool.core.demographics import text_matches_demographic
 from surveytool.core.hygiene import normalize_label
 from surveytool.core.model import (
@@ -20,8 +21,11 @@ from surveytool.core.model import (
     Survey,
 )
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
-from surveytool.core.scale_library import any_label_matches_family, identify_family, resolve_roles
+from surveytool.core.scale_library import MatchOutcome, identify_family, match_family
 from surveytool.ingest.overrides import QuestionOverride, apply_override
+from surveytool.ingest.validate_questions import collect_unresolved_question
+
+_DEMOGRAPHIC_SOURCE_COLUMNS = declared_demographic_source_columns("toluna")
 
 _HEADER_RE = re.compile(r"^(?P<num>\d+)\s*:\s*(?P<rest>.+)$")
 _RESPID_COLUMN = "respid"
@@ -84,6 +88,12 @@ def _build_scale_question(
     grid_group: str | None,
     override: QuestionOverride | None = None,
 ) -> Question:
+    """Builds a scale Question. Caller (parse_header) is responsible for
+    only reaching this function once it already knows the substantive
+    label set achieves a full match_family outcome (or an override says
+    scale) — this function no longer calls resolve_roles/raises on its own
+    (Task 5 removed the load-path raise), it just re-derives the same
+    roles match_family already computed."""
     ns_overrides: dict[str, CodeRole] = {
         v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v)
     }
@@ -92,7 +102,8 @@ def _build_scale_question(
     if override is not None:
         roles = apply_override(substantive_values, override)
     else:
-        roles = resolve_roles(substantive_values, override=ns_overrides)
+        match = match_family(substantive_values)
+        roles = dict(match.matched_labels)
     for label, role in ns_overrides.items():
         roles[label] = role
 
@@ -158,6 +169,10 @@ def _build_single_choice_question(
     )
 
 
+def _substantive_values(values: list[str]) -> list[str]:
+    return [v for v in values if not is_nonsubstantive_label(v)]
+
+
 def parse_header(
     header: tuple,
     rows: list[tuple],
@@ -166,6 +181,17 @@ def parse_header(
     """Parse Toluna xlsx column headers into canonical Questions.
 
     Returns (questions, col_idx_by_qid).
+
+    Single-pass unresolved-question collection (Task 5): a column with no
+    override that doesn't achieve a full match_family outcome is collected
+    instead of being silently demoted to single_choice (the old
+    any_label_matches_family gate) or hard-failing the whole file (the old
+    resolve_roles raise on a partial match). A column whose qid is one of
+    Toluna's declared demographic source_columns (vendor_toluna.yaml —
+    columns 1/3/4/5 in the real fixture) is exempt regardless of match
+    outcome, same as an override. If anything was collected across the
+    whole file, raises exactly one UnresolvedQuestionsError after every
+    column has been seen, not on the first miss.
     """
     overrides = overrides or {}
     header_infos: list[_HeaderInfo] = []
@@ -184,6 +210,7 @@ def parse_header(
 
     questions: list[Question] = []
     col_idx_by_qid: dict[str, int] = {}
+    collected: list[UnresolvedQuestion] = []
 
     for info in header_infos:
         idx = col_idx_by_column[info.column]
@@ -208,16 +235,26 @@ def parse_header(
             question = _build_scale_question(qid, text, values, grid_group, override=override)
         elif override is not None:
             question = _build_single_choice_question(qid, text, values, qtype=QuestionType(override.question_type))
-        elif any_label_matches_family(values):
-            try:
-                question = _build_scale_question(qid, text, values, grid_group)
-            except UnresolvedScaleLabelsError as exc:
-                raise UnresolvedScaleLabelsError([f"question {qid!r}: {label}" for label in exc.unresolved]) from exc
-        else:
+        elif qid in _DEMOGRAPHIC_SOURCE_COLUMNS:
             question = _build_single_choice_question(qid, text, values)
+        else:
+            match = match_family(_substantive_values(values))
+            if match.outcome is MatchOutcome.full:
+                question = _build_scale_question(qid, text, values, grid_group)
+            else:
+                unresolved = collect_unresolved_question(
+                    qid, text, list(enumerate(values, start=1)), _substantive_values(values), override=None
+                )
+                if unresolved is not None:
+                    collected.append(unresolved)
+                col_idx_by_qid[qid] = idx
+                continue
 
         questions.append(question)
         col_idx_by_qid[qid] = idx
+
+    if collected:
+        raise UnresolvedQuestionsError(collected)
 
     return questions, col_idx_by_qid
 
