@@ -172,6 +172,7 @@ class UnresolvedQuestion:
     question_text: str
     codes: list[tuple[int, str]]
     reason: str
+    close_family_hint: str | None = None
 
 
 class UnresolvedQuestionsError(SurveyToolError):
@@ -206,15 +207,18 @@ class UnresolvedQuestionsError(SurveyToolError):
         SurveyToolError; `detail_entries` carries the structured list a
         resolver-aware client reads instead."""
         body = super().to_response()
-        body["error"]["detail_entries"] = [
-            {
+        entries = []
+        for e in self.detail_entries:
+            entry_dict = {
                 "variable": e.variable,
                 "question_text": e.question_text,
                 "codes": [[code, label] for code, label in e.codes],
                 "reason": e.reason,
             }
-            for e in self.detail_entries
-        ]
+            if e.close_family_hint is not None:
+                entry_dict["close_family_hint"] = e.close_family_hint
+            entries.append(entry_dict)
+        body["error"]["detail_entries"] = entries
         return body
 
 

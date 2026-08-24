@@ -6,6 +6,22 @@ from surveytool.core.scale_library import FamilyMatch, MatchOutcome, match_famil
 from surveytool.ingest.overrides import QuestionOverride
 
 
+def close_family_hint_for_match(match: FamilyMatch) -> str | None:
+    """Build the plain-language close-family hint for the resolver's hint
+    element, from the same FamilyMatch already computed for reason_for_match
+    — text only, no pre-selection. Only a partial match yields a hint
+    (naming the family and the specific labels that didn't fit, the same
+    deterministic data reason_for_match uses); a genuine no-match yields
+    None so the field is omitted from serialization rather than present as
+    an empty string (Task 6's brief: 'absent rather than empty')."""
+    if match.outcome is MatchOutcome.partial:
+        return (
+            f"Close to the '{match.family}' scale — these response(s) don't match it: "
+            f"{', '.join(match.unmatched_labels)}."
+        )
+    return None
+
+
 def reason_for_match(match: FamilyMatch) -> str:
     """Build the analyst-facing reason string for a question that did not
     achieve a full scale match, distinguishing a partial match (name the
@@ -67,6 +83,7 @@ def collect_unresolved_question(
         question_text=question_text,
         codes=codes,
         reason=reason_for_match(match),
+        close_family_hint=close_family_hint_for_match(match),
     )
 
 
