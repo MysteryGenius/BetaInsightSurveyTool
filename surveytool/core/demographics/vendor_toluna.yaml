@@ -5,16 +5,22 @@
 # numbered columns 1-5 (qtype=single_choice; the ingest adapter assigns bare
 # numeric qids for non-grid columns).
 #
-# age_band (column 2) is deliberately NOT mapped here. The column is banded
-# (5 discrete codes, not raw/open numeric as the task brief speculated it
-# might be), but the bands do not cover the canonical age_band category set:
-# there is no "Below 18" band, and the top band is a single "55 years old and
-# above" bucket that cannot be split into the canonical 55_64 / 65_plus
-# categories without inventing a boundary. Declaring age_band here would fail
-# the reachability rule (build plan section 3, rule 1) for three canonical
-# categories (under_18, 55_64, 65_plus), so it is left out entirely rather
-# than faked. This is a legitimate VENDOR_MISMATCH-shaped gap for later
-# tasks, not something resolved by binning.
+# age_band (column 2) IS mapped (Task 9). Independently re-extracted the raw
+# column-2 values directly from toluna_survey_misinformation_data.xlsx (not
+# trusting this comment's prior description) via openpyxl, counting distinct
+# values across all 1000 rows:
+#   "18-24 years old"          100
+#   "25-34 years old"          221
+#   "35-44 years old"          241
+#   "45-54 years old"          224
+#   "55 years old and above"   214
+# Five distinct raw values, confirming the prior comment's description was
+# accurate: there is no "Below 18" band, and the top band genuinely is one
+# combined "55 years old and above" bucket -- the raw data itself never
+# distinguishes a 55-64 respondent from a 65+ one, so there is no boundary to
+# recover, invented or otherwise. under_18, 55_64 AND 65_plus are therefore
+# all declared not_collected below (rather than splitting the top bucket at
+# an arbitrary point), while the four bands that do map cleanly are mapped.
 #
 # IMPORTANT: unlike Rakuten, Toluna has no fixed vendor codebook — the
 # ingest adapter (surveytool/ingest/toluna.py::_collect_single_values)
@@ -36,6 +42,36 @@ dimensions:
     value_map:
       "Female": "female"
       "Male": "male"
+
+  age_band:
+    source_column: "2"
+    value_map:
+      "18-24 years old": "18_24"
+      "25-34 years old": "25_34"
+      "35-44 years old": "35_44"
+      "45-54 years old": "45_54"
+    not_collected:
+      "under_18":
+        reason: >-
+          Column 2 ("How old are you?") of toluna_survey_misinformation_data.xlsx
+          has exactly 5 distinct raw response values across all 1000 rows,
+          none of which is a "Below 18" band -- verified by direct
+          extraction, not assumed from the questionnaire design.
+      "55_64":
+        reason: >-
+          Column 2's top band is a single combined "55 years old and above"
+          value (214 respondents) with no finer breakdown anywhere in the raw
+          data -- there is no way to tell a 55-64 respondent from a 65+ one,
+          so this cannot be split into 55_64 without inventing a boundary the
+          source data does not contain.
+        ambiguous_raw_values:
+          - "55 years old and above"
+      "65_plus":
+        reason: >-
+          Same combined "55 years old and above" bucket as 55_64 above -- the
+          raw data has no distinction between these two canonical bands.
+        ambiguous_raw_values:
+          - "55 years old and above"
 
   ethnicity:
     source_column: "3"

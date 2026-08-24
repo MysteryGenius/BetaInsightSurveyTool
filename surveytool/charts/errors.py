@@ -270,6 +270,54 @@ class CanonicalCategoryUnreachableError(SurveyToolError):
         )
 
 
+class NotCollectedReasonMissingError(SurveyToolError):
+    """Raised when a vendor mapping's `not_collected` entry for a dimension
+    has an empty or blank reason.
+
+    A declared-not-collected category (Task 9) must carry a real, free-text
+    reason an analyst can read in the run summary — never a placeholder.
+    """
+
+    def __init__(self, vendor: str, dimension: str, category: str) -> None:
+        self.vendor = vendor
+        self.dimension = dimension
+        self.category = category
+        detail = (
+            f"Vendor {vendor!r} mapping for dimension {dimension!r} declares category "
+            f"{category!r} as not_collected but supplies no reason text."
+        )
+        super().__init__(
+            ErrorCode.CANONICAL_CATEGORY_UNREACHABLE,
+            "A vendor demographic mapping declares a category as not collected without saying why.",
+            detail=detail,
+            next_action="Add a non-empty reason for this category in the vendor YAML's not_collected mapping.",
+        )
+
+
+class NotCollectedConflictsWithValueMapError(SurveyToolError):
+    """Raised when a vendor mapping declares the same canonical category both
+    reachable via value_map AND not_collected.
+
+    A category cannot simultaneously be collected (has a source value mapped
+    to it) and declared as a genuine content gap.
+    """
+
+    def __init__(self, vendor: str, dimension: str, category: str) -> None:
+        self.vendor = vendor
+        self.dimension = dimension
+        self.category = category
+        detail = (
+            f"Vendor {vendor!r} mapping for dimension {dimension!r} lists category "
+            f"{category!r} in both value_map and not_collected."
+        )
+        super().__init__(
+            ErrorCode.CANONICAL_CATEGORY_UNREACHABLE,
+            "A vendor demographic mapping declares a category as both collected and not collected.",
+            detail=detail,
+            next_action="Remove this category from either value_map or not_collected in the vendor YAML, not both.",
+        )
+
+
 class UnmappedSourceValueError(SurveyToolError):
     """Raised when a source value present in the actual loaded response data
     for a dimension's source column has no entry in that vendor's value_map.

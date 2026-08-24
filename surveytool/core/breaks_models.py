@@ -67,15 +67,20 @@ __all__ = [
 class RegistryCategory(BaseModel):
     """One canonical category, as the UI's pill list needs it.
 
-    Mirrors ``demographic_registry.CanonicalCategory`` field for field.
-    Nothing is pruned — ``non_response`` categories are ordinary categories
-    throughout this build and are emitted like any other.
+    Mirrors ``demographic_registry.CanonicalCategory`` field for field, plus
+    ``not_collected_reason`` (Task 9): non-null when this session's vendor
+    has declared this category as a genuine content gap rather than mapping
+    it, so the UI's pill list can show the note at the point the analyst
+    would otherwise wonder why the category is empty. Nothing is pruned —
+    ``non_response`` categories are ordinary categories throughout this
+    build and are emitted like any other.
     """
 
     value: str
     label: str
     order: int
     non_response: bool = False
+    not_collected_reason: str | None = None
 
 
 class RegistryDimension(BaseModel):

@@ -399,6 +399,7 @@ def _build_session_run_summary(
     path: Path,
     survey: Survey,
     survey_id: str,
+    registry: ResolvedRegistry,
     straightliner_count: int = 0,
     straightliner_action: str = "keep",
     settings: ToolConfig | None = None,
@@ -438,6 +439,7 @@ def _build_session_run_summary(
         verification_sheet_used=verification_sheet_used,
         straightliner_count=straightliner_count,
         straightliner_action=straightliner_action,
+        not_collected=registry.not_collected_for_vendor(vendor),
     )
 
 
@@ -463,6 +465,7 @@ def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session
         file_path,
         survey,
         survey_id,
+        registry,
         straightliner_count=len(flagged),
         straightliner_action=settings.straightliner_action,
         settings=settings,
@@ -657,6 +660,7 @@ async def get_run_summary(session_id: str):
         "quality_flag_statement": summary.quality_flag_statement,
         "verification_statement": summary.verification_statement,
         "straightliner_statement": summary.straightliner_statement,
+        "demographic_gap_statement": summary.demographic_gap_statement,
         "override_resolutions": summary.override_resolutions,
         "notices": summary.notices,
     }
@@ -797,6 +801,7 @@ async def get_demographics_registry(session_id: str) -> RegistryPayload:
     dimensions = []
     for name, canonical_dim in session.registry.canonical.dimensions.items():
         dim_mapping = vendor_dims.get(name)
+        not_collected = dim_mapping.not_collected if dim_mapping else {}
         dimensions.append(
             RegistryDimension(
                 dimension=name,
@@ -810,6 +815,11 @@ async def get_demographics_registry(session_id: str) -> RegistryPayload:
                         label=category.label,
                         order=category.order,
                         non_response=category.non_response,
+                        not_collected_reason=(
+                            not_collected[category.value].reason
+                            if category.value in not_collected
+                            else None
+                        ),
                     )
                     for category in canonical_dim.categories
                 ],

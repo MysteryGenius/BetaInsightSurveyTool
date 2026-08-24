@@ -5,11 +5,19 @@
 # D1 (ethnicity), D2 (age), D3 (gender). D4/D5 are substantive dialect
 # questions, not demographics, and are left unmapped here.
 #
-# age_band (D2) is deliberately NOT mapped here, for the same reason Toluna's
-# age_band is left out (see vendor_toluna.yaml): D2's 10 bands run 18-24
-# through 65+ with no "Below 18" band, so it cannot cover the canonical
-# under_18 category without inventing a boundary. Declaring it would fail the
-# reachability rule (demographic_registry.py rule 1).
+# age_band (D2) IS mapped (Task 9). Re-read directly from the Datamap sheet
+# of purespectrum_survey_wcs_data.xlsx: D2 ("Which of the following best
+# describes your age?") has exactly 10 codes, 1-10, "Values: 1-10":
+#   1: 18-24   2: 25-29   3: 30-34   4: 35-39   5: 40-44
+#   6: 45-49   7: 50-54   8: 55-59   9: 60-64   10: 65+
+# No "Below 18" band exists anywhere in the codebook -- this is a genuine
+# content gap (PureSpectrum's D2 quota structure never asked under-18
+# respondents), not an authoring omission, so under_18 is declared
+# not_collected below with that reason rather than left unmapped and
+# excluding age_band from this vendor entirely. The other 9 codes fold
+# cleanly into the canonical 5-year-decade bands with no invented boundary:
+# 25-29+30-34 -> 25_34, 35-39+40-44 -> 35_44, 45-49+50-54 -> 45_54,
+# 55-59+60-64 -> 55_64, 65+ -> 65_plus (exact match).
 #
 # gender (D3) and ethnicity (D1) fully cover their canonical category sets
 # with a direct code-for-code match to Rakuten's own S1/S4 categories, so
@@ -21,6 +29,29 @@ dimensions:
     value_map:
       "1": "male"
       "2": "female"
+
+  age_band:
+    source_column: "D2"
+    value_map:
+      "1": "18_24"
+      "2": "25_34"
+      "3": "25_34"
+      "4": "35_44"
+      "5": "35_44"
+      "6": "45_54"
+      "7": "45_54"
+      "8": "55_64"
+      "9": "55_64"
+      "10": "65_plus"
+    not_collected:
+      "under_18":
+        reason: >-
+          PureSpectrum's D2 codebook ("Which of the following best describes
+          your age?") has exactly 10 codes running 18-24 through 65+,
+          verified directly from the Datamap sheet of
+          purespectrum_survey_wcs_data.xlsx. No under-18 band exists
+          anywhere in the codebook -- PureSpectrum's quota structure for
+          this survey never asked under-18 respondents.
 
   ethnicity:
     source_column: "D1"

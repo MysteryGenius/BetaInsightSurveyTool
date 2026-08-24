@@ -22,6 +22,8 @@ from pydantic import BaseModel, Field
 from surveytool.charts.errors import (
     CanonicalCategoryUnreachableError,
     DimensionNotInCanonicalError,
+    NotCollectedConflictsWithValueMapError,
+    NotCollectedReasonMissingError,
     UnmappedSourceValueError,
 )
 from surveytool.core.model import Survey
@@ -44,6 +46,25 @@ class CanonicalRegistry(BaseModel):
     dimensions: dict[str, CanonicalDimension]
 
 
+class NotCollectedDeclaration(BaseModel):
+    """One canonical category a vendor's dimension mapping declares as a
+    genuine content gap rather than a value_map omission (Task 9).
+
+    ``reason`` is required free text explaining why (no silent placeholder).
+    ``ambiguous_raw_values`` is only needed for the rarer case where the
+    vendor's source column DOES contain real respondents whose raw value
+    cannot be resolved to any single canonical category at the tool's
+    granularity (e.g. Toluna's "55 years old and above" bucket covers both
+    55_64 and 65_plus with no way to tell them apart) — listing the raw
+    value here tells _check_unmapped_source_values it has been accounted
+    for by a deliberate not-collected declaration, not missed by accident.
+    Left empty (the common case, e.g. PureSpectrum's under_18) when the
+    category simply has no respondents in the source data at all."""
+
+    reason: str
+    ambiguous_raw_values: list[str] = Field(default_factory=list)
+
+
 class VendorDimensionMapping(BaseModel):
     source_column: str
     value_map: dict[str, str]
@@ -52,11 +73,33 @@ class VendorDimensionMapping(BaseModel):
     flag is authoritative. Present in the vendor YAML only for the
     multi_select prototype case (Milieu car_ownership_reasons) as
     documentation at the point of use."""
+    not_collected: dict[str, NotCollectedDeclaration] = Field(default_factory=dict)
+    """Canonical category value -> declaration of why this vendor's source
+    column genuinely has no data reaching that category (Task 9).
+
+    A category listed here satisfies _check_reachability without needing a
+    value_map entry: it is a real, investigated content gap (e.g. no
+    under-18 band in a vendor's age codebook), not an authoring omission.
+    Declaring a category here never removes it from view — build_run_summary
+    turns it into a stated-gap sentence, and compute_breaks_crosstab attaches
+    a matching note to any QuestionResult broken by a dimension carrying one,
+    so an analyst always sees why a category never appears as a column."""
 
 
 class VendorMapping(BaseModel):
     vendor: str
     dimensions: dict[str, VendorDimensionMapping] = Field(default_factory=dict)
+
+
+class NotCollectedEntry(BaseModel):
+    """One declared-not-collected category, resolved with its canonical
+    label for display (run summary sentences, chart/table notes)."""
+
+    dimension: str
+    dimension_label: str
+    category_value: str
+    category_label: str
+    reason: str
 
 
 class ResolvedRegistry(BaseModel):
@@ -70,6 +113,33 @@ class ResolvedRegistry(BaseModel):
         if mapping is None:
             return {}
         return mapping.dimensions
+
+    def not_collected_for_vendor(self, vendor: str) -> list[NotCollectedEntry]:
+        """Every declared-not-collected category across every dimension this
+        vendor maps, resolved with canonical labels, in canonical dimension
+        iteration order then category value order — used by build_run_summary
+        (Task 1's always-present-statement pattern) and by
+        compute_breaks_crosstab to attach a note to any result broken by a
+        dimension carrying a not-collected category."""
+        entries: list[NotCollectedEntry] = []
+        for dimension_name, dim_mapping in self.dimensions_for_vendor(vendor).items():
+            if not dim_mapping.not_collected:
+                continue
+            canonical_dim = self.canonical.dimensions.get(dimension_name)
+            if canonical_dim is None:
+                continue
+            category_labels = {c.value: c.label for c in canonical_dim.categories}
+            for category_value, declaration in dim_mapping.not_collected.items():
+                entries.append(
+                    NotCollectedEntry(
+                        dimension=dimension_name,
+                        dimension_label=canonical_dim.label,
+                        category_value=category_value,
+                        category_label=category_labels.get(category_value, category_value),
+                        reason=declaration.reason,
+                    )
+                )
+        return entries
 
 
 def _load_yaml(path: Path) -> dict:
@@ -108,15 +178,36 @@ def declared_demographic_source_columns(vendor: str) -> frozenset[str]:
 def _check_reachability(canonical: CanonicalRegistry, vendor_mapping: VendorMapping) -> None:
     """Rule 1: every canonical category must be reachable from every vendor
     mapping that declares the dimension. Cheap, YAML-only. non_response
-    categories participate like any other category."""
+    categories participate like any other category.
+
+    A category listed in a dimension mapping's `not_collected` (Task 9)
+    counts as reachable here: it is a declared, reasoned content gap rather
+    than a missing value_map entry, so it must not raise
+    CanonicalCategoryUnreachableError. `not_collected` reasons are required
+    to be non-empty free text (never a silent placeholder) and must not
+    overlap with a category the value_map already reaches, since a category
+    can't simultaneously be collected and not collected.
+    """
     for dimension_name, dim_mapping in vendor_mapping.dimensions.items():
         canonical_dim = canonical.dimensions.get(dimension_name)
         if canonical_dim is None:
             raise DimensionNotInCanonicalError(vendor_mapping.vendor, dimension_name)
 
         reached = set(dim_mapping.value_map.values())
+
+        for category_value, declaration in dim_mapping.not_collected.items():
+            if not declaration.reason or not declaration.reason.strip():
+                raise NotCollectedReasonMissingError(
+                    vendor_mapping.vendor, dimension_name, category_value
+                )
+            if category_value in reached:
+                raise NotCollectedConflictsWithValueMapError(
+                    vendor_mapping.vendor, dimension_name, category_value
+                )
+
+        reachable = reached | set(dim_mapping.not_collected)
         for category in canonical_dim.categories:
-            if category.value not in reached:
+            if category.value not in reachable:
                 raise CanonicalCategoryUnreachableError(
                     vendor_mapping.vendor, dimension_name, category.value
                 )
@@ -186,16 +277,30 @@ def _check_unmapped_source_values(
 ) -> None:
     """Rule 2: a source value present in the actual loaded data for a
     dimension's source column but absent from that vendor's value_map is a
-    hard failure. Never bucketed into "other", never dropped."""
+    hard failure. Never bucketed into "other", never dropped.
+
+    A raw value listed in some category's `not_collected.ambiguous_raw_values`
+    (Task 9) is the one deliberate exception: it has been explicitly
+    investigated and declared as real respondent data that cannot be split
+    across canonical categories at this tool's granularity (e.g. Toluna's
+    "55 years old and above" spans both 55_64 and 65_plus with no finer
+    breakdown in the source), so it is accounted for by that declaration
+    rather than silently dropped — never an unnoticed omission.
+    """
     for dimension_name, dim_mapping in vendor_mapping.dimensions.items():
         canonical_dim = canonical.dimensions[dimension_name]
         multi_select = canonical_dim.multi_select
         raw_values = _raw_values_for_column(
             survey, dim_mapping.source_column, multi_select, dim_mapping.value_map
         )
+        ambiguous_raw_values = {
+            raw for declaration in dim_mapping.not_collected.values()
+            for raw in declaration.ambiguous_raw_values
+        }
         for raw_value in raw_values:
-            if raw_value not in dim_mapping.value_map:
-                raise UnmappedSourceValueError(vendor_mapping.vendor, dimension_name, raw_value)
+            if raw_value in dim_mapping.value_map or raw_value in ambiguous_raw_values:
+                continue
+            raise UnmappedSourceValueError(vendor_mapping.vendor, dimension_name, raw_value)
 
 
 def load_registry(

@@ -488,7 +488,7 @@ def test_real_milieu_registry_loads_with_no_unmapped_values():
 )
 def test_real_toluna_registry_loads_with_no_unmapped_values():
     from surveytool.ingest.toluna import load
-    survey = load(TOLUNA_PATH, "misinformation", _toluna_age_override())
+    survey = load(TOLUNA_PATH, "misinformation")
 
     registry = load_registry(
         CANONICAL_PATH,
@@ -496,12 +496,15 @@ def test_real_toluna_registry_loads_with_no_unmapped_values():
         surveys={"toluna": survey},
     )
     assert isinstance(registry, ResolvedRegistry)
-    # age_band deliberately absent: Toluna's 5 age bands don't cover the
-    # canonical under_18/55_64/65_plus categories (see vendor_toluna.yaml).
+    # Task 9: age_band is now mapped, with under_18/55_64/65_plus declared
+    # not_collected (Toluna's 5 real age bands have no "Below 18" band and a
+    # single combined "55 years old and above" top bucket that cannot split
+    # into 55_64/65_plus without inventing a boundary — see vendor_toluna.yaml).
     assert set(registry.vendors["toluna"].dimensions) == {
-        "gender", "ethnicity", "income", "education",
+        "gender", "ethnicity", "income", "education", "age_band",
     }
-    assert "age_band" not in registry.vendors["toluna"].dimensions
+    not_collected = registry.not_collected_for_vendor("toluna")
+    assert {e.category_value for e in not_collected} == {"under_18", "55_64", "65_plus"}
 
 
 @pytest.mark.skipif(

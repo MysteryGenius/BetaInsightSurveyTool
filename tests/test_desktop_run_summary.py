@@ -6,16 +6,23 @@ column in the file gets a classification (none silently missing), and the
 PureSpectrum file's 42-column shape is fully accounted for per prompt 7's
 stated verification.
 
-Task 5: PureSpectrum's real fixture has six questions (D2, Q1, Q3, Q6, Q9,
-D5) that don't achieve a full scale match and aren't declared demographics
-— an override-free /api/upload of it now correctly 400s with
-UnresolvedQuestionsError (see test_desktop_upload_purespectrum_unresolved.py
-... actually asserted right here, see
-test_purespectrum_upload_without_overrides_returns_unresolved_questions
-below) instead of silently building categorical questions for all six. The
-42-columns/no-unclassified assertions below now resolve those six via the
+Task 5: PureSpectrum's real fixture has questions that don't achieve a full
+scale match and aren't declared demographics — an override-free /api/upload
+of it now correctly 400s with UnresolvedQuestionsError (see
+test_desktop_upload_purespectrum_unresolved.py ... actually asserted right
+here, see test_purespectrum_upload_without_overrides_returns_unresolved_questions
+below) instead of silently building categorical questions for all of them.
+The 42-columns/no-unclassified assertions below now resolve those via the
 real /resolve endpoint first, mirroring how an analyst actually clears the
 resolver, then assert the same shape on the resulting clean run.
+
+Task 9: D2 (age) is no longer in the unresolved set. vendor_purespectrum.yaml
+now maps age_band to D2 (under_18 declared not_collected), so D2 is a
+declared demographic source_column and exempt from the collector, the same
+as D1/D3 already were. Similarly, Toluna's column "2" is now a declared
+demographic source_column (age_band, with under_18/55_64/65_plus declared
+not_collected), so it no longer needs the pre-seeded override
+_seed_toluna_age_override used to provide before this file loads cleanly.
 """
 from __future__ import annotations
 
@@ -36,8 +43,9 @@ _XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 # The exact set Task 3's report leaves unmatched in the real PureSpectrum
 # fixture (see tests/test_purespectrum_fixture.py for the load-level guard
-# on this same set).
-_PURESPECTRUM_UNRESOLVED = ("D2", "Q1", "Q3", "Q6", "Q9", "D5")
+# on this same set). D2 was in this set before Task 9 mapped age_band for
+# PureSpectrum; it is now a declared demographic and no longer appears here.
+_PURESPECTRUM_UNRESOLVED = ("Q1", "Q3", "Q6", "Q9", "D5")
 
 
 @pytest.fixture
@@ -145,7 +153,7 @@ def _upload_purespectrum_resolved(client):
 def test_purespectrum_upload_without_overrides_returns_unresolved_questions(client):
     """The acceptance-criteria demonstration for a real PureSpectrum load:
     an override-free upload raises UnresolvedQuestionsError naming exactly
-    D2/Q1/Q3/Q6/Q9/D5, and none of the exempt columns (D1/D3 declared
+    Q1/Q3/Q6/Q9/D5, and none of the exempt columns (D1/D2/D3 declared
     demographics, QC2/QC2Flag quality columns)."""
     if not PURESPECTRUM_PATH.exists():
         pytest.skip(f"{PURESPECTRUM_PATH.name} not found in project root")
@@ -157,6 +165,7 @@ def test_purespectrum_upload_without_overrides_returns_unresolved_questions(clie
     variables = {e["variable"] for e in body["error"]["detail_entries"]}
     assert variables == set(_PURESPECTRUM_UNRESOLVED)
     assert "D1" not in variables
+    assert "D2" not in variables
     assert "D3" not in variables
     assert "QC2" not in variables
     assert "QC2Flag" not in variables

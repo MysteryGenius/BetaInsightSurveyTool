@@ -14,11 +14,14 @@ rather than assumed:
   fixture -- all 1000 respondents are Singapore Citizens -- so it is usable for
   VENDOR_MISMATCH and for validation cases but is useless as a break partner,
   and Rakuten's real depth-3 uses gender + age_band + ethnicity.
-* Toluna (misinformation, N=1000) declares 4 dimensions: gender, ethnicity,
-  income, education. It has NO age_band mapping at all -- 5 bands exist in the
-  data but do not cover the canonical 7-band set (no "Below 18"; a single
-  "55 and above" bucket that cannot be split into 55_64 / 65_plus without
-  inventing a boundary). A genuine vendor gap, deliberate since Task 1.
+* Toluna (misinformation, N=1000) declares 5 dimensions: gender, ethnicity,
+  income, education, age_band (Task 9). age_band's 5 real bands cover
+  18_24/25_34/35_44/45_54 cleanly; under_18, 55_64 and 65_plus are declared
+  not_collected (no "Below 18" band; a single "55 and above" bucket that
+  cannot be split into 55_64 / 65_plus without inventing a boundary).
+  BREAK_DIMENSIONS still uses income rather than age_band as Toluna's third
+  break partner, since three not-collected categories make it a poor nesting
+  dimension even though it is now reachable.
 * Milieu (COE, N=1000) declares 4 dimensions: gender, ethnicity,
   car_ownership, car_ownership_reasons. The last is the ONLY confirmed
   multi_select dimension across all three vendors, and being multi_select it
@@ -82,28 +85,12 @@ def _load(vendor: str):
     if vendor == "toluna":
         from surveytool.ingest.toluna import load
 
-        # Task 5: Toluna's column "2" (age_band) is a genuine demographic
-        # by content but is not a declared source_column in
-        # vendor_toluna.yaml (the real reachability gap this module's own
-        # docstring describes), so it is not exempt from the load-path
-        # unresolved-question collector and needs an override to load at
-        # all — same override an analyst would write via the resolver.
-        # BREAK_DIMENSIONS never uses age_band for Toluna (see above), so
-        # this override has no effect on anything this module tests.
-        from datetime import datetime, timezone
-
-        from surveytool.ingest.overrides import QuestionOverride
-
-        age_override = {
-            "2": QuestionOverride(
-                variable="2",
-                question_type="categorical",
-                label_roles={},
-                resolved_at=datetime.now(timezone.utc),
-                library_version="test",
-            )
-        }
-        return load(path, f"{vendor}-conformance", age_override)
+        # Task 9: column "2" is now a declared demographic source_column in
+        # vendor_toluna.yaml (age_band), so declared_demographic_source_columns
+        # exempts it from the load-path unresolved-question collector — no
+        # override needed here any more (contrast with the Task 5-era
+        # override this helper used before age_band was mapped).
+        return load(path, f"{vendor}-conformance")
     from surveytool.ingest.milieu import load
     return load(path, f"{vendor}-conformance")
 
@@ -194,12 +181,19 @@ def test_deeper_breaks_strictly_subdivide_shallower_ones(
     assert rollup == {c.key[0][1]: c.base_cell for c in r1.columns}
 
 
-def test_toluna_has_no_age_band_dimension_at_all(registry):
-    """Documents the real Toluna gap that constrains its break dimensions:
-    age_band is absent from the mapping entirely (5 real bands do not cover
-    the canonical 7-band set), so Toluna's depth-3 uses income instead."""
-    assert "age_band" not in registry.dimensions_for_vendor("toluna")
+def test_toluna_age_band_declares_three_not_collected_categories(registry):
+    """Task 9: age_band IS now mapped for Toluna, with under_18/55_64/65_plus
+    declared not_collected (5 real bands cover 18_24/25_34/35_44/45_54
+    cleanly; there is no "Below 18" band, and the top band is a single
+    combined "55 years old and above" bucket that cannot split into 55_64 /
+    65_plus without inventing a boundary). BREAK_DIMENSIONS still uses
+    income instead of age_band for Toluna's depth-3, since a genuine
+    3-category gap makes age_band a poor break partner even though it is
+    now reachable."""
+    assert "age_band" in registry.dimensions_for_vendor("toluna")
     assert "age_band" in registry.dimensions_for_vendor("rakuten")
+    not_collected = {e.category_value for e in registry.not_collected_for_vendor("toluna")}
+    assert not_collected == {"under_18", "55_64", "65_plus"}
 
 
 def test_rakuten_residential_status_is_degenerate_on_this_fixture(
@@ -462,7 +456,6 @@ def test_multiselect_dimension_in_filter_spec_is_any_of_matching(
     [
         ("toluna", "residential_status"),
         ("milieu", "residential_status"),
-        ("toluna", "age_band"),
         ("milieu", "age_band"),
         ("rakuten", "income"),
         ("rakuten", "car_ownership"),

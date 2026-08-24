@@ -127,6 +127,15 @@ class QuestionResult(BaseModel):
     base_filtered: int
     columns: list[ColumnResult]
     permitted_charts: list = []
+    demographic_notices: list[str] = []
+    """Task 9: plain-English notes for every declared-not-collected category
+    on a dimension in this result's break spec — e.g. "Age band — 'Below 18'
+    was not collected by this vendor: ...". Reuses ResolvedRegistry's
+    not_collected_for_vendor (the same source build_run_summary's
+    demographic_gap_statement draws from) rather than a parallel
+    notification mechanism, filtered down to only the dimensions actually
+    broken out here so a table never carries a note about a dimension it
+    doesn't display. Empty when the break spec includes no such dimension."""
 
 
 def _scale_points(question: Question) -> list[ScalePoint]:
@@ -305,6 +314,18 @@ def compute_breaks_crosstab(
     base_total = len(respondent_frame)
     base_filtered = len(filtered_ids)
 
+    # Task 9: any declared-not-collected category on a dimension actually
+    # broken out here gets a plain-English note attached to the result, so a
+    # table/chart never silently omits a canonical category without saying
+    # why. Filtered to break_spec so a result never carries a note about a
+    # dimension it doesn't display.
+    break_dims = set(break_spec)
+    demographic_notices = [
+        f"{entry.dimension_label} — '{entry.category_label}' was not collected by this vendor: {entry.reason}"
+        for entry in registry.not_collected_for_vendor(vendor)
+        if entry.dimension in break_dims
+    ]
+
     # Index responses by qid once, rather than re-scanning survey.responses per
     # question per cell -- the same pattern compute_survey_stats uses.
     response_index: dict[str, list[Response]] = {}
@@ -330,6 +351,7 @@ def compute_breaks_crosstab(
                 base_total=base_total,
                 base_filtered=base_filtered,
                 columns=columns,
+                demographic_notices=demographic_notices,
             )
         )
 

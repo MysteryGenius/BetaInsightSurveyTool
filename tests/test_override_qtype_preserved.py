@@ -79,13 +79,13 @@ def test_toluna_non_scale_override_preserves_chosen_qtype(question_type):
     """Toluna's non-scale override branch must build the override's real
     question_type, not always single_choice.
 
-    Task 5: column "2" (age_band) is a genuine demographic by content but
-    is not a declared source_column in vendor_toluna.yaml (a real
-    reachability gap), so it is not exempt from the load-path collector —
-    both load() calls below need its categorical override (the same
-    resolution an analyst would write via the resolver) or the file
-    can't load at all. This test isn't about column "2"; it's about
-    whichever single_choice qid the fixture happens to produce."""
+    Task 9: column "2" (age_band) is now a declared demographic
+    source_column in vendor_toluna.yaml (mapped, with under_18/55_64/65_plus
+    declared not_collected), so it no longer strictly needs an override to
+    load — the age_override below is kept as a harmless no-op override
+    (still resolves to the same categorical shape via the override-precedence
+    branch) so this test's focus stays on whichever single_choice qid the
+    fixture happens to produce, not on column "2" itself."""
     if not TOLUNA_PATH.exists():
         pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
 

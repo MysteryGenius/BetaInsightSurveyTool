@@ -1701,7 +1701,7 @@ const RUN_SUMMARY_GROUP_LABELS = {
 
 function renderRunSummaryStatements(body) {
   runSummaryStatements.innerHTML = "";
-  [body.quality_flag_statement, body.verification_statement, body.straightliner_statement].filter(Boolean).forEach((text) => {
+  [body.quality_flag_statement, body.verification_statement, body.straightliner_statement, body.demographic_gap_statement].filter(Boolean).forEach((text) => {
     const p = document.createElement("div");
     p.textContent = text;
     runSummaryStatements.appendChild(p);
