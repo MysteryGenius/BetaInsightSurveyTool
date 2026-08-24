@@ -45,6 +45,22 @@ def _match_role(norm: str) -> CodeRole | None:
     return None
 
 
+def is_recognised_scale_point(label: str) -> bool:
+    """Return True if `label` (after the same fold_label normalisation the
+    scale library uses everywhere else) exactly matches a top, neutral, or
+    bottom pattern in any scale family.
+
+    Used by `surveytool.core.nonsubstantive.is_nonsubstantive_label` to
+    protect a label like PureSpectrum's "Neutral/don't know enough to say"
+    (an exact, deliberate member of the `relevance` family's
+    neutral_patterns — see the comment in scales.yaml) from being nixed by
+    the generic non-substantive pattern list just because it happens to
+    contain a phrase like "don't know" as a substring. A label the scale
+    library recognises by exact match is a more specific, deliberate
+    classification than a loose substring heuristic and takes precedence."""
+    return _match_role(_normalise(label)) is not None
+
+
 def resolve_roles(
     labels: list[str],
     override: dict[str, CodeRole] | None = None,

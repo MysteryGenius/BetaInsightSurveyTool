@@ -114,3 +114,41 @@ def test_purespectrum_file_under_rakuten_selection_names_purespectrum():
     with pytest.raises(VendorMismatchError) as exc_info:
         check_fingerprint("rakuten", sheet_names=sheet_names, column_names=column_names)
     assert exc_info.value.matched_vendor == "purespectrum"
+
+
+@pytest.mark.skipif(
+    not _PURESPECTRUM_PATH.exists(),
+    reason="purespectrum_survey_wcs_data.xlsx not found in project root — awaiting client fixture.",
+)
+def test_purespectrum_q4_neutral_dont_know_label_stays_neutral_on_real_load():
+    """Final-review Finding 2 regression, at the real load() level (not just
+    the is_nonsubstantive_label unit level): PureSpectrum's real Q4 label
+    "Neutral/don't know enough to say" (curly apostrophe) must resolve to
+    CodeRole.neutral, not CodeRole.nonsubstantive, on BOTH the CLI-equivalent
+    default path (nonsubstantive_labels=None) and the desktop app's real
+    configured-list path (ToolConfig()'s default nonsubstantive_labels) — so
+    the two entry points can't silently disagree on Q4's base."""
+    from datetime import datetime, timezone
+
+    from surveytool.core.config import ToolConfig
+    from surveytool.core.model import CodeRole
+    from surveytool.ingest.overrides import QuestionOverride
+    from surveytool.ingest.purespectrum import load
+
+    now = datetime.now(timezone.utc)
+    overrides = {
+        variable: QuestionOverride(
+            variable=variable, question_type="categorical", label_roles={},
+            resolved_at=now, library_version="test",
+        )
+        for variable in _EXPECTED_UNRESOLVED
+    }
+
+    def _q4_role(nonsubstantive_labels):
+        survey = load(_PURESPECTRUM_PATH, "wcs", overrides, nonsubstantive_labels)
+        q4 = next(q for q in survey.questions if q.qid == "Q4")
+        neutral_label = next(sc for sc in q4.labels if "don" in sc.label.lower())
+        return neutral_label.role
+
+    assert _q4_role(None) is CodeRole.neutral
+    assert _q4_role(ToolConfig().nonsubstantive_labels) is CodeRole.neutral

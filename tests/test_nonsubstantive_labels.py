@@ -85,6 +85,38 @@ def test_empty_configured_list_matches_nothing():
     assert is_nonsubstantive_label("Prefer not to say", []) is False
 
 
+def test_compound_scale_neutral_label_not_flagged_by_either_path():
+    """Final-review Finding 2 regression: PureSpectrum's real Q4 label
+    "Neutral/don't know enough to say" (curly apostrophe, U+2019) contains
+    "don't know" as a literal substring once folded, but scales.yaml's
+    `relevance` family deliberately classifies the whole label as the
+    scale's `neutral` role (Task 3), not a refusal/non-answer. Both the
+    `labels=None` default path and the desktop app's real configured-list
+    path (ToolConfig()'s default nonsubstantive_labels) must agree that
+    this label is NOT non-substantive — a naive substring/regex match on
+    either path would wrongly flag it, silently dropping Q4's neutral
+    responses from the base."""
+    from surveytool.core.config import ToolConfig
+
+    label = "Neutral/don’t know enough to say"
+    config = ToolConfig()
+
+    assert is_nonsubstantive_label(label, None) is False
+    assert is_nonsubstantive_label(label, config.nonsubstantive_labels) is False
+
+
+def test_scale_point_exception_does_not_shield_a_deliberately_added_custom_label():
+    """The scale-point exception (test above) is scoped to the built-in six
+    default patterns only. "Neutral" is itself a bare scale-library neutral
+    pattern in every family, but when an analyst deliberately ADDS it to
+    their project's configured list (not one of the six defaults), it must
+    still be honoured as non-substantive for that project — otherwise the
+    exception introduced for the compound-label case would silently break
+    Task 7's core configurability guarantee."""
+    assert is_nonsubstantive_label("Neutral", ["Neutral"]) is True
+    assert is_nonsubstantive_label("Neutral", None) is False
+
+
 # ── Section B: real Rakuten fixture, full load() path ──────────────────────
 
 pytestmark_skip = pytest.mark.skipif(
