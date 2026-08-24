@@ -7,7 +7,8 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
-from surveytool.charts.errors import ErrorCode, SurveyToolError
+from surveytool.charts.errors import ErrorCode, SurveyToolError, UnresolvedQuestion, UnresolvedQuestionsError
+from surveytool.core.demographic_registry import declared_demographic_source_columns
 from surveytool.core.hygiene import normalize_label
 from surveytool.core.model import (
     CodeRole,
@@ -21,7 +22,10 @@ from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_
 from surveytool.core.scale_library import classify_question_type
 from surveytool.ingest.datamap_reader import Codebook, DatamapReader
 from surveytool.ingest.overrides import QuestionOverride, resolve_with_override
+from surveytool.ingest.validate_questions import collect_unresolved_question
 from surveytool.ingest.vendor_profile import PURESPECTRUM_PROFILE
+
+_DEMOGRAPHIC_SOURCE_COLUMNS = declared_demographic_source_columns("purespectrum")
 
 
 _MULTISELECT_OE_RE = re.compile(r"^(?P<root>[A-Za-z0-9]+)r(?P<n>\d+)oe$")
@@ -101,15 +105,31 @@ def parse_codebook(
     the Datamap never declares (see _build_multi_response_placeholders).
     Optional and defaults to None so existing Datamap-only callers are
     unaffected.
+
+    Single-pass unresolved-question collection (Task 5): every analysis
+    question that doesn't achieve a full scale match and isn't already
+    covered by a stored override is collected, EXCEPT a qid PureSpectrum's
+    demographic YAML (vendor_purespectrum.yaml) declares as a
+    source_column (D1 ethnicity, D3 gender) — those are exempt regardless
+    of match outcome, the same as Rakuten's S-prefixed demographics. D2
+    (age) is deliberately NOT in that YAML (reachability gap, see the
+    YAML's own comment) so it is NOT exempt here either — a genuine
+    question column the tool can't silently guess about, same as any
+    other unmatched question. If anything was collected, raises exactly
+    one UnresolvedQuestionsError after every column has been seen.
     """
     reader = DatamapReader(PURESPECTRUM_PROFILE)
     codebook: Codebook = reader.read_codebook(ws_datamap)
 
     questions: list[Question] = []
+    collected: list[UnresolvedQuestion] = []
     for qid, (text, codes, qtype_hint) in codebook.items():
         if qid in PURESPECTRUM_PROFILE.quality_columns:
             continue
-        _build_question(qid, text, qtype_hint, codes, questions, overrides or {})
+        _build_question(qid, text, qtype_hint, codes, questions, overrides or {}, collected)
+
+    if collected:
+        raise UnresolvedQuestionsError(collected)
 
     questions.extend(_build_multi_response_placeholders(codebook, a1_header))
     return questions
@@ -122,6 +142,7 @@ def _build_question(
     codes: list[tuple[int, str]],
     out: list[Question],
     overrides: dict[str, QuestionOverride],
+    collected: list[UnresolvedQuestion],
 ) -> None:
     if qtype_hint == "open_numeric":
         out.append(Question(qid=qid, text=text, qtype=QuestionType.numeric_open, base_eligible=False))
@@ -138,12 +159,25 @@ def _build_question(
         nl: CodeRole.nonsubstantive for nl in norm_labels if is_nonsubstantive_label(nl)
     }
     substantive_norm = [nl for nl in norm_labels if nl not in ns_overrides]
+    is_declared_demographic = qid in _DEMOGRAPHIC_SOURCE_COLUMNS
 
     override_result = resolve_with_override(substantive_norm, overrides, qid)
     if override_result is not None:
         qtype, roles, family = override_result
     else:
-        qtype, roles, family = classify_question_type(substantive_norm)
+        classified = classify_question_type(substantive_norm)
+        if classified is None:
+            if is_declared_demographic:
+                qtype, roles, family = QuestionType.categorical, None, None
+            else:
+                unresolved = collect_unresolved_question(
+                    qid, text, codes, substantive_norm, override=None
+                )
+                if unresolved is not None:
+                    collected.append(unresolved)
+                return
+        else:
+            qtype, roles, family = classified
 
     if qtype is QuestionType.excluded:
         out.append(Question(qid=qid, text=text, qtype=QuestionType.excluded, base_eligible=False))
