@@ -90,6 +90,7 @@ def parse_codebook(
     ws_datamap,
     overrides: dict[str, QuestionOverride] | None = None,
     a1_header: list[str] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> list[Question]:
     """Parse the PureSpectrum Datamap sheet. Structurally identical to the
     Rakuten adapter's parse_codebook (Task 5/12) — same DatamapReader, same
@@ -126,7 +127,9 @@ def parse_codebook(
     for qid, (text, codes, qtype_hint) in codebook.items():
         if qid in PURESPECTRUM_PROFILE.quality_columns:
             continue
-        _build_question(qid, text, qtype_hint, codes, questions, overrides or {}, collected)
+        _build_question(
+            qid, text, qtype_hint, codes, questions, overrides or {}, collected, nonsubstantive_labels
+        )
 
     if collected:
         raise UnresolvedQuestionsError(collected)
@@ -143,6 +146,7 @@ def _build_question(
     out: list[Question],
     overrides: dict[str, QuestionOverride],
     collected: list[UnresolvedQuestion],
+    nonsubstantive_labels: list[str] | None = None,
 ) -> None:
     if qtype_hint == "open_numeric":
         out.append(Question(qid=qid, text=text, qtype=QuestionType.numeric_open, base_eligible=False))
@@ -156,7 +160,7 @@ def _build_question(
 
     norm_labels = [normalize_label(label) for _, label in codes]
     ns_overrides: dict[str, CodeRole] = {
-        nl: CodeRole.nonsubstantive for nl in norm_labels if is_nonsubstantive_label(nl)
+        nl: CodeRole.nonsubstantive for nl in norm_labels if is_nonsubstantive_label(nl, nonsubstantive_labels)
     }
     substantive_norm = [nl for nl in norm_labels if nl not in ns_overrides]
     is_declared_demographic = qid in _DEMOGRAPHIC_SOURCE_COLUMNS
@@ -224,7 +228,9 @@ def _build_question(
     out.append(Question(qid=qid, text=text, qtype=qtype, labels=labels_out, base_eligible=True))
 
 
-def load_respondents(ws_a1, questions: list[Question]) -> tuple[list[Response], int]:
+def load_respondents(
+    ws_a1, questions: list[Question], nonsubstantive_labels: list[str] | None = None
+) -> tuple[list[Response], int]:
     """Identical shape to Rakuten's load_respondents (rakuten.py:201-271),
     parameterised by PURESPECTRUM_PROFILE instead of hardcoded column
     names. respondent_id resolution mirrors Rakuten's uuid-then-record
@@ -261,7 +267,7 @@ def load_respondents(ws_a1, questions: list[Question]) -> tuple[list[Response], 
             if isinstance(raw, float) and raw == int(raw):
                 raw = int(raw)
             q = q_by_qid[qid]
-            state = classify_response(raw, q)
+            state = classify_response(raw, q, nonsubstantive_labels=nonsubstantive_labels)
             responses.append(Response(respondent_id=respondent_id, qid=qid, raw_value=raw, state=state))
 
     return responses, n_raw
@@ -338,8 +344,19 @@ def column_qid_map(path: Path) -> tuple[list[str], dict[str, str]]:
     return columns, qid_by_column
 
 
-def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | None = None) -> Survey:
-    """Load a PureSpectrum xlsx file and return a canonical Survey."""
+def load(
+    path: Path,
+    survey_id: str,
+    overrides: dict[str, QuestionOverride] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
+) -> Survey:
+    """Load a PureSpectrum xlsx file and return a canonical Survey.
+
+    `nonsubstantive_labels`, when provided, is the project's configured
+    non-substantive label list (Task 7); None falls back to the built-in
+    defaults, preserving prior behavior for projects that haven't
+    customized the list.
+    """
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
@@ -373,14 +390,14 @@ def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | No
 
         a1_header_row = next(ws_respondents.iter_rows(max_row=1, values_only=True), None)
         a1_header = [str(h) if h is not None else None for h in a1_header_row] if a1_header_row else None
-        questions = parse_codebook(ws_datamap, overrides, a1_header)
+        questions = parse_codebook(ws_datamap, overrides, a1_header, nonsubstantive_labels)
         if not questions:
             raise SurveyToolError(
                 ErrorCode.NO_QUESTIONS_FOUND,
                 "This file was read but has no computable questions in it.",
                 next_action="Check the Datamap sheet, or pick a different file.",
             )
-        responses, n_raw = load_respondents(ws_respondents, questions)
+        responses, n_raw = load_respondents(ws_respondents, questions, nonsubstantive_labels)
     finally:
         wb.close()
 

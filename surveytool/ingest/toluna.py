@@ -87,6 +87,7 @@ def _build_scale_question(
     values: list[str],
     grid_group: str | None,
     override: QuestionOverride | None = None,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> Question:
     """Builds a scale Question. Caller (parse_header) is responsible for
     only reaching this function once it already knows the substantive
@@ -95,7 +96,7 @@ def _build_scale_question(
     (Task 5 removed the load-path raise), it just re-derives the same
     roles match_family already computed."""
     ns_overrides: dict[str, CodeRole] = {
-        v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v)
+        v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v, nonsubstantive_labels)
     }
     substantive_values = [v for v in values if v not in ns_overrides]
 
@@ -145,6 +146,7 @@ def _build_single_choice_question(
     text: str,
     values: list[str],
     qtype: QuestionType = QuestionType.single_choice,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> Question:
     """Builds a non-scale question. `qtype` defaults to single_choice (the
     auto-detected shape), but a binary/categorical override passes its real
@@ -155,7 +157,7 @@ def _build_single_choice_question(
         ScaleCode(
             code=i,
             label=v,
-            role=CodeRole.nonsubstantive if is_nonsubstantive_label(v) else CodeRole.excluded,
+            role=CodeRole.nonsubstantive if is_nonsubstantive_label(v, nonsubstantive_labels) else CodeRole.excluded,
         )
         for i, v in enumerate(values, start=1)
     ]
@@ -169,14 +171,15 @@ def _build_single_choice_question(
     )
 
 
-def _substantive_values(values: list[str]) -> list[str]:
-    return [v for v in values if not is_nonsubstantive_label(v)]
+def _substantive_values(values: list[str], nonsubstantive_labels: list[str] | None = None) -> list[str]:
+    return [v for v in values if not is_nonsubstantive_label(v, nonsubstantive_labels)]
 
 
 def parse_header(
     header: tuple,
     rows: list[tuple],
     overrides: dict[str, QuestionOverride] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> tuple[list[Question], dict[str, int]]:
     """Parse Toluna xlsx column headers into canonical Questions.
 
@@ -232,18 +235,30 @@ def parse_header(
         if override is not None and override.question_type == "excluded":
             question = Question(qid=qid, text=text, qtype=QuestionType.excluded, base_eligible=False)
         elif override is not None and override.question_type == "scale":
-            question = _build_scale_question(qid, text, values, grid_group, override=override)
+            question = _build_scale_question(
+                qid, text, values, grid_group, override=override, nonsubstantive_labels=nonsubstantive_labels
+            )
         elif override is not None:
-            question = _build_single_choice_question(qid, text, values, qtype=QuestionType(override.question_type))
+            question = _build_single_choice_question(
+                qid,
+                text,
+                values,
+                qtype=QuestionType(override.question_type),
+                nonsubstantive_labels=nonsubstantive_labels,
+            )
         elif qid in _DEMOGRAPHIC_SOURCE_COLUMNS:
-            question = _build_single_choice_question(qid, text, values)
+            question = _build_single_choice_question(qid, text, values, nonsubstantive_labels=nonsubstantive_labels)
         else:
-            match = match_family(_substantive_values(values))
+            match = match_family(_substantive_values(values, nonsubstantive_labels))
             if match.outcome is MatchOutcome.full:
-                question = _build_scale_question(qid, text, values, grid_group)
+                question = _build_scale_question(qid, text, values, grid_group, nonsubstantive_labels=nonsubstantive_labels)
             else:
                 unresolved = collect_unresolved_question(
-                    qid, text, list(enumerate(values, start=1)), _substantive_values(values), override=None
+                    qid,
+                    text,
+                    list(enumerate(values, start=1)),
+                    _substantive_values(values, nonsubstantive_labels),
+                    override=None,
                 )
                 if unresolved is not None:
                     collected.append(unresolved)
@@ -264,6 +279,7 @@ def load_respondents(
     questions: list[Question],
     col_idx_by_qid: dict[str, int],
     respid_col: int,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> tuple[list[Response], int]:
     """Load respondents from parsed xlsx rows into canonical Responses."""
     q_by_qid: dict[str, Question] = {q.qid: q for q in questions}
@@ -298,7 +314,7 @@ def load_respondents(
             code_by_label = {sc.label: sc.code for sc in question.labels}
             label = normalize_label(cell)
             value = code_by_label.get(label, label)
-            state = classify_response(value, question)
+            state = classify_response(value, question, nonsubstantive_labels=nonsubstantive_labels)
 
             responses.append(
                 Response(
@@ -312,7 +328,11 @@ def load_respondents(
     return responses, n_raw
 
 
-def column_qid_map(path: Path, overrides: dict[str, QuestionOverride] | None = None) -> tuple[list[str], dict[str, str]]:
+def column_qid_map(
+    path: Path,
+    overrides: dict[str, QuestionOverride] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
+) -> tuple[list[str], dict[str, str]]:
     """Returns (header, qid_by_column) for the run summary's column
     inventory (prompt 7). A grid question's qid (e.g.
     "7_local_mainstream_media") is a synthesized slug, not the literal
@@ -344,7 +364,7 @@ def column_qid_map(path: Path, overrides: dict[str, QuestionOverride] | None = N
                 break
             rows.append(row)
 
-        questions, _ = parse_header(header, rows, overrides)
+        questions, _ = parse_header(header, rows, overrides, nonsubstantive_labels)
 
         # parse_header iterates header_infos (built in the same header
         # order, skipping None/respid cells) in lockstep with the
@@ -366,8 +386,19 @@ def column_qid_map(path: Path, overrides: dict[str, QuestionOverride] | None = N
         wb.close()
 
 
-def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | None = None) -> Survey:
-    """Load a Toluna xlsx file and return a canonical Survey."""
+def load(
+    path: Path,
+    survey_id: str,
+    overrides: dict[str, QuestionOverride] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
+) -> Survey:
+    """Load a Toluna xlsx file and return a canonical Survey.
+
+    `nonsubstantive_labels`, when provided, is the project's configured
+    non-substantive label list (Task 7); None falls back to the built-in
+    defaults, preserving prior behavior for projects that haven't
+    customized the list.
+    """
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
@@ -416,14 +447,14 @@ def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | No
                 next_action="Check the vendor setting, or pick a different file.",
             ) from exc
 
-        questions, col_idx_by_qid = parse_header(header, rows, overrides)
+        questions, col_idx_by_qid = parse_header(header, rows, overrides, nonsubstantive_labels)
         if not questions:
             raise SurveyToolError(
                 ErrorCode.NO_QUESTIONS_FOUND,
                 "This file was read but has no computable questions in it.",
                 next_action="Check the vendor setting, or pick a different file.",
             )
-        responses, n_raw = load_respondents(rows, questions, col_idx_by_qid, respid_col)
+        responses, n_raw = load_respondents(rows, questions, col_idx_by_qid, respid_col, nonsubstantive_labels)
     finally:
         wb.close()
 

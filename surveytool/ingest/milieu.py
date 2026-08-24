@@ -98,6 +98,7 @@ def _build_scale_question(
     values: list[str],
     grid_group: str | None,
     override: QuestionOverride | None = None,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> Question:
     """Builds a scale Question. Caller (parse_header) is responsible for
     only reaching this function once it already knows the substantive
@@ -106,7 +107,7 @@ def _build_scale_question(
     (Task 5 removed the load-path raise), it just re-derives the same
     roles match_family already computed."""
     ns_overrides: dict[str, CodeRole] = {
-        v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v)
+        v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v, nonsubstantive_labels)
     }
     substantive_values = [v for v in values if v not in ns_overrides]
 
@@ -156,6 +157,7 @@ def _build_single_choice_question(
     info: _HeaderInfo,
     values: list[str],
     qtype: QuestionType = QuestionType.single_choice,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> Question:
     """Builds a non-scale question. `qtype` defaults to single_choice (the
     auto-detected shape), but a binary/categorical override passes its real
@@ -166,7 +168,7 @@ def _build_single_choice_question(
         ScaleCode(
             code=i,
             label=v,
-            role=CodeRole.nonsubstantive if is_nonsubstantive_label(v) else CodeRole.excluded,
+            role=CodeRole.nonsubstantive if is_nonsubstantive_label(v, nonsubstantive_labels) else CodeRole.excluded,
         )
         for i, v in enumerate(values, start=1)
     ]
@@ -180,12 +182,14 @@ def _build_single_choice_question(
     )
 
 
-def _build_multi_response_question(info: _HeaderInfo, values: list[str]) -> Question:
+def _build_multi_response_question(
+    info: _HeaderInfo, values: list[str], nonsubstantive_labels: list[str] | None = None
+) -> Question:
     labels = [
         ScaleCode(
             code=i,
             label=v,
-            role=CodeRole.nonsubstantive if is_nonsubstantive_label(v) else CodeRole.excluded,
+            role=CodeRole.nonsubstantive if is_nonsubstantive_label(v, nonsubstantive_labels) else CodeRole.excluded,
         )
         for i, v in enumerate(values, start=1)
     ]
@@ -199,14 +203,15 @@ def _build_multi_response_question(info: _HeaderInfo, values: list[str]) -> Ques
     )
 
 
-def _substantive_values(values: list[str]) -> list[str]:
-    return [v for v in values if not is_nonsubstantive_label(v)]
+def _substantive_values(values: list[str], nonsubstantive_labels: list[str] | None = None) -> list[str]:
+    return [v for v in values if not is_nonsubstantive_label(v, nonsubstantive_labels)]
 
 
 def parse_header(
     fieldnames: list[str],
     rows: list[dict[str, str]],
     overrides: dict[str, QuestionOverride] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
 ) -> list[Question]:
     """Parse Milieu CSV column headers into canonical Questions.
 
@@ -238,7 +243,7 @@ def parse_header(
 
         if info.qtype_token == "Multi-select":
             values = _collect_multi_values(rows, column)
-            questions.append(_build_multi_response_question(info, values))
+            questions.append(_build_multi_response_question(info, values, nonsubstantive_labels))
             continue
 
         values = _collect_single_values(rows, column)
@@ -248,20 +253,35 @@ def parse_header(
                 info.grid_stem or info.qid, f"grid_{_slugify(info.grid_stem or info.qid)}"
             )
             if override is not None and override.question_type == "scale":
-                questions.append(_build_scale_question(info, values, grid_group, override=override))
+                questions.append(
+                    _build_scale_question(
+                        info, values, grid_group, override=override, nonsubstantive_labels=nonsubstantive_labels
+                    )
+                )
                 continue
             if override is not None:
-                questions.append(_build_single_choice_question(info, values, qtype=QuestionType(override.question_type)))
+                questions.append(
+                    _build_single_choice_question(
+                        info,
+                        values,
+                        qtype=QuestionType(override.question_type),
+                        nonsubstantive_labels=nonsubstantive_labels,
+                    )
+                )
                 continue
             if info.qid in _DEMOGRAPHIC_SOURCE_COLUMNS:
-                questions.append(_build_single_choice_question(info, values))
+                questions.append(_build_single_choice_question(info, values, nonsubstantive_labels=nonsubstantive_labels))
                 continue
-            match = match_family(_substantive_values(values))
+            match = match_family(_substantive_values(values, nonsubstantive_labels))
             if match.outcome is MatchOutcome.full:
-                questions.append(_build_scale_question(info, values, grid_group))
+                questions.append(_build_scale_question(info, values, grid_group, nonsubstantive_labels=nonsubstantive_labels))
             else:
                 unresolved = collect_unresolved_question(
-                    info.qid, info.text, list(enumerate(values, start=1)), _substantive_values(values), override=None
+                    info.qid,
+                    info.text,
+                    list(enumerate(values, start=1)),
+                    _substantive_values(values, nonsubstantive_labels),
+                    override=None,
                 )
                 if unresolved is not None:
                     collected.append(unresolved)
@@ -269,20 +289,35 @@ def parse_header(
 
         if info.qtype_token == "Single-select":
             if override is not None and override.question_type == "scale":
-                questions.append(_build_scale_question(info, values, None, override=override))
+                questions.append(
+                    _build_scale_question(
+                        info, values, None, override=override, nonsubstantive_labels=nonsubstantive_labels
+                    )
+                )
                 continue
             if override is not None:
-                questions.append(_build_single_choice_question(info, values, qtype=QuestionType(override.question_type)))
+                questions.append(
+                    _build_single_choice_question(
+                        info,
+                        values,
+                        qtype=QuestionType(override.question_type),
+                        nonsubstantive_labels=nonsubstantive_labels,
+                    )
+                )
                 continue
             if info.qid in _DEMOGRAPHIC_SOURCE_COLUMNS:
-                questions.append(_build_single_choice_question(info, values))
+                questions.append(_build_single_choice_question(info, values, nonsubstantive_labels=nonsubstantive_labels))
                 continue
-            match = match_family(_substantive_values(values))
+            match = match_family(_substantive_values(values, nonsubstantive_labels))
             if match.outcome is MatchOutcome.full:
-                questions.append(_build_scale_question(info, values, None))
+                questions.append(_build_scale_question(info, values, None, nonsubstantive_labels=nonsubstantive_labels))
             else:
                 unresolved = collect_unresolved_question(
-                    info.qid, info.text, list(enumerate(values, start=1)), _substantive_values(values), override=None
+                    info.qid,
+                    info.text,
+                    list(enumerate(values, start=1)),
+                    _substantive_values(values, nonsubstantive_labels),
+                    override=None,
                 )
                 if unresolved is not None:
                     collected.append(unresolved)
@@ -298,6 +333,7 @@ def load_respondents(
     rows: list[dict[str, str]],
     questions: list[Question],
     header_by_qid: dict[str, str],
+    nonsubstantive_labels: list[str] | None = None,
 ) -> tuple[list[Response], int]:
     """Load respondents from parsed CSV rows into canonical Responses."""
     q_by_qid: dict[str, Question] = {q.qid: q for q in questions}
@@ -336,7 +372,7 @@ def load_respondents(
             else:
                 label = normalize_label(cell)
                 value = code_by_label.get(label, label)
-                state = classify_response(value, question)
+                state = classify_response(value, question, nonsubstantive_labels=nonsubstantive_labels)
 
             responses.append(
                 Response(
@@ -390,8 +426,19 @@ def column_qid_map(path: Path) -> tuple[list[str], dict[str, str]]:
     return fieldnames, qid_by_column
 
 
-def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | None = None) -> Survey:
-    """Load a Milieu CSV file and return a canonical Survey."""
+def load(
+    path: Path,
+    survey_id: str,
+    overrides: dict[str, QuestionOverride] | None = None,
+    nonsubstantive_labels: list[str] | None = None,
+) -> Survey:
+    """Load a Milieu CSV file and return a canonical Survey.
+
+    `nonsubstantive_labels`, when provided, is the project's configured
+    non-substantive label list (Task 7); None falls back to the built-in
+    defaults, preserving prior behavior for projects that haven't
+    customized the list.
+    """
     try:
         with path.open(encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
@@ -405,7 +452,7 @@ def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | No
             next_action="Confirm the file is a complete, un-corrupted export, or pick a different file.",
         ) from exc
 
-    questions = parse_header(fieldnames, rows, overrides)
+    questions = parse_header(fieldnames, rows, overrides, nonsubstantive_labels)
     if not questions:
         raise SurveyToolError(
             ErrorCode.NO_QUESTIONS_FOUND,
@@ -419,7 +466,7 @@ def load(path: Path, survey_id: str, overrides: dict[str, QuestionOverride] | No
         if info is not None:
             header_by_qid[info.qid] = column
 
-    responses, n_raw = load_respondents(rows, questions, header_by_qid)
+    responses, n_raw = load_respondents(rows, questions, header_by_qid, nonsubstantive_labels)
 
     return Survey(
         id=survey_id,

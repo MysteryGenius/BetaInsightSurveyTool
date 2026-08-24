@@ -296,7 +296,12 @@ def _read_fingerprint_signals(path: Path) -> tuple[frozenset[str], frozenset[str
     return frozenset(), frozenset(cell.strip() for cell in header)
 
 
-def _load_survey(path: Path, survey_id: str, vendor: str) -> Survey:
+def _load_survey(path: Path, survey_id: str, vendor: str, settings: ToolConfig | None = None) -> Survey:
+    """`settings`, when provided, supplies the project's configured
+    non-substantive label list (Task 7) to the vendor adapter's load().
+    None falls back to the adapter's own built-in defaults — callers that
+    haven't loaded project settings yet get identical behavior to before
+    this was configurable."""
     if vendor == "rakuten":
         from surveytool.ingest.rakuten import load
     elif vendor == "milieu":
@@ -317,7 +322,8 @@ def _load_survey(path: Path, survey_id: str, vendor: str) -> Survey:
     check_fingerprint(vendor, sheet_names=sheet_names, column_names=column_names)
 
     overrides = load_overrides(_project_overrides_path(survey_id)).overrides
-    return load(path, survey_id, overrides)
+    nonsubstantive_labels = settings.nonsubstantive_labels if settings is not None else None
+    return load(path, survey_id, overrides, nonsubstantive_labels)
 
 
 def _require_session(session_id: str) -> Session:
@@ -327,16 +333,22 @@ def _require_session(session_id: str) -> Session:
     return session
 
 
-def _column_qid_map(vendor: str, path: Path, survey_id: str) -> tuple[list[str], dict[str, str]]:
+def _column_qid_map(
+    vendor: str, path: Path, survey_id: str, settings: ToolConfig | None = None
+) -> tuple[list[str], dict[str, str]]:
     """Toluna's column_qid_map re-derives qids via its own internal
     parse_header call — without the same project overrides _load_survey
     used, a question that only classifies successfully because of an
     override (e.g. its raw labels would otherwise raise
     UnresolvedScaleLabelsError) would make this second, override-blind
     parse fail even though the real load() already succeeded. Passing the
-    same overrides here keeps both parses consistent. The other three
-    vendors' column_qid_map don't take overrides — their qid derivation
-    doesn't depend on classification, so this is a no-op for them.
+    same overrides here keeps both parses consistent. The same reasoning
+    applies to the project's configured non-substantive label list (Task
+    7): a custom list can change which labels are substantive and thus
+    change match_family's outcome, so `settings` is threaded through here
+    too. The other three vendors' column_qid_map don't take overrides —
+    their qid derivation doesn't depend on classification, so this is a
+    no-op for them.
     """
     if vendor == "rakuten":
         from surveytool.ingest.rakuten import column_qid_map
@@ -347,7 +359,8 @@ def _column_qid_map(vendor: str, path: Path, survey_id: str) -> tuple[list[str],
     if vendor == "toluna":
         from surveytool.ingest.toluna import column_qid_map
         overrides = load_overrides(_project_overrides_path(survey_id)).overrides
-        return column_qid_map(path, overrides)
+        nonsubstantive_labels = settings.nonsubstantive_labels if settings is not None else None
+        return column_qid_map(path, overrides, nonsubstantive_labels)
     if vendor == "purespectrum":
         from surveytool.ingest.purespectrum import column_qid_map
         return column_qid_map(path)
@@ -388,9 +401,10 @@ def _build_session_run_summary(
     survey_id: str,
     straightliner_count: int = 0,
     straightliner_action: str = "keep",
+    settings: ToolConfig | None = None,
 ) -> RunSummary:
     profile = get_vendor_profile(vendor)
-    header, qid_by_column = _column_qid_map(vendor, path, survey_id)
+    header, qid_by_column = _column_qid_map(vendor, path, survey_id, settings)
     column_classifications = build_column_classifications(header, qid_by_column, survey, profile)
     status_values = _read_status_values(vendor, path)
     verification_sheet_used = _verification_sheet_used(vendor, path)
@@ -433,10 +447,10 @@ def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session
     findings. Returns a Session (not yet stored under a session_id) and the
     warnings list the API response includes.
     """
-    survey = _load_survey(file_path, survey_id, vendor)
+    settings = _load_project_settings(survey_id)
+    survey = _load_survey(file_path, survey_id, vendor, settings)
     registry = _load_session_registry(vendor, survey)
     flagged = detect_straightliners(survey.responses, survey.questions)
-    settings = _load_project_settings(survey_id)
     excluded = flagged if settings.straightliner_action == "exclude" else set()
     findings = build_findings_sheet(
         survey,
@@ -451,6 +465,7 @@ def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session
         survey_id,
         straightliner_count=len(flagged),
         straightliner_action=settings.straightliner_action,
+        settings=settings,
     )
 
     session = Session(
@@ -621,7 +636,8 @@ async def get_run_summary(session_id: str):
     session = _require_session(session_id)
     summary = session.run_summary
     questions_by_qid = {q.qid: q for q in session.survey.questions}
-    qid_by_column = _column_qid_map(session.vendor, session.file_path, session.survey_id)[1]
+    session_settings = _load_project_settings(session.survey_id)
+    qid_by_column = _column_qid_map(session.vendor, session.file_path, session.survey_id, session_settings)[1]
 
     columns = []
     for column, classification in summary.column_classifications.items():
