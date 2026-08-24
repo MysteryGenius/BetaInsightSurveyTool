@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import yaml
@@ -91,6 +93,22 @@ def _label_in_family(norm: str, family: dict[str, list[str]]) -> bool:
     return _is_neutral_label(norm, family)
 
 
+def _role_in_family(norm: str, family: dict[str, list[str]]) -> CodeRole | None:
+    """Like `_match_role`, but resolved against one specific family's
+    patterns rather than searching every family in library order — needed
+    wherever the caller has already chosen which family a label belongs to
+    (e.g. the best-matching family in an ambiguous match), since a label
+    can appear in more than one family's patterns and `_match_role` would
+    silently return the role from whichever family it hits first."""
+    if norm in family["top_patterns"]:
+        return CodeRole.top
+    if _is_neutral_label(norm, family):
+        return CodeRole.neutral
+    if norm in family["bottom_patterns"]:
+        return CodeRole.bottom
+    return None
+
+
 def identify_family(labels: list[str]) -> str | None:
     """Return the scale family name if the full label set matches exactly one family."""
     normed = [_normalise(lb) for lb in labels]
@@ -99,6 +117,101 @@ def identify_family(labels: list[str]) -> str | None:
         if all(_label_in_family(n, family) for n in normed):
             matches.append(name)
     return matches[0] if len(matches) == 1 else None
+
+
+class MatchOutcome(str, Enum):
+    """Result of matching a question's label set against the scale library."""
+
+    full = "full"
+    """Every label maps to a role in a single family."""
+    partial = "partial"
+    """At least one label maps to a family and at least one does not."""
+    none = "none"
+    """No label maps to any family."""
+
+
+@dataclass(frozen=True)
+class FamilyMatch:
+    """Richer, non-raising result of matching a question's labels against
+    the scale library — unlike `identify_family`, this distinguishes a
+    partial match (some labels resolve, some don't) from a genuine
+    non-match (nothing resolves), and records which specific labels fell on
+    each side plus the role each matched label would take.
+
+    outcome: MatchOutcome.full / .partial / .none.
+    family: the family name for a full or partial match; None for no match.
+        When candidate families tie or multiple families each match at
+        least one label, this is the family with the highest count of
+        matched labels (ties broken by _FAMILIES iteration order).
+    matched_labels: original (unnormalised) label text -> CodeRole, for
+        every label that matched `family`'s patterns. Empty for no match.
+    unmatched_labels: original (unnormalised) label text for every label
+        that did not match `family`'s patterns, in input order. Empty for
+        a full match.
+    ambiguous: True if labels matched (at least partially) across more
+        than one family — `family` is then the family with the highest
+        match count, chosen deterministically, but callers should treat
+        the result as uncertain.
+    """
+
+    outcome: MatchOutcome
+    family: str | None
+    matched_labels: dict[str, CodeRole]
+    unmatched_labels: list[str]
+    ambiguous: bool
+
+
+def match_family(labels: list[str]) -> FamilyMatch:
+    """Match a question's full label set against every scale family and
+    report how well it fits the best-matching family, without raising.
+
+    Unlike `identify_family` (which only succeeds when every label matches
+    exactly one family), this reports partial matches — useful for telling
+    "one label short of a known scale" apart from "not a scale at all".
+
+    Where labels match across more than one family, the family with the
+    highest count of matched labels is reported and `ambiguous` is set.
+    """
+    normed = [_normalise(lb) for lb in labels]
+
+    counts: dict[str, int] = {}
+    for name, family in _FAMILIES.items():
+        count = sum(1 for n in normed if _label_in_family(n, family))
+        if count > 0:
+            counts[name] = count
+
+    if not counts:
+        return FamilyMatch(
+            outcome=MatchOutcome.none,
+            family=None,
+            matched_labels={},
+            unmatched_labels=list(labels),
+            ambiguous=False,
+        )
+
+    best_family = max(counts, key=lambda name: counts[name])
+    ambiguous = len(counts) > 1
+
+    family_def = _FAMILIES[best_family]
+    matched_labels: dict[str, CodeRole] = {}
+    unmatched_labels: list[str] = []
+    for label, norm in zip(labels, normed):
+        if _label_in_family(norm, family_def):
+            role = _role_in_family(norm, family_def)
+            assert role is not None
+            matched_labels[label] = role
+        else:
+            unmatched_labels.append(label)
+
+    outcome = MatchOutcome.partial if unmatched_labels else MatchOutcome.full
+
+    return FamilyMatch(
+        outcome=outcome,
+        family=best_family,
+        matched_labels=matched_labels,
+        unmatched_labels=unmatched_labels,
+        ambiguous=ambiguous,
+    )
 
 
 def classify_question_type(
