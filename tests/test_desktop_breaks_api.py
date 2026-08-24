@@ -50,34 +50,11 @@ def _upload_milieu(client) -> str:
     return response.json()["session_id"]
 
 
-def _seed_toluna_age_override(survey_id: str) -> None:
-    """Task 5: Toluna's column "2" (age_band) is a genuine demographic by
-    content but is not a declared source_column in vendor_toluna.yaml (a
-    real reachability gap), so it is not exempt from the load-path
-    collector — an override-free upload of the real fixture now 400s.
-    Pre-seed the same categorical resolution an analyst would write via
-    the resolver so this module's other tests (none of which are actually
-    about column "2") can still upload and exercise the endpoints they're
-    testing."""
-    from datetime import datetime, timezone
-
-    from surveytool.desktop.app import _project_overrides_path
-    from surveytool.ingest.overrides import QuestionOverride, write_override
-
-    write_override(
-        _project_overrides_path(survey_id),
-        QuestionOverride(
-            variable="2",
-            question_type="categorical",
-            label_roles={},
-            resolved_at=datetime.now(timezone.utc),
-            library_version="test",
-        ),
-    )
-
-
 def _upload_toluna(client) -> str:
-    _seed_toluna_age_override("t")
+    # Task 9: column "2" (age_band) is now a declared demographic
+    # source_column in vendor_toluna.yaml, exempt from the load-path
+    # collector — no override needed (contrast with the Task 5-era
+    # override this helper used before age_band was mapped).
     with open(TOLUNA_PATH, "rb") as f:
         response = client.post(
             "/api/upload",

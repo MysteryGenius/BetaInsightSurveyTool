@@ -46,30 +46,6 @@ MILIEU_PATH = ROOT / "milieu_survey_coe_data.csv"
 TOLUNA_PATH = ROOT / "toluna_survey_misinformation_data.xlsx"
 
 
-def _toluna_age_override():
-    """Task 5: Toluna's column "2" (age_band) is a genuine demographic by
-    content but is not a declared source_column in vendor_toluna.yaml (a
-    real reachability gap, see that YAML's comment) — it is not exempt
-    from the load-path collector, so a bare load() needs this override
-    (the same categorical resolution an analyst would write via the
-    resolver) to load at all. The registry itself never sees age_band for
-    Toluna either way (it's absent from vendor_toluna.yaml's dimensions),
-    so this override has no effect on anything this module tests."""
-    from datetime import datetime, timezone
-
-    from surveytool.ingest.overrides import QuestionOverride
-
-    return {
-        "2": QuestionOverride(
-            variable="2",
-            question_type="categorical",
-            label_roles={},
-            resolved_at=datetime.now(timezone.utc),
-            library_version="test",
-        )
-    }
-
-
 # ── Section A: synthetic fixtures ────────────────────────────────────────────
 
 _CANONICAL_MINIMAL = {
@@ -518,7 +494,10 @@ def test_real_full_registry_loads_all_three_vendors_together(rakuten_surveys):
     surveys = {
         "rakuten": rakuten_surveys["support_measures"],
         "milieu": load_milieu(MILIEU_PATH, "coe"),
-        "toluna": load_toluna(TOLUNA_PATH, "misinformation", _toluna_age_override()),
+        # Task 9: column "2" (age_band) is now a declared demographic
+        # source_column in vendor_toluna.yaml, exempt from the load-path
+        # collector — no override needed.
+        "toluna": load_toluna(TOLUNA_PATH, "misinformation"),
     }
 
     registry = load_registry(CANONICAL_PATH, VENDOR_PATHS, surveys=surveys)

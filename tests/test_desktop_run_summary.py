@@ -65,43 +65,19 @@ def _upload(client, vendor: str, path: Path, content_type: str, survey_id: str |
 
 
 def _upload_and_get_summary(client, vendor: str, path: Path, content_type: str):
-    """Upload with no overrides, except Toluna, which needs its column "2"
-    (age_band) pre-resolved first — see _seed_toluna_age_override. For
-    PureSpectrum, only valid to call this once the six genuinely-unmatched
-    questions have already been resolved for this survey_id (see
-    _upload_purespectrum_resolved below) — an override-free PureSpectrum
-    upload now 400s (Task 5)."""
+    """Upload with no overrides. Toluna's column "2" (age_band) is now a
+    declared demographic source_column in vendor_toluna.yaml (Task 9), so
+    it no longer needs a pre-seeded override. For PureSpectrum, only valid
+    to call this once the six genuinely-unmatched questions have already
+    been resolved for this survey_id (see _upload_purespectrum_resolved
+    below) — an override-free PureSpectrum upload now 400s (Task 5)."""
     survey_id = f"run-summary-{vendor}-{uuid.uuid4()}"
-    if vendor == "toluna":
-        _seed_toluna_age_override(survey_id)
     response = _upload(client, vendor, path, content_type, survey_id)
     assert response.status_code == 200, response.text
     session_id = response.json()["session_id"]
     summary_response = client.get(f"/api/session/{session_id}/run-summary")
     assert summary_response.status_code == 200, summary_response.text
     return summary_response.json()
-
-
-def _seed_toluna_age_override(survey_id: str) -> None:
-    """Task 5: Toluna's column "2" (age_band) is a genuine demographic by
-    content but is not a declared source_column in vendor_toluna.yaml (a
-    real reachability gap), so it is not exempt from the load-path
-    collector — pre-seed the categorical override an analyst would write
-    via the resolver so this module's Toluna coverage (not about column
-    "2") can still upload."""
-    from surveytool.desktop.app import _project_overrides_path
-    from surveytool.ingest.overrides import QuestionOverride, write_override
-
-    write_override(
-        _project_overrides_path(survey_id),
-        QuestionOverride(
-            variable="2",
-            question_type="categorical",
-            label_roles={},
-            resolved_at=datetime.now(timezone.utc),
-            library_version="test",
-        ),
-    )
 
 
 def _upload_purespectrum_resolved(client):

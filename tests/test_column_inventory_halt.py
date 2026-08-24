@@ -74,17 +74,12 @@ def _load_milieu():
 def _load_toluna():
     from surveytool.ingest.toluna import column_qid_map, load
 
-    overrides = {
-        "2": QuestionOverride(
-            variable="2",
-            question_type="categorical",
-            label_roles={},
-            resolved_at=datetime.now(timezone.utc),
-            library_version="test",
-        )
-    }
-    survey = load(TOLUNA_PATH, "halt-test-toluna", overrides, None)
-    header, qid_by_column = column_qid_map(TOLUNA_PATH, overrides, None)
+    # Task 9: column "2" (age_band) is now a declared demographic
+    # source_column in vendor_toluna.yaml, exempt from the load-path
+    # collector — no override needed (contrast with the Task 5-era
+    # override this helper used before age_band was mapped).
+    survey = load(TOLUNA_PATH, "halt-test-toluna", {}, None)
+    header, qid_by_column = column_qid_map(TOLUNA_PATH, {}, None)
     profile = get_vendor_profile("toluna")
     return header, qid_by_column, survey, profile
 
