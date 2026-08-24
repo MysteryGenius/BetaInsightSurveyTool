@@ -77,19 +77,31 @@ def test_milieu_non_scale_override_preserves_chosen_qtype(question_type):
 @pytest.mark.parametrize("question_type", ["binary", "categorical"])
 def test_toluna_non_scale_override_preserves_chosen_qtype(question_type):
     """Toluna's non-scale override branch must build the override's real
-    question_type, not always single_choice."""
+    question_type, not always single_choice.
+
+    Task 5: column "2" (age_band) is a genuine demographic by content but
+    is not a declared source_column in vendor_toluna.yaml (a real
+    reachability gap), so it is not exempt from the load-path collector —
+    both load() calls below need its categorical override (the same
+    resolution an analyst would write via the resolver) or the file
+    can't load at all. This test isn't about column "2"; it's about
+    whichever single_choice qid the fixture happens to produce."""
     if not TOLUNA_PATH.exists():
         pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
 
     from surveytool.ingest.toluna import load
 
-    survey = load(TOLUNA_PATH, "probe")
+    age_override = {"2": _override("2", "categorical")}
+
+    survey = load(TOLUNA_PATH, "probe", age_override)
     single_choice_qid = next(
         q.qid for q in survey.questions if q.qtype == QuestionType.single_choice
     )
 
     survey_with_override = load(
-        TOLUNA_PATH, "probe", overrides={single_choice_qid: _override(single_choice_qid, question_type)}
+        TOLUNA_PATH,
+        "probe",
+        overrides={**age_override, single_choice_qid: _override(single_choice_qid, question_type)},
     )
     question = next(q for q in survey_with_override.questions if q.qid == single_choice_qid)
     assert question.qtype.value == question_type

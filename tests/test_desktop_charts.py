@@ -101,7 +101,31 @@ def test_charts_endpoint_matches_session_findings_for_milieu(client):
     assert dist_q10["trace"]["cell_base"] == expected_t2b.cell_base
 
 
+def _seed_toluna_age_override(survey_id: str) -> None:
+    """Task 5: Toluna's column "2" (age_band) is not a declared demographic
+    source_column in vendor_toluna.yaml (a real reachability gap), so it
+    is not exempt from the load-path collector — pre-seed the categorical
+    override an analyst would write via the resolver so this module's
+    tests (not about column "2") can still upload."""
+    from datetime import datetime, timezone
+
+    from surveytool.desktop.app import _project_overrides_path
+    from surveytool.ingest.overrides import QuestionOverride, write_override
+
+    write_override(
+        _project_overrides_path(survey_id),
+        QuestionOverride(
+            variable="2",
+            question_type="categorical",
+            label_roles={},
+            resolved_at=datetime.now(timezone.utc),
+            library_version="test",
+        ),
+    )
+
+
 def _upload_toluna(client) -> str:
+    _seed_toluna_age_override("t")
     with open(TOLUNA_PATH, "rb") as f:
         response = client.post(
             "/api/upload",

@@ -78,10 +78,33 @@ def _load(vendor: str):
         pytest.skip(f"HC file {path.name} not found in project root")
     if vendor == "rakuten":
         from surveytool.ingest.rakuten import load
-    elif vendor == "toluna":
+        return load(path, f"{vendor}-conformance")
+    if vendor == "toluna":
         from surveytool.ingest.toluna import load
-    else:
-        from surveytool.ingest.milieu import load
+
+        # Task 5: Toluna's column "2" (age_band) is a genuine demographic
+        # by content but is not a declared source_column in
+        # vendor_toluna.yaml (the real reachability gap this module's own
+        # docstring describes), so it is not exempt from the load-path
+        # unresolved-question collector and needs an override to load at
+        # all — same override an analyst would write via the resolver.
+        # BREAK_DIMENSIONS never uses age_band for Toluna (see above), so
+        # this override has no effect on anything this module tests.
+        from datetime import datetime, timezone
+
+        from surveytool.ingest.overrides import QuestionOverride
+
+        age_override = {
+            "2": QuestionOverride(
+                variable="2",
+                question_type="categorical",
+                label_roles={},
+                resolved_at=datetime.now(timezone.utc),
+                library_version="test",
+            )
+        }
+        return load(path, f"{vendor}-conformance", age_override)
+    from surveytool.ingest.milieu import load
     return load(path, f"{vendor}-conformance")
 
 

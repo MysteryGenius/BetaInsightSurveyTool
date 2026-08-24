@@ -204,6 +204,28 @@ _TOLUNA_PATH = _ROOT / "toluna_survey_misinformation_data.xlsx"
 _RAKUTEN_PATH = _ROOT / "rakuten_survey_support_measures_data.xlsx"
 
 
+def _toluna_age_override():
+    """Task 5: Toluna's column "2" (age_band) is a genuine demographic by
+    content but is not a declared source_column in vendor_toluna.yaml (a
+    real reachability gap, see that YAML's comment) — it is not exempt
+    from the load-path unresolved-question collector, so a bare load()
+    needs this override (the same categorical resolution an analyst would
+    write via the resolver) to load at all."""
+    from datetime import datetime, timezone
+
+    from surveytool.ingest.overrides import QuestionOverride
+
+    return {
+        "2": QuestionOverride(
+            variable="2",
+            question_type="categorical",
+            label_roles={},
+            resolved_at=datetime.now(timezone.utc),
+            library_version="test",
+        )
+    }
+
+
 def _assert_all_scales_fully_resolved(questions, vendor: str) -> None:
     for q in questions:
         if q.qtype is not QuestionType.scale:
@@ -253,7 +275,7 @@ def test_milieu_real_file_scales_fully_resolve():
 def test_toluna_real_file_scales_fully_resolve():
     from surveytool.ingest.toluna import load
 
-    survey = load(_TOLUNA_PATH, "misinformation")
+    survey = load(_TOLUNA_PATH, "misinformation", _toluna_age_override())
     assert any(q.qtype is QuestionType.scale for q in survey.questions), (
         "Expected at least one scale question in the Toluna fixture"
     )
@@ -323,7 +345,7 @@ def test_toluna_shared_conformance_assertions():
 
     from surveytool.ingest.toluna import load
 
-    survey = load(_TOLUNA_PATH, "misinformation")
+    survey = load(_TOLUNA_PATH, "misinformation", _toluna_age_override())
     wb = openpyxl.load_workbook(_TOLUNA_PATH, read_only=True, data_only=True)
     sheet_names = frozenset(wb.sheetnames)
     header = next(wb["RespondentData.Text"].iter_rows(values_only=True))
@@ -339,11 +361,33 @@ def test_toluna_shared_conformance_assertions():
            "no numerical golden fixture is written against numbers we produced ourselves.",
 )
 def test_purespectrum_shared_conformance_assertions():
+    # Task 5: an override-free load of the real fixture now raises
+    # UnresolvedQuestionsError for D2/Q1/Q3/Q6/Q9/D5 (see
+    # tests/test_purespectrum_fixture.py, which asserts that raise
+    # directly and names the exact expected set). This shared-assertion
+    # test only cares that a *resolved* load satisfies the cross-vendor
+    # invariants, so it supplies the same categorical overrides an analyst
+    # would write via the resolver, rather than asserting on the raise
+    # itself a second time.
     import openpyxl
+    from datetime import datetime, timezone
 
+    from surveytool.ingest.overrides import QuestionOverride
     from surveytool.ingest.purespectrum import load
 
-    survey = load(_PURESPECTRUM_PATH, "wcs")
+    now = datetime.now(timezone.utc)
+    overrides = {
+        variable: QuestionOverride(
+            variable=variable,
+            question_type="categorical",
+            label_roles={},
+            resolved_at=now,
+            library_version="test",
+        )
+        for variable in ("D2", "Q1", "Q3", "Q6", "Q9", "D5")
+    }
+
+    survey = load(_PURESPECTRUM_PATH, "wcs", overrides)
     wb = openpyxl.load_workbook(_PURESPECTRUM_PATH, read_only=True, data_only=True)
     sheet_names = frozenset(wb.sheetnames)
     header = next(wb["A1"].iter_rows(values_only=True))

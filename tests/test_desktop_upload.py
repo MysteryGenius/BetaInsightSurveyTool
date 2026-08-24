@@ -80,6 +80,27 @@ def test_drop_real_toluna_file_runs_full_pipeline_and_retains_dataframe(client):
     if not TOLUNA_PATH.exists():
         pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
 
+    # Task 5: column "2" (age_band) is a genuine demographic by content but
+    # is not a declared source_column in vendor_toluna.yaml (a real
+    # reachability gap), so it is not exempt from the load-path collector
+    # — pre-seed the categorical override an analyst would write via the
+    # resolver so this test (not about column "2") can still upload.
+    from datetime import datetime, timezone
+
+    from surveytool.desktop.app import _project_overrides_path
+    from surveytool.ingest.overrides import QuestionOverride, write_override
+
+    write_override(
+        _project_overrides_path("t"),
+        QuestionOverride(
+            variable="2",
+            question_type="categorical",
+            label_roles={},
+            resolved_at=datetime.now(timezone.utc),
+            library_version="test",
+        ),
+    )
+
     with open(TOLUNA_PATH, "rb") as f:
         response = client.post(
             "/api/upload",
