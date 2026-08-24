@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from surveytool.core.column_classification import ColumnClassification
+from surveytool.core.column_classification import ColumnClassification, UnclassifiedColumnError
 from surveytool.core.model import QuestionType, Survey
 from surveytool.ingest.vendor_profile import VendorProfile
 
@@ -14,7 +14,7 @@ def build_column_classifications(
     profile: VendorProfile,
 ) -> dict[str, ColumnClassification]:
     """Classify every raw column in `header` for the run summary's column
-    inventory table.
+    inventory table, and halt the run if any column can't be classified.
 
     Reuses each adapter's own classification decisions (Survey.questions'
     qtype/is_demographic) rather than re-deriving demographic/open-end rules
@@ -24,11 +24,18 @@ def build_column_classifications(
     qid the adapter assigned it, since a grid question's qid (e.g. Toluna's
     "7_local_mainstream_media") is a synthesized slug, not the literal
     column text. Reserved metadata and quality columns come straight from
-    the vendor profile, matching classify_columns's own precedence
-    (metadata and quality checked first). Any header column with no
-    matching Question and no metadata/quality membership is UNCLASSIFIED
-    rather than silently dropped — the run summary must account for every
-    column exactly once.
+    the vendor profile (metadata and quality checked first).
+
+    This is the single column classification implementation (the earlier
+    classify_columns()/its own header-pattern rules were retired in favor
+    of this one, since this is the function actually wired into the live
+    load path). Any header column with no matching Question and no
+    metadata/quality membership is unrecognized: rather than silently
+    tagging it UNCLASSIFIED and returning, this raises
+    UnclassifiedColumnError naming the column and its header text, halting
+    the run before any results are returned. The run summary was already
+    the only place tracking full column coverage, so it's the natural
+    place to enforce it too.
     """
     questions_by_qid = {q.qid: q for q in survey.questions}
     result: dict[str, ColumnClassification] = {}
@@ -44,7 +51,7 @@ def build_column_classifications(
             qid = qid_by_column.get(column)
             question = questions_by_qid.get(qid) if qid is not None else None
             if question is None:
-                result[column] = ColumnClassification.UNCLASSIFIED
+                raise UnclassifiedColumnError(column=column, header_text=column)
             elif question.qtype in _OPEN_END_QTYPES:
                 result[column] = ColumnClassification.OPEN_END
             elif question.qtype is QuestionType.demographic or question.is_demographic:
