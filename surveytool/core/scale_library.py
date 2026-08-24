@@ -76,17 +76,6 @@ def resolve_roles(
     return result
 
 
-def any_label_matches_family(labels: list[str]) -> bool:
-    """True if at least one label matches some scale family's role patterns.
-
-    Used by ingest adapters to distinguish a genuine non-scale categorical
-    column (no label matches anything) from a scale column that the library
-    only partially resolves (some labels match, others don't) — the latter
-    must fail loudly rather than silently demote to single_choice.
-    """
-    return any(_match_role(_normalise(label)) is not None for label in labels)
-
-
 def _label_in_family(norm: str, family: dict[str, list[str]]) -> bool:
     if norm in family["top_patterns"] or norm in family["bottom_patterns"]:
         return True
@@ -216,20 +205,26 @@ def match_family(labels: list[str]) -> FamilyMatch:
 
 def classify_question_type(
     labels: list[str],
-) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None]:
-    """Classify a question's substantive labels as SCALE, BINARY, or
-    CATEGORICAL.
+) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None] | None:
+    """Classify a question's substantive labels as SCALE or BINARY.
 
     SCALE: every label matches a single family (identify_family succeeds).
     Netting applies; returns the resolved roles and family name.
 
-    BINARY: exactly two labels, and they match the 'binary' family
-    (added by a later task). No netting; roles/family are None since a
-    binary question has no top/neutral/bottom ordering to net over.
+    BINARY: exactly two labels, and they match the 'binary' family.
+    No netting; roles/family are None since a binary question has no
+    top/neutral/bottom ordering to net over.
 
-    CATEGORICAL: neither of the above, including a genuine partial match
-    (some labels match a family, others don't) — this is the fallback that
-    replaces the old hard error. Never raises.
+    Neither: returns None. CATEGORICAL is no longer inferred here — a
+    label set that doesn't achieve a full scale or binary match (including
+    a genuine partial match, where some labels match a family and others
+    don't) is not this function's business to demote silently. Callers
+    (the vendor adapters, via the load-path collector in
+    surveytool.ingest.validate_questions) collect a None result as an
+    unresolved question for the analyst to confirm via the resolver.
+    CATEGORICAL remains a valid Question.qtype, but only ever as the
+    outcome of a stored project override, never as an inference from a
+    failed match — see Task 5's brief.
     """
     normed = [_normalise(lb) for lb in labels]
 
@@ -243,4 +238,4 @@ def classify_question_type(
         roles = {lb: role for lb, role in zip(labels, (_match_role(n) for n in normed))}
         return QuestionType.scale, roles, family
 
-    return QuestionType.categorical, None, None
+    return None

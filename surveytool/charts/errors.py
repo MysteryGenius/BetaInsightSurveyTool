@@ -138,21 +138,31 @@ class MissingFindingsRow(SurveyToolError):
 
 
 class UnresolvedScaleLabelsError(SurveyToolError, ValueError):
-    """Raised when one or more response labels can't be matched to a known scale family.
+    """Raised by resolve_roles() when one or more response labels can't be
+    matched to a known scale family.
 
-    Subclasses ValueError so existing ``pytest.raises(ValueError)`` call sites
-    against ``resolve_roles`` keep passing. Must fail loudly, never demote to
-    a lower-fidelity question type.
+    Task 5 removed this error from every load path (Milieu/Toluna no
+    longer call resolve_roles from parse_header; the collector in
+    surveytool.ingest.validate_questions handles the unresolved case by
+    collecting into UnresolvedQuestionsError instead) — resolve_roles
+    itself, and this error, still exist and still raise, but are reachable
+    only by a caller that calls resolve_roles directly (a synthetic
+    conformance test, not any adapter's load()). No next_action naming
+    scales.yaml is set, since this no longer reaches an analyst through
+    any live path — that instruction is what audit finding #2 flagged for
+    removal.
+
+    Subclasses ValueError so existing ``pytest.raises(ValueError)`` call
+    sites against ``resolve_roles`` keep passing.
     """
 
     def __init__(self, unresolved: list[str]) -> None:
         self.unresolved = unresolved
-        detail = f"Scale library could not resolve label(s): {unresolved}. Add an override or extend scales.yaml."
+        detail = f"Scale library could not resolve label(s): {unresolved}."
         super().__init__(
             ErrorCode.UNRESOLVED_SCALE_LABELS,
             "This file has response labels this tool doesn't recognise.",
             detail=detail,
-            next_action="Add the missing labels to the scale library, or check the vendor setting.",
         )
 
 

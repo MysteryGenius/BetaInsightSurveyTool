@@ -77,6 +77,34 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+_DEMOGRAPHICS_DIR = Path(__file__).parent / "demographics"
+
+
+def declared_demographic_source_columns(vendor: str) -> frozenset[str]:
+    """The set of source_column qids a vendor's demographic YAML declares
+    (e.g. Rakuten's S1-S4, Milieu's q5-q8) — used by the load-path
+    unresolved-question collector (Task 5) to exempt declared demographics
+    from the resolver without waiting for a full Survey to exist, since
+    ResolvedRegistry's own reachability/unmapped-value checks (above) need
+    an already-built Survey and run after load(), not during it.
+
+    Deliberately a plain source_column name lookup, not a full
+    VendorMapping.model_validate — this only needs to answer "is this qid
+    spoken for", not validate reachability, which load_registry still does
+    separately, later, against the built Survey.
+    """
+    path = _DEMOGRAPHICS_DIR / f"vendor_{vendor}.yaml"
+    if not path.exists():
+        return frozenset()
+    raw = _load_yaml(path) or {}
+    dimensions = raw.get("dimensions") or {}
+    return frozenset(
+        str(dim["source_column"])
+        for dim in dimensions.values()
+        if isinstance(dim, dict) and "source_column" in dim
+    )
+
+
 def _check_reachability(canonical: CanonicalRegistry, vendor_mapping: VendorMapping) -> None:
     """Rule 1: every canonical category must be reachable from every vendor
     mapping that declares the dimension. Cheap, YAML-only. non_response
