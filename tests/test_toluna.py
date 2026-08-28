@@ -166,11 +166,16 @@ def test_unresolvable_scale_label_is_collected_not_hard_failed_immediately():
     assert "Gobbledygook" in entry.reason
 
 
-def test_genuine_categorical_is_collected_not_silently_single_choice():
-    """Task 5: a column where zero labels match any scale family, and whose
-    qid is not a declared demographic, used to demote silently to
-    single_choice. It must now be collected instead."""
-    from surveytool.charts.errors import UnresolvedQuestionsError
+def test_genuine_categorical_classifies_directly_not_queued_for_resolver():
+    """Task 5 originally made a column where zero labels match any scale
+    family (and whose qid is not a declared demographic) collect for the
+    resolver rather than demote silently to single_choice. Round A prompt
+    A4 refines this: a label set with no scale-pattern match AND no
+    polarity pair shows no evidence of being ordinal, so it classifies as
+    `categorical` directly with the reason recorded on the question,
+    instead of training an analyst to click through a resolver panel for
+    questions that were never going to be scales."""
+    from surveytool.core.model import QuestionType
     from surveytool.ingest.toluna import parse_header
 
     header = ("respid", "98 : Favourite city?")
@@ -179,9 +184,8 @@ def test_genuine_categorical_is_collected_not_silently_single_choice():
         ("SG2", "Tokyo"),
     ]
 
-    with pytest.raises(UnresolvedQuestionsError) as exc_info:
-        parse_header(header, rows)
-
-    entry = exc_info.value.detail_entries[0]
-    assert entry.variable == "98"
-    assert "none" in entry.reason.lower()
+    questions, _col_idx = parse_header(header, rows)  # must not raise
+    q98 = next(q for q in questions if q.qid == "98")
+    assert q98.qtype is QuestionType.categorical
+    assert q98.categorical_reason is not None
+    assert "no evidence" in q98.categorical_reason.lower()

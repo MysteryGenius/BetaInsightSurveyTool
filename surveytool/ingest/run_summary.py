@@ -23,6 +23,7 @@ class RunSummary(BaseModel):
     demographic_gap_statement: str
     override_resolutions: list[dict]
     notices: list[str]
+    categorical_classifications: list[dict] = []
 
 
 def _quality_flag_statement(profile: VendorProfile) -> str:
@@ -79,6 +80,7 @@ def build_run_summary(
     straightliner_count: int = 0,
     straightliner_action: str = "keep",
     not_collected: list[NotCollectedEntry] | None = None,
+    categorical_classifications: list[tuple[str, str]] | None = None,
 ) -> RunSummary:
     classification_counts = dict(Counter(column_classifications.values()))
     disposition_counts = dict(Counter(status_values))
@@ -93,4 +95,7 @@ def build_run_summary(
         demographic_gap_statement=_demographic_gap_statement(not_collected or []),
         override_resolutions=[{"variable": v, "resolved_at": ts} for v, ts in overrides_applied],
         notices=[n.message for n in override_notices],
+        categorical_classifications=[
+            {"variable": qid, "reason": reason} for qid, reason in (categorical_classifications or [])
+        ],
     )

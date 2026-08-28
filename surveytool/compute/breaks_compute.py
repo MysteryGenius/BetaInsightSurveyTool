@@ -88,6 +88,19 @@ class NetResult(BaseModel):
     base_valid: int
 
 
+class BaseProvenancePayload(BaseModel):
+    """Round A prompt A5: why base_valid is smaller than base_cell for this
+    column, broken out by reason rather than collapsed to one label — each
+    reason is its own field, all present at once when more than one
+    applies. Mirrors surveytool.compute.stats.BaseProvenance verbatim; see
+    that dataclass's docstring for why suppression and straightliner
+    exclusion are deliberately not reasons carried here."""
+
+    routed: int
+    item_missing: int
+    nonsubstantive_excluded: int
+
+
 class ColumnResult(BaseModel):
     """One column of the cross-tab: one cell's figures for one question.
 
@@ -101,6 +114,7 @@ class ColumnResult(BaseModel):
     base_cell: int
     base_valid: int | None
     n_invalid: int | None
+    base_provenance: BaseProvenancePayload | None = None
     band: Band
     counts: dict[str, int] | None
     percentages: dict[str, float] | None
@@ -266,11 +280,22 @@ def _column_for_cell(
             base_cell=base_cell,
             base_valid=None,
             n_invalid=None,
+            base_provenance=None,
             band=band,
             counts=None,
             percentages=None,
             nets=None,
         )
+
+    base_provenance = (
+        BaseProvenancePayload(
+            routed=qs_result.provenance.routed,
+            item_missing=qs_result.provenance.item_missing,
+            nonsubstantive_excluded=qs_result.provenance.nonsubstantive_excluded,
+        )
+        if qs_result.provenance is not None
+        else None
+    )
 
     return ColumnResult(
         key=[[dimension, category] for dimension, category in cell.key],
@@ -278,6 +303,7 @@ def _column_for_cell(
         base_cell=base_cell,
         base_valid=base_valid,
         n_invalid=n_invalid,
+        base_provenance=base_provenance,
         band=band,
         counts=counts,
         percentages=percentages,

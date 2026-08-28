@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import zipfile
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from surveytool.core.model import (
     Question,
     QuestionType,
     Response,
+    ResponseState,
     ScaleCode,
     Survey,
 )
@@ -22,68 +22,43 @@ from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_
 from surveytool.core.scale_library import classify_question_type
 from surveytool.ingest.datamap_reader import Codebook, DatamapReader
 from surveytool.ingest.overrides import QuestionOverride, resolve_with_override
-from surveytool.ingest.validate_questions import collect_unresolved_question
+from surveytool.ingest.validate_questions import AutoCategorical, assert_no_duplicate_codes, classify_or_collect
 from surveytool.ingest.vendor_profile import PURESPECTRUM_PROFILE
 
 _DEMOGRAPHIC_SOURCE_COLUMNS = declared_demographic_source_columns("purespectrum")
 
 
-_MULTISELECT_OE_RE = re.compile(r"^(?P<root>[A-Za-z0-9]+)r(?P<n>\d+)oe$")
-
-
-def _build_multi_response_placeholders(codebook: Codebook, a1_header: list[str] | None) -> list[Question]:
-    """PureSpectrum's Datamap documents a multi-select "check all that
-    apply" group's other-specify tail (e.g. "Q10r8oe") but never declares
-    the option columns themselves (Q10r1..Q10r7) — there is no codebook
-    entry for them at all, so parse_codebook's normal per-codebook-entry
-    loop can never build Questions for them, and they'd otherwise vanish
-    from Survey.questions and the run summary's column inventory entirely.
-
-    Detects any codebook qid shaped "<root>r<n>oe" (its accompanying
-    open-text "Other, please specify" entry), derives the group's question
-    text by stripping the " - Other ..." suffix, and — if the A1 header is
-    available — builds one multi_response Question covering every
-    "<root>r<k>" column present in the header for k < n (the oe suffix
-    itself keeps its own separate text_open Question, already built
-    normally). No option-level label text exists in the Datamap for these
-    columns, so each placeholder label is the column name itself — visible
-    and auditable in the run summary rather than silently absent, not
-    fabricated text presented as if the vendor supplied it.
+def _build_multi_response_questions(codebook: Codebook) -> list[Question]:
+    """PureSpectrum's Datamap represents a multi-select "check all that
+    apply" question group as a single unbracketed block whose code rows are
+    option-definition rows (e.g. "[Q10r1]": "Loss of language / dialect
+    itself") keyed to that option's own A1 data column, rather than a
+    numeric code-to-label mapping (see DatamapReader.read_codebook, which
+    separates these into the block's `options` list). One Question is built
+    per such block, qid'd by the block's own qid (e.g. "Q10"), with one
+    ScaleCode per option carrying the real vendor-supplied label — the
+    option's own column name is stored as the code so load_respondents can
+    map each option back to its A1 column.
     """
-    if not a1_header:
-        return []
-    header_set = {h for h in a1_header if h is not None}
-
-    placeholders: list[Question] = []
-    for qid in codebook:
-        m = _MULTISELECT_OE_RE.match(qid)
-        if m is None:
+    questions: list[Question] = []
+    for qid, (text, _codes, qtype_hint, options) in codebook.items():
+        if qtype_hint is not None or not options:
             continue
-        root = m.group("root")
-        oe_text = codebook[qid][0]
-        group_text = oe_text.rsplit(" - ", 1)[0].strip()
-
-        option_columns = sorted(
-            (c for c in header_set if re.match(rf"^{re.escape(root)}r\d+$", c)),
-            key=lambda c: int(re.search(r"\d+$", c).group()),
-        )
-        if not option_columns:
-            continue
-
         labels = [
-            ScaleCode(code=i, label=col, role=CodeRole.excluded)
-            for i, col in enumerate(option_columns, start=1)
+            ScaleCode(code=column, label=normalize_label(label), role=CodeRole.excluded)
+            for column, label in options
         ]
-        placeholders.append(
+        questions.append(
             Question(
-                qid=root,
-                text=group_text,
+                qid=qid,
+                text=text,
                 qtype=QuestionType.multi_response,
                 labels=labels,
+                multi_response_delimiter="; ",
                 base_eligible=True,
             )
         )
-    return placeholders
+    return questions
 
 
 def parse_codebook(
@@ -102,10 +77,10 @@ def parse_codebook(
     they are filtered from *question* construction here specifically, not
     from column classification generally.
 
-    `a1_header`, when supplied, also backfills multi-select option columns
-    the Datamap never declares (see _build_multi_response_placeholders).
-    Optional and defaults to None so existing Datamap-only callers are
-    unaffected.
+    `a1_header` is accepted for backward compatibility with existing callers
+    but is no longer used: multi-select question groups (e.g. Q10, D4) are
+    now built directly from the Datamap's own option-definition rows (see
+    _build_multi_response_questions), not inferred from the A1 header.
 
     Single-pass unresolved-question collection (Task 5): every analysis
     question that doesn't achieve a full scale match and isn't already
@@ -124,8 +99,10 @@ def parse_codebook(
 
     questions: list[Question] = []
     collected: list[UnresolvedQuestion] = []
-    for qid, (text, codes, qtype_hint) in codebook.items():
+    for qid, (text, codes, qtype_hint, options) in codebook.items():
         if qid in PURESPECTRUM_PROFILE.quality_columns:
+            continue
+        if options:
             continue
         _build_question(
             qid, text, qtype_hint, codes, questions, overrides or {}, collected, nonsubstantive_labels
@@ -134,7 +111,7 @@ def parse_codebook(
     if collected:
         raise UnresolvedQuestionsError(collected)
 
-    questions.extend(_build_multi_response_placeholders(codebook, a1_header))
+    questions.extend(_build_multi_response_questions(codebook))
     return questions
 
 
@@ -158,6 +135,8 @@ def _build_question(
     if not codes:
         return
 
+    assert_no_duplicate_codes(qid, codes)
+
     norm_labels = [normalize_label(label) for _, label in codes]
     ns_overrides: dict[str, CodeRole] = {
         nl: CodeRole.nonsubstantive for nl in norm_labels if is_nonsubstantive_label(nl, nonsubstantive_labels)
@@ -174,11 +153,24 @@ def _build_question(
             if is_declared_demographic:
                 qtype, roles, family = QuestionType.categorical, None, None
             else:
-                unresolved = collect_unresolved_question(
-                    qid, text, codes, substantive_norm, override=None
-                )
-                if unresolved is not None:
-                    collected.append(unresolved)
+                # Round A prompt A4: still collect for the resolver if the
+                # label set shows evidence of being ordinal; otherwise
+                # classify as categorical outright with a recorded reason.
+                outcome = classify_or_collect(qid, text, codes, substantive_norm, override=None)
+                if isinstance(outcome, AutoCategorical):
+                    out.append(
+                        Question(
+                            qid=qid, text=text, qtype=QuestionType.categorical,
+                            labels=[
+                                ScaleCode(code=code, label=normalize_label(label), role=CodeRole.excluded, numeric_value=code)
+                                for code, label in codes
+                            ],
+                            base_eligible=True,
+                            categorical_reason=outcome.reason,
+                        )
+                    )
+                elif outcome is not None:
+                    collected.append(outcome)
                 return
         else:
             qtype, roles, family = classified
@@ -242,8 +234,22 @@ def load_respondents(
     uuid_col = col_index.get("uuid")
     record_col = col_index.get("record")
 
-    qid_to_col: dict[str, int] = {q.qid: col_index[q.qid] for q in questions if q.qid in col_index}
-    q_by_qid: dict[str, Question] = {q.qid: q for q in questions}
+    single_column_questions = [q for q in questions if q.qtype is not QuestionType.multi_response]
+    multi_response_questions = [q for q in questions if q.qtype is QuestionType.multi_response]
+
+    qid_to_col: dict[str, int] = {
+        q.qid: col_index[q.qid] for q in single_column_questions if q.qid in col_index
+    }
+    q_by_qid: dict[str, Question] = {q.qid: q for q in single_column_questions}
+
+    # Each multi-select ScaleCode.code is the option's own A1 column name
+    # (see _build_multi_response_questions), so a group's flag columns are
+    # read positionally per question rather than through a single qid->col
+    # lookup.
+    multi_option_cols: dict[str, list[tuple[str, int]]] = {
+        q.qid: [(sc.code, col_index[sc.code]) for sc in q.labels if sc.code in col_index]
+        for q in multi_response_questions
+    }
 
     responses: list[Response] = []
     n_raw = 0
@@ -269,6 +275,19 @@ def load_respondents(
             q = q_by_qid[qid]
             state = classify_response(raw, q, nonsubstantive_labels=nonsubstantive_labels)
             responses.append(Response(respondent_id=respondent_id, qid=qid, raw_value=raw, state=state))
+
+        for qid, option_cols in multi_option_cols.items():
+            flag_values = [row[col_idx] for _code, col_idx in option_cols]
+            if all(v is None for v in flag_values):
+                responses.append(
+                    Response(respondent_id=respondent_id, qid=qid, raw_value=None, state=ResponseState.not_asked)
+                )
+                continue
+            selected = [code for (code, col_idx), v in zip(option_cols, flag_values) if v]
+            raw_value = "; ".join(selected)
+            responses.append(
+                Response(respondent_id=respondent_id, qid=qid, raw_value=raw_value, state=ResponseState.answered)
+            )
 
     return responses, n_raw
 
@@ -304,10 +323,11 @@ def column_qid_map(path: Path) -> tuple[list[str], dict[str, str]]:
     """Returns (header, qid_by_column) for the run summary's column
     inventory (prompt 7). Most PureSpectrum columns are an identity mapping
     (the qid is the literal A1 column name), except the multi-select
-    "r<N>" option columns (Q10r1..Q10r8, D4r1..D4r7) that
-    _build_multi_response_placeholders groups under one root qid (Q10, D4)
-    — those map to the group's qid instead of their own column name, so
-    the inventory attributes them to the Question that was actually built."""
+    option columns (Q10r1..Q10r8, D4r1..D4r7) that the Datamap's own
+    option-definition rows key to their group's qid (Q10, D4) — see
+    DatamapReader.read_codebook's `options` field. Those map to the group's
+    qid instead of their own column name, so the inventory attributes them
+    to the Question that was actually built."""
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except (InvalidFileException, OSError, KeyError, zipfile.BadZipFile) as exc:
@@ -328,19 +348,15 @@ def column_qid_map(path: Path) -> tuple[list[str], dict[str, str]]:
         return [], {}
     columns = [str(h) for h in header if h is not None]
 
-    multiselect_root_by_prefix: dict[str, str] = {}
-    for qid in codebook:
-        m = _MULTISELECT_OE_RE.match(qid)
-        if m is not None:
-            multiselect_root_by_prefix[m.group("root")] = m.group("root")
+    root_by_option_column: dict[str, str] = {
+        column: qid
+        for qid, (_text, _codes, _qtype_hint, options) in codebook.items()
+        for column, _label in options
+    }
 
-    qid_by_column: dict[str, str] = {}
-    for column in columns:
-        matched_root = next(
-            (root for root in multiselect_root_by_prefix if re.match(rf"^{re.escape(root)}r\d+$", column)),
-            None,
-        )
-        qid_by_column[column] = matched_root if matched_root is not None else column
+    qid_by_column: dict[str, str] = {
+        column: root_by_option_column.get(column, column) for column in columns
+    }
     return columns, qid_by_column
 
 

@@ -551,6 +551,38 @@
   }
   #resolver-save-error:empty { display: none; }
 
+  /* ---- in-app confirm dialog (Round A prompt A9: replaces window.confirm,
+     which rendered as a native browser dialog naming the local host and
+     port — confusing on a desktop app with no visible URL bar) ---- */
+  #confirm-dialog-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 31, 0.45);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  #confirm-dialog-overlay.visible { display: flex; }
+  #confirm-dialog-panel {
+    background: var(--panel);
+    border-radius: var(--radius-md);
+    width: min(440px, 90vw);
+    padding: var(--space-5);
+    box-shadow: 0 12px 40px rgba(20, 24, 31, 0.25);
+  }
+  #confirm-dialog-message {
+    font-size: var(--text-base);
+    color: var(--ink);
+    line-height: 1.5;
+    margin-bottom: var(--space-4);
+  }
+  #confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
   /* ---- run summary overlay ---- */
   #run-summary-overlay {
     display: none;
@@ -1066,6 +1098,7 @@
   }
   .breaks-column .col-label { font-size: var(--text-xs); font-weight: 600; margin-bottom: var(--space-1); }
   .breaks-column .col-base { font-size: var(--text-xs); color: var(--ink-soft); font-family: var(--font-num); }
+  .breaks-column .col-base-reason { font-size: var(--text-xs); color: var(--ink-soft); margin-top: var(--space-1); font-style: italic; }
   .breaks-column .col-band-note { font-size: var(--text-xs); margin-top: var(--space-1); }
 
   .chart-controls-row {
@@ -1293,6 +1326,16 @@
     </div>
   </div>
 
+</div>
+
+<div id="confirm-dialog-overlay">
+  <div id="confirm-dialog-panel" role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-message">
+    <div id="confirm-dialog-message"></div>
+    <div id="confirm-dialog-actions">
+      <button type="button" class="btn btn-secondary" id="confirm-dialog-cancel"></button>
+      <button type="button" class="btn" id="confirm-dialog-confirm"></button>
+    </div>
+  </div>
 </div>
 
 <div id="resolver-overlay">
@@ -1551,7 +1594,12 @@ function setStatusError(boxEl, titleEl, bodyEl, errorObj) {
     resolveBtn.type = "button";
     resolveBtn.className = "btn uq-resolve-btn";
     resolveBtn.textContent = "Resolve these questions";
-    resolveBtn.addEventListener("click", () => openResolver(entries));
+    // Round A prompt A8: this error always carries the session_id of the
+    // PendingSession the server registered for this exact upload attempt
+    // (see app.py's upload()/resolve_questions()) — the resolver targets
+    // that session, not whatever currentSessionId happened to hold from a
+    // previous upload (or null, on a first upload).
+    resolveBtn.addEventListener("click", () => openResolver(entries, errorObj.session_id));
     bodyEl.appendChild(resolveBtn);
     return;
   }
@@ -2018,6 +2066,47 @@ function showUploadWorking() {
   startStageSimulation();
 }
 
+// ---- In-app confirm dialog (Round A prompt A9) ----
+// Replaces window.confirm, which rendered as a native browser dialog
+// naming the local host and port (e.g. "127.0.0.1:47812 says") — confusing
+// on a desktop app with no visible URL bar, and easy to mistake for a sign
+// something is broken. showConfirmDialog resolves true/false the same way
+// window.confirm's return value worked, so call sites read the same.
+const confirmDialogOverlay = document.getElementById("confirm-dialog-overlay");
+const confirmDialogMessage = document.getElementById("confirm-dialog-message");
+const confirmDialogCancelBtn = document.getElementById("confirm-dialog-cancel");
+const confirmDialogConfirmBtn = document.getElementById("confirm-dialog-confirm");
+let confirmDialogResolve = null;
+
+function showConfirmDialog(message, { confirmLabel = "OK", cancelLabel = "Cancel" } = {}) {
+  confirmDialogMessage.textContent = message;
+  confirmDialogConfirmBtn.textContent = confirmLabel;
+  confirmDialogCancelBtn.textContent = cancelLabel;
+  confirmDialogOverlay.classList.add("visible");
+  return new Promise((resolve) => {
+    confirmDialogResolve = resolve;
+  });
+}
+
+function closeConfirmDialog(result) {
+  confirmDialogOverlay.classList.remove("visible");
+  if (confirmDialogResolve) {
+    confirmDialogResolve(result);
+    confirmDialogResolve = null;
+  }
+}
+
+confirmDialogConfirmBtn.addEventListener("click", () => closeConfirmDialog(true));
+confirmDialogCancelBtn.addEventListener("click", () => closeConfirmDialog(false));
+confirmDialogOverlay.addEventListener("click", (e) => {
+  if (e.target === confirmDialogOverlay) closeConfirmDialog(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && confirmDialogOverlay.classList.contains("visible")) {
+    closeConfirmDialog(false);
+  }
+});
+
 // ---- Resolver ----
 // One question per view, with an answers[] slot per question that later
 // prompts populate (the classification picker, prompt 4). Forward
@@ -2066,7 +2155,7 @@ const CLASSIFICATION_OPTIONS = [
   },
 ];
 
-function openResolver(entries) {
+function openResolver(entries, sessionId) {
   if (!entries || entries.length === 0) return;
   resolverState = {
     entries,
@@ -2076,6 +2165,10 @@ function openResolver(entries) {
     answers: entries.map(() => null),
     showingSummary: false,
     saving: false,
+    // Round A prompt A8: the session this resolver's Confirm and Save
+    // writes against — the PendingSession the server registered for this
+    // upload attempt, not currentSessionId (which may be null or stale).
+    sessionId: sessionId || currentSessionId,
   };
   resolverOverlay.classList.add("visible");
   renderResolverQuestion();
@@ -2086,13 +2179,21 @@ function closeResolver() {
   resolverState = null;
 }
 
-function requestCloseResolver() {
+async function requestCloseResolver() {
   if (!resolverState) return;
   const hasAnyAnswer = resolverState.answers.some((a) => a !== null);
-  const message = hasAnyAnswer
-    ? "Exit without saving? Nothing is written until you finish and save at the end — your answers in this session are kept only until you close this window, then discarded."
-    : "Exit the resolver? Nothing has been written yet.";
-  if (window.confirm(message)) {
+  if (!hasAnyAnswer) {
+    // Round A prompt A9: the unsaved-work guard is bound to actually
+    // leaving the resolver with unsaved changes — with nothing entered
+    // yet, there is nothing to lose, so exit proceeds without asking.
+    closeResolver();
+    return;
+  }
+  const confirmed = await showConfirmDialog(
+    "Exit without saving? Nothing is written until you finish and save at the end — your answers in this session are kept only until you close this window, then discarded.",
+    { confirmLabel: "Exit without saving", cancelLabel: "Keep editing" }
+  );
+  if (confirmed) {
     closeResolver();
   }
 }
@@ -2356,7 +2457,7 @@ async function saveResolvedQuestions() {
 
   let response;
   try {
-    response = await fetch(`/api/session/${currentSessionId}/resolve`, {
+    response = await fetch(`/api/session/${resolverState.sessionId}/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildResolvePayload()),
@@ -2469,7 +2570,15 @@ resolverOverlay.addEventListener("click", (e) => {
   if (e.target === resolverOverlay) requestCloseResolver();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && resolverOverlay.classList.contains("visible")) {
+  // The confirm-dialog overlay's own Escape handler owns Escape while it
+  // is open (stacked on top of the resolver) — without this guard,
+  // Escape would both cancel the confirm dialog and re-trigger
+  // requestCloseResolver, opening a second one.
+  if (
+    e.key === "Escape" &&
+    resolverOverlay.classList.contains("visible") &&
+    !confirmDialogOverlay.classList.contains("visible")
+  ) {
     requestCloseResolver();
   }
 });

@@ -53,6 +53,7 @@ class Question(BaseModel):
     base_eligible: bool = True
     multi_response_delimiter: str | None = None
     scale_family: str | None = None
+    categorical_reason: str | None = None
 
     @model_validator(mode="after")
     def _scale_must_have_top_and_bottom(self) -> "Question":

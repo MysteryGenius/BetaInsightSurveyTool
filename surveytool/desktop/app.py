@@ -23,7 +23,13 @@ from starlette.background import BackgroundTask
 
 from surveytool.charts import render_charts
 from surveytool.charts.chart_data import build_chart_data
-from surveytool.charts.errors import ErrorCode, NoSessionError, SurveyToolError, WarningCode
+from surveytool.charts.errors import (
+    ErrorCode,
+    NoSessionError,
+    SurveyToolError,
+    UnresolvedQuestionsError,
+    WarningCode,
+)
 from surveytool.charts.plotly_renderer import build_figure, rasterize
 from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_crosstab
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
@@ -39,7 +45,7 @@ from surveytool.core.breaks_models import (
 from surveytool.core.breaks_payload import attach_chart_permissions
 from surveytool.core.config import ToolConfig, load_config
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
-from surveytool.core.model import CodeRole, Survey
+from surveytool.core.model import CodeRole, QuestionType, Survey
 from surveytool.core.projection import Projection, project
 from surveytool.core.respondent_frame import to_respondent_frame
 from surveytool.core.straightliner import detect_straightliners
@@ -55,6 +61,7 @@ from surveytool.ingest.overrides import (
     write_override,
 )
 from surveytool.ingest.run_summary import RunSummary, build_run_summary
+from surveytool.ingest.validate_questions import assert_no_duplicate_codes
 from surveytool.ingest.vendor_profile import get_vendor_profile
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -119,6 +126,29 @@ class Session:
     run_summary: RunSummary
 
 
+@dataclass
+class PendingSession:
+    """Round A prompt A8: a session for a file that raised
+    UnresolvedQuestionsError on its first load attempt — before this, such
+    a file produced no session at all (the exception propagated out of
+    _run_pipeline before Session construction), so the resolver panel had
+    a session_id to show but no session to resolve against, and
+    /resolve's session_id ended up either null or a stale one from a
+    previous upload.
+
+    Carries only what /resolve actually needs to write overrides and
+    re-run the load: vendor/file_path/survey_id. Deliberately NOT a full
+    Session — no survey, respondent_frame, findings, registry, or
+    run_summary exist yet, since load() never returned one. Every other
+    endpoint keeps requiring a full Session via _require_session; only the
+    resolve endpoint accepts either shape (see _require_resolvable_session).
+    """
+
+    vendor: str
+    survey_id: str
+    file_path: Path
+
+
 def _project_settings_path(survey_id: str) -> Path:
     """Per-survey_id project settings (prompt 9: non-substantive response
     handling). Mirrors _project_overrides_path's validation and layout —
@@ -173,6 +203,7 @@ def _load_session_registry(vendor: str, survey: Survey) -> ResolvedRegistry:
 
 
 _SESSIONS: dict[str, Session] = {}
+_PENDING_SESSIONS: dict[str, PendingSession] = {}
 
 
 def get_session(session_id: str) -> Session | None:
@@ -333,6 +364,21 @@ def _require_session(session_id: str) -> Session:
     return session
 
 
+def _require_resolvable_session(session_id: str) -> Session | PendingSession:
+    """Round A prompt A8: the resolve endpoint's session lookup, tolerant
+    of a PendingSession (a file that raised UnresolvedQuestionsError on
+    its first load and so never produced a full Session) in addition to a
+    normal completed Session. Every other endpoint keeps using
+    _require_session, which only ever recognises a full Session."""
+    session = get_session(session_id)
+    if session is not None:
+        return session
+    pending = _PENDING_SESSIONS.get(session_id)
+    if pending is not None:
+        return pending
+    raise NoSessionError()
+
+
 def _column_qid_map(
     vendor: str, path: Path, survey_id: str, settings: ToolConfig | None = None
 ) -> tuple[list[str], dict[str, str]]:
@@ -430,6 +476,12 @@ def _build_session_run_summary(
         if notice is not None:
             override_notices.append(notice)
 
+    categorical_classifications = [
+        (q.qid, q.categorical_reason)
+        for q in survey.questions
+        if q.qtype is QuestionType.categorical and q.categorical_reason is not None
+    ]
+
     return build_run_summary(
         profile=profile,
         column_classifications=column_classifications,
@@ -440,6 +492,7 @@ def _build_session_run_summary(
         straightliner_count=straightliner_count,
         straightliner_action=straightliner_action,
         not_collected=registry.not_collected_for_vendor(vendor),
+        categorical_classifications=categorical_classifications,
     )
 
 
@@ -499,7 +552,22 @@ async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = For
     stored_path = session_dir / Path(file.filename).name
     stored_path.write_bytes(await file.read())
 
-    session, warnings = _run_pipeline(stored_path, survey_id, vendor)
+    try:
+        session, warnings = _run_pipeline(stored_path, survey_id, vendor)
+    except UnresolvedQuestionsError as exc:
+        # Round A prompt A8: a file needing resolution still produces a
+        # session — a PendingSession under this same session_id — so the
+        # resolver panel the client shows for this error can actually
+        # resolve and save against it. Before this, the exception
+        # propagated out with no session ever created; the resolver
+        # offered Confirm and Save with nowhere to save to.
+        _PENDING_SESSIONS[session_id] = PendingSession(
+            vendor=vendor, survey_id=survey_id, file_path=stored_path
+        )
+        body = exc.to_response()
+        body["error"]["session_id"] = session_id
+        return JSONResponse(status_code=exc.status_code, content=body)
+
     _SESSIONS[session_id] = session
 
     return {
@@ -537,14 +605,26 @@ async def resolve_questions(session_id: str, request: ResolveRequest):
     write some overrides and skip others, so validation happens in one pass
     before any write.
     """
-    session = _require_session(session_id)
+    session = _require_resolvable_session(session_id)
     overrides_path = _project_overrides_path(session.survey_id)
     now = datetime.now(timezone.utc)
 
-    question_labels_by_variable = {
-        q.qid: [sc.label for sc in q.labels if sc.role != CodeRole.nonsubstantive]
-        for q in session.survey.questions
-    }
+    # A PendingSession (Round A prompt A8) has no .survey — its file never
+    # produced one — so there is no existing Question to validate a scale
+    # override's label set against; apply_override falls back to
+    # entry.label_roles' own keys in that case (see below).
+    if isinstance(session, Session):
+        question_labels_by_variable = {
+            q.qid: [sc.label for sc in q.labels if sc.role != CodeRole.nonsubstantive]
+            for q in session.survey.questions
+        }
+        question_codes_by_variable = {
+            q.qid: [(sc.code, sc.label) for sc in q.labels if sc.role != CodeRole.nonsubstantive]
+            for q in session.survey.questions
+        }
+    else:
+        question_labels_by_variable = {}
+        question_codes_by_variable = {}
 
     validated: list[QuestionOverride] = []
     for entry in request.resolutions:
@@ -557,14 +637,36 @@ async def resolve_questions(session_id: str, request: ResolveRequest):
         )
         if override.question_type == "scale":
             labels = question_labels_by_variable.get(entry.variable, list(entry.label_roles.keys()))
+            codes = question_codes_by_variable.get(entry.variable)
+            if codes is not None:
+                # Round A prompt A2: an override that would collapse two
+                # codes onto one label must raise here, at write time,
+                # before anything is persisted — not silently drop one
+                # code's role assignment because dict keys can't duplicate.
+                assert_no_duplicate_codes(entry.variable, codes)
             apply_override(labels, override)  # raises IncompleteOverrideError, caught by the app-level handler
         validated.append(override)
 
     for override in validated:
         write_override(overrides_path, override)
 
-    new_session, warnings = _run_pipeline(session.file_path, session.survey_id, session.vendor)
+    try:
+        new_session, warnings = _run_pipeline(session.file_path, session.survey_id, session.vendor)
+    except UnresolvedQuestionsError as exc:
+        # This save didn't cover every unresolved question (or the resolver
+        # sent an incomplete batch) — the session stays resolvable under
+        # this same session_id rather than vanishing, exactly as an
+        # initial upload's UnresolvedQuestionsError now behaves (see
+        # upload()).
+        _PENDING_SESSIONS[session_id] = PendingSession(
+            vendor=session.vendor, survey_id=session.survey_id, file_path=session.file_path
+        )
+        body = exc.to_response()
+        body["error"]["session_id"] = session_id
+        return JSONResponse(status_code=exc.status_code, content=body)
+
     _SESSIONS[session_id] = new_session
+    _PENDING_SESSIONS.pop(session_id, None)
 
     return {
         "session_id": session_id,
@@ -598,17 +700,20 @@ async def rerun_session(session_id: str):
 class ProjectSettingsPayload(BaseModel):
     nonsubstantive_labels: list[str]
     exclude_nonsubstantive_from_base: bool
+    straightliner_action: Literal["keep", "exclude"] = "keep"
 
 
 @app.get("/api/projects/{survey_id}/settings")
 async def get_project_settings(survey_id: str) -> ProjectSettingsPayload:
-    """Project settings for non-substantive response handling (prompt 9).
-    Keyed by survey_id directly (not session_id) since these are project-
-    level, editable before or independent of any active upload session."""
+    """Project settings for non-substantive response handling (prompt 9)
+    and straightliner disposition (Round A prompt A6, finding 2). Keyed by
+    survey_id directly (not session_id) since these are project-level,
+    editable before or independent of any active upload session."""
     settings = _load_project_settings(survey_id)
     return ProjectSettingsPayload(
         nonsubstantive_labels=settings.nonsubstantive_labels,
         exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
+        straightliner_action=settings.straightliner_action,
     )
 
 
@@ -619,13 +724,35 @@ async def update_project_settings(survey_id: str, payload: ProjectSettingsPayloa
     the old setting) and the caller is responsible for re-running, exactly
     as the resolver's own save-then-rerun flow works. The UI enforces this
     by requiring a re-run before showing results again once a setting
-    changes underneath an open session."""
-    settings = ToolConfig(
-        nonsubstantive_labels=payload.nonsubstantive_labels,
-        exclude_nonsubstantive_from_base=payload.exclude_nonsubstantive_from_base,
-    )
+    changes underneath an open session.
+
+    Round A prompt A6 (finding 2): straightliner_action was previously not
+    exposed on this payload at all, so every save silently reset it to the
+    ToolConfig class default ("keep") regardless of what had been saved
+    before — this constructs the new config from the existing saved one
+    (falling back to defaults only when nothing was saved yet) rather than
+    a bare ToolConfig(), so a field this endpoint doesn't yet expose (or
+    that an older client's request body omits) is preserved instead of
+    being silently discarded on the next save. Only fields actually present
+    in the request body (payload.model_fields_set) overwrite the existing
+    value — an omitted field is left untouched, not reset to its schema
+    default, which is the distinction plain attribute access can't make
+    since pydantic already filled the default in by the time the handler
+    sees `payload`.
+    """
+    existing = _load_project_settings(survey_id)
+    updates = {
+        field: getattr(payload, field)
+        for field in ("nonsubstantive_labels", "exclude_nonsubstantive_from_base", "straightliner_action")
+        if field in payload.model_fields_set
+    }
+    settings = existing.model_copy(update=updates)
     _save_project_settings(survey_id, settings)
-    return payload
+    return ProjectSettingsPayload(
+        nonsubstantive_labels=settings.nonsubstantive_labels,
+        exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
+        straightliner_action=settings.straightliner_action,
+    )
 
 
 @app.get("/api/session/{session_id}/run-summary")
@@ -663,6 +790,7 @@ async def get_run_summary(session_id: str):
         "demographic_gap_statement": summary.demographic_gap_statement,
         "override_resolutions": summary.override_resolutions,
         "notices": summary.notices,
+        "categorical_classifications": summary.categorical_classifications,
     }
 
 
@@ -775,6 +903,15 @@ async def get_cross_tab(session_id: str, qid: str, demographic: str, significanc
                 "t2b": c.t2b,
                 "b2b": c.b2b,
                 "mean": c.mean,
+                "base_provenance": (
+                    {
+                        "routed": c.provenance.routed,
+                        "item_missing": c.provenance.item_missing,
+                        "nonsubstantive_excluded": c.provenance.nonsubstantive_excluded,
+                    }
+                    if c.provenance is not None
+                    else None
+                ),
             }
             for c in result.cells
         ],

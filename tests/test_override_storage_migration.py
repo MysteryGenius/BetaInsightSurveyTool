@@ -154,3 +154,73 @@ def test_resolve_under_containment_check_independently_rejects_traversal(tmp_pat
     base = tmp_path / "some-base"
     with pytest.raises(SurveyToolError):
         appmod._resolve_under(base, "../escape")
+
+
+# ── Round A prompt A11: corrupted override file ──────────────────────────
+#
+# If the override file for a survey ID cannot be read on load, the tool
+# must raise naming the file, not silently proceed as though no override
+# existed — a silent fallback here would demote every previously-resolved
+# question back through the resolver with no explanation, the same class
+# of silent-degradation defect this whole round closes elsewhere.
+
+from surveytool.ingest.overrides import CorruptedOverridesFileError
+
+
+def test_corrupted_yaml_override_file_raises_naming_the_file():
+    survey_id = "corrupt-yaml-test"
+    path = appmod._project_overrides_path(survey_id)
+    path.write_text("overrides: [this is not valid: {{{ broken yaml", encoding="utf-8")
+
+    with pytest.raises(CorruptedOverridesFileError) as exc_info:
+        load_overrides(path)
+    assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+    assert str(path) in exc_info.value.detail
+
+
+def test_schema_invalid_override_file_raises_naming_the_file():
+    """Valid YAML that doesn't match the ProjectOverrides schema (e.g. an
+    unrecognised question_type) is just as much a corrupted file as
+    unparsable YAML — both must raise, neither silently proceeds."""
+    survey_id = "corrupt-schema-test"
+    path = appmod._project_overrides_path(survey_id)
+    path.write_text(
+        "overrides: {Q1: {variable: Q1, question_type: not_a_real_type}}",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CorruptedOverridesFileError) as exc_info:
+        load_overrides(path)
+    assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+    assert str(path) in exc_info.value.detail
+
+
+def test_corrupted_override_file_halts_the_live_upload_endpoint():
+    """The same corruption, exercised through the actual /api/upload HTTP
+    path an analyst's drop goes through — not just at the level of
+    load_overrides called directly."""
+    from fastapi.testclient import TestClient
+
+    from surveytool.desktop.app import app
+
+    rakuten_path = Path(__file__).parent.parent / "rakuten_survey_support_measures_data.xlsx"
+    if not rakuten_path.exists():
+        pytest.skip(f"{rakuten_path.name} not found in project root")
+
+    survey_id = "corruptuploadtest"
+    path = appmod._project_overrides_path(survey_id)
+    path.write_text("overrides: [this is not valid: {{{ broken yaml", encoding="utf-8")
+
+    client = TestClient(app)
+    with open(rakuten_path, "rb") as f:
+        response = client.post(
+            "/api/upload",
+            data={"vendor": "rakuten", "survey_id": survey_id},
+            files={"file": (rakuten_path.name, f,
+                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+
+    assert response.status_code == 400, response.text
+    body = response.json()
+    assert body["error"]["code"] == "CONFIG_INVALID"
+    assert str(path) in body["error"]["detail"]

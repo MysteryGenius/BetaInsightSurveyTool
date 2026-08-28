@@ -20,7 +20,7 @@ from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_
 from surveytool.core.scale_library import classify_question_type
 from surveytool.ingest.datamap_reader import Codebook, DatamapReader
 from surveytool.ingest.overrides import QuestionOverride, resolve_with_override
-from surveytool.ingest.validate_questions import collect_unresolved_question
+from surveytool.ingest.validate_questions import AutoCategorical, assert_no_duplicate_codes, classify_or_collect
 from surveytool.ingest.vendor_profile import RAKUTEN_PROFILE
 
 
@@ -51,7 +51,7 @@ def parse_codebook(
 
     questions: list[Question] = []
     collected: list[UnresolvedQuestion] = []
-    for qid, (text, codes, qtype_hint) in codebook.items():
+    for qid, (text, codes, qtype_hint, _options) in codebook.items():
         _build_question(
             qid, text, qtype_hint, codes, questions, overrides or {}, collected, nonsubstantive_labels
         )
@@ -96,6 +96,8 @@ def _build_question(
         )
         return
 
+    assert_no_duplicate_codes(qid, codes)
+
     if qid.startswith("S"):
         labels = [
             ScaleCode(code=code, label=label, role=CodeRole.excluded)
@@ -134,12 +136,25 @@ def _build_question(
         if classified is None:
             # No override and no full scale/binary match: this is not this
             # function's call to make silently (Task 5) — collect it for
-            # the resolver instead of demoting to categorical.
-            unresolved = collect_unresolved_question(
-                qid, text, codes, substantive_norm, override=None
-            )
-            if unresolved is not None:
-                collected.append(unresolved)
+            # the resolver, unless it shows no evidence of being ordinal at
+            # all (Round A prompt A4), in which case classify it as
+            # categorical outright with a recorded reason instead of
+            # queueing a question with no scale in it in the first place.
+            outcome = classify_or_collect(qid, text, codes, substantive_norm, override=None)
+            if isinstance(outcome, AutoCategorical):
+                out.append(
+                    Question(
+                        qid=qid, text=text, qtype=QuestionType.categorical,
+                        labels=[
+                            ScaleCode(code=code, label=normalize_label(label), role=CodeRole.excluded, numeric_value=code)
+                            for code, label in codes
+                        ],
+                        base_eligible=True,
+                        categorical_reason=outcome.reason,
+                    )
+                )
+            elif outcome is not None:
+                collected.append(outcome)
             return
         qtype, roles, family = classified
 

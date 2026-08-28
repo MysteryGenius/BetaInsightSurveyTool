@@ -148,6 +148,36 @@ def test_inv6_holds_when_cell_contains_non_base_states():
     assert column.n_invalid == 2  # item_missing + not_asked
     assert column.base_valid + column.n_invalid == column.base_cell
 
+    # Round A prompt A5: n_invalid's 2 respondents are individually named by
+    # reason, not collapsed to one undifferentiated count.
+    assert column.base_provenance is not None
+    assert column.base_provenance.routed == 1
+    assert column.base_provenance.item_missing == 1
+    assert column.base_provenance.nonsubstantive_excluded == 0
+
+
+def test_base_provenance_is_none_for_suppressed_cell():
+    """A suppressed cell nulls every figure, including base_provenance —
+    consistent with base_valid/n_invalid/counts/percentages all being None
+    for a suppressed cell (see the pre-existing suppression-nulling test)."""
+    from surveytool.compute.breaks_compute import _column_for_cell
+    from surveytool.core.cohort import Cell
+
+    question = _synthetic_question()
+    responses = [
+        Response(respondent_id="r1", qid="Q1", raw_value=None, state=ResponseState.not_asked),
+    ]
+    cell = Cell(
+        key=(("age_band", "18-24"),),
+        label_path=("18-24",),
+        respondent_ids=frozenset({"r1"}),
+    )
+    config = ToolConfig()  # default thresholds suppress a base of 1
+    column = _column_for_cell(cell, question, responses, config)
+
+    assert column.band.value == "suppressed"
+    assert column.base_provenance is None
+
 
 # ── Section B: real vendor file ─────────────────────────────────────────────
 
@@ -439,3 +469,95 @@ def test_depth1_break_matches_existing_compute_cross_tab(frame, survey, registry
         compared += 1
 
     assert compared >= 5
+
+
+# ── Section C: Round A prompt A5 acceptance table (real Milieu q8) ──────────
+#
+# milieu_survey_coe_data.csv q8 is a multi-select behind a routing filter:
+# 433 of 1000 respondents were never asked it. The client-reported defect
+# (verified against Leonard's own screenshot) was that the panel displayed
+# the demographic count (n=490 male) next to a percentage actually computed
+# over the answering base (243 male) — 51.2% read next to n=510 is not what
+# the tool computed. A5 adds provenance only; the acceptance table below is
+# asserted by value against the real file, matching the prompt's own table
+# exactly.
+
+_MILIEU_PATH = ROOT / "milieu_survey_coe_data.csv"
+
+
+@pytest.fixture(scope="module")
+def milieu_survey():
+    if not _MILIEU_PATH.exists():
+        pytest.skip("milieu_survey_coe_data.csv not found in project root")
+    from surveytool.ingest.milieu import load
+
+    return load(_MILIEU_PATH, "coe")
+
+
+@pytest.fixture(scope="module")
+def milieu_frame(milieu_survey):
+    return to_respondent_frame(milieu_survey)
+
+
+@pytest.fixture(scope="module")
+def milieu_registry(milieu_survey):
+    from surveytool.desktop.app import _load_session_registry
+
+    return _load_session_registry("milieu", milieu_survey)
+
+
+def test_a5_acceptance_table_milieu_q8_broken_by_gender(milieu_frame, milieu_survey, milieu_registry):
+    result = compute_breaks_crosstab(
+        milieu_frame, milieu_survey, ["gender"], {}, ["q8"], milieu_registry, "milieu", ToolConfig(),
+    )[0]
+
+    assert result.base_total == 1000
+    assert result.base_filtered == 1000
+
+    label_by_code = {str(sp.code): sp.label for sp in result.scale_points}
+    by_gender = {col.label_path[0]: col for col in result.columns}
+
+    female = by_gender["Female"]
+    male = by_gender["Male"]
+
+    # Survey base and demographic counts are unchanged and still available —
+    # they are simply not the base these percentages were computed on.
+    assert female.base_cell == 510
+    assert male.base_cell == 490
+
+    # The answering base per cell, exactly as the client's own screenshot
+    # showed it was actually computed (not the demographic count).
+    assert female.base_valid == 324
+    assert male.base_valid == 243
+
+    # Every reduced cell carries a reason indicating routing.
+    assert female.base_provenance.routed == 510 - 324
+    assert male.base_provenance.routed == 490 - 243
+    assert female.base_provenance.item_missing == 0
+    assert male.base_provenance.item_missing == 0
+
+    def _pct_and_n(col, needle: str) -> tuple[float, int]:
+        code = next(c for c, label in label_by_code.items() if needle in label)
+        return col.percentages[code], col.counts[code]
+
+    # The unbroken "All" figure: compute_question_stats over every q8
+    # response in the survey, the same function every break/cell path
+    # calls unmodified — not a separate computation.
+    q8 = next(q for q in milieu_survey.questions if q.qid == "q8")
+    all_responses = [r for r in milieu_survey.responses if r.qid == "q8"]
+    all_stats = compute_question_stats(q8, all_responses)
+    all_licence = next(cs for cs in all_stats.code_stats if "do not have a driving licence" in cs.label)
+    assert all_licence.n == 244
+    assert all_licence.pct == pytest.approx(43.033510, abs=1e-5)
+
+    female_licence_pct, female_licence_n = _pct_and_n(female, "do not have a driving licence")
+    assert female_licence_n == 166
+    assert female_licence_pct == pytest.approx(51.234568, abs=1e-5)
+
+    male_other_modes_pct, male_other_modes_n = _pct_and_n(male, "prefer other modes of transport")
+    assert male_other_modes_n == 20
+    assert male_other_modes_pct == pytest.approx(8.230453, abs=1e-5)
+
+    male_coe_pct, male_coe_n = _pct_and_n(male, "Certificate of Entitlement (COE) prices are too high")
+    assert male_coe_n == 95
+    assert male_coe_pct == pytest.approx(39.094650, abs=1e-5)

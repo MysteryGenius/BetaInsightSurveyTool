@@ -264,6 +264,101 @@ def test_toluna_real_file_scales_fully_resolve():
     _assert_all_scales_fully_resolved(survey.questions, "toluna")
 
 
+_RAKUTEN_CHN_CLANS_PATH = _ROOT / "rakuten_survey_chn_clans_data.xlsx"
+
+
+@pytest.mark.skipif(
+    not (_RAKUTEN_PATH.exists() and _RAKUTEN_CHN_CLANS_PATH.exists()),
+    reason="a real Rakuten fixture is not present in project root",
+)
+def test_rakuten_datamap_block_sets_unchanged_by_a1_header_rule():
+    """Round A prompt A1 changed the Datamap reader's block-header rule to
+    also recognise an unbracketed "qid: text" header line (needed for
+    PureSpectrum's Q10/D4). Rakuten's own Datamap sheets are fully
+    bracketed, so both real Rakuten fixtures must produce byte-identical
+    question qid sets before and after — this pins the exact sets down so a
+    future change to the header rule can't silently start absorbing or
+    splitting Rakuten blocks differently."""
+    from surveytool.ingest.rakuten import load
+
+    clans = load(_RAKUTEN_CHN_CLANS_PATH, "chn-clans")
+    assert sorted(q.qid for q in clans.questions) == [
+        "A1", "A2", "A3", "A4", "A5", "A6", "S1", "S2", "S3", "S4",
+    ]
+
+    support = load(_RAKUTEN_PATH, "support-measures")
+    assert sorted(q.qid for q in support.questions) == [
+        "Q1", "Q2", "Q3", "Q4", "Q5", "S1", "S2", "S3", "S4",
+    ]
+
+
+_RAKUTEN_CHN_CLANS_SCALE_FAMILIES = {
+    "A1": "importance", "A2": "importance", "A3": "importance",
+    "A4": "agreement", "A5": "agreement", "A6": "agreement",
+}
+_RAKUTEN_SUPPORT_SCALE_FAMILIES = {
+    "Q1": "agreement", "Q2": "agreement", "Q3": "agreement", "Q4": "agreement", "Q5": "agreement",
+}
+_MILIEU_SCALE_FAMILIES = {"q10": "agreement", "q11": "agreement", "q12": "agreement", "q13": "agreement", "q14": "agreement"}
+_TOLUNA_SCALE_FAMILIES = {
+    "10": "effectiveness", "6": "ability",
+    "7_local_mainstream_media": "likelihood", "7_online_social_media": "likelihood",
+    "7_overseas_mainstream_media": "likelihood", "8": "importance", "9": "effectiveness",
+}
+_PURESPECTRUM_SCALE_FAMILIES = {
+    "Q2": "intensity", "Q4": "relevance", "Q5": "intensity", "Q5A": "intensity", "Q5B": "intensity",
+    "Q7": "importance", "Q8": "concern", "Q9": "worry",
+}
+
+
+def _scale_family_by_qid(questions) -> dict:
+    return {q.qid: q.scale_family for q in questions if q.qtype is QuestionType.scale}
+
+
+@pytest.mark.skipif(
+    not (_RAKUTEN_PATH.exists() and _RAKUTEN_CHN_CLANS_PATH.exists() and _MILIEU_PATH.exists()
+         and _TOLUNA_PATH.exists() and (_ROOT / "purespectrum_survey_wcs_data.xlsx").exists()),
+    reason="not every real vendor fixture is present in project root",
+)
+def test_no_real_scale_question_changes_family_across_all_five_files():
+    """Round A prompt A3 acceptance: adding 'strongly satisfied'/'strongly
+    dissatisfied' to the satisfaction family (and auditing every other
+    family for the same gap) must not reclassify any question that already
+    matched. None of the five real fixtures contains a satisfaction
+    question at all (verified directly — grepping every Datamap/header for
+    "satisf" turns up nothing), so this pins every OTHER real scale
+    question's family down as an explicit before/after regression guard:
+    a future scales.yaml edit that silently shifts one of these must fail
+    here, not go unnoticed."""
+    from surveytool.ingest.milieu import load as milieu_load
+    from surveytool.ingest.purespectrum import load as ps_load
+    from surveytool.ingest.rakuten import load as rakuten_load
+    from surveytool.ingest.toluna import load as toluna_load
+
+    clans = rakuten_load(_RAKUTEN_CHN_CLANS_PATH, "chn-clans")
+    assert _scale_family_by_qid(clans.questions) == _RAKUTEN_CHN_CLANS_SCALE_FAMILIES
+
+    support = rakuten_load(_RAKUTEN_PATH, "support-measures")
+    assert _scale_family_by_qid(support.questions) == _RAKUTEN_SUPPORT_SCALE_FAMILIES
+
+    milieu = milieu_load(_MILIEU_PATH, "coe")
+    assert _scale_family_by_qid(milieu.questions) == _MILIEU_SCALE_FAMILIES
+
+    toluna = toluna_load(_TOLUNA_PATH, "misinformation")
+    assert _scale_family_by_qid(toluna.questions) == _TOLUNA_SCALE_FAMILIES
+
+    from datetime import datetime, timezone
+
+    from surveytool.ingest.overrides import QuestionOverride
+    now = datetime.now(timezone.utc)
+    overrides = {
+        v: QuestionOverride(variable=v, question_type="categorical", label_roles={}, resolved_at=now, library_version="t")
+        for v in ["Q1", "Q3", "Q6", "D5"]
+    }
+    purespectrum = ps_load(_ROOT / "purespectrum_survey_wcs_data.xlsx", "wcs", overrides)
+    assert _scale_family_by_qid(purespectrum.questions) == _PURESPECTRUM_SCALE_FAMILIES
+
+
 # ── Section C: shared conformance assertion set across four vendors ────────────
 #
 # Per spec Prompt 11: every vendor profile must satisfy a shared assertion
@@ -346,14 +441,16 @@ def test_toluna_shared_conformance_assertions():
            "no numerical golden fixture is written against numbers we produced ourselves.",
 )
 def test_purespectrum_shared_conformance_assertions():
-    # Task 5: an override-free load of the real fixture now raises
-    # UnresolvedQuestionsError for D2/Q1/Q3/Q6/Q9/D5 (see
-    # tests/test_purespectrum_fixture.py, which asserts that raise
-    # directly and names the exact expected set). This shared-assertion
-    # test only cares that a *resolved* load satisfies the cross-vendor
-    # invariants, so it supplies the same categorical overrides an analyst
-    # would write via the resolver, rather than asserting on the raise
-    # itself a second time.
+    # Task 5 originally required an override-free load of the real fixture
+    # to raise UnresolvedQuestionsError for D2/Q1/Q3/Q6/Q9/D5. Since then:
+    # D2 (age_band) and Q9 (worry, fixed by Round A prompt A1) resolve on
+    # their own, and Q1/Q3/Q6 classify as categorical directly (Round A
+    # prompt A4 — no scale evidence at all). D5 is the sole remaining
+    # unresolved question (see tests/test_purespectrum_fixture.py, which
+    # asserts that raise directly). This shared-assertion test only cares
+    # that a *resolved* load satisfies the cross-vendor invariants, so it
+    # supplies the categorical override an analyst would write via the
+    # resolver for D5, rather than asserting on the raise itself again.
     import openpyxl
     from datetime import datetime, timezone
 
@@ -369,7 +466,7 @@ def test_purespectrum_shared_conformance_assertions():
             resolved_at=now,
             library_version="test",
         )
-        for variable in ("D2", "Q1", "Q3", "Q6", "Q9", "D5")
+        for variable in ("D5",)
     }
 
     survey = load(_PURESPECTRUM_PATH, "wcs", overrides)
@@ -379,3 +476,270 @@ def test_purespectrum_shared_conformance_assertions():
     column_names = frozenset(str(h) for h in header if h is not None)
     wb.close()
     _shared_conformance_assertions("purespectrum", survey, sheet_names, column_names)
+
+
+@pytest.mark.skipif(
+    not (_PURESPECTRUM_PATH.exists()),
+    reason="purespectrum_survey_wcs_data.xlsx not found in project root",
+)
+def test_purespectrum_q1_q3_q6_classified_categorical_and_d5_queued_never_both_never_neither():
+    """Round A prompt A4 acceptance: no question is both classified and
+    queued for the resolver, and none is neither. An override-free load of
+    the real PureSpectrum fixture must raise UnresolvedQuestionsError naming
+    exactly D5 (see test_purespectrum_fixture.py for the direct assertion of
+    that set); this test additionally confirms the complementary half — that
+    Q1/Q3/Q6, which do NOT appear in that raise, are nonetheless present as
+    real `categorical` Questions with a recorded reason once D5 alone is
+    resolved, rather than silently missing from the Survey altogether."""
+    from datetime import datetime, timezone
+
+    from surveytool.charts.errors import UnresolvedQuestionsError
+    from surveytool.core.model import QuestionType
+    from surveytool.ingest.overrides import QuestionOverride
+    from surveytool.ingest.purespectrum import load
+
+    with pytest.raises(UnresolvedQuestionsError) as exc_info:
+        load(_PURESPECTRUM_PATH, "wcs")
+    assert {e.variable for e in exc_info.value.detail_entries} == {"D5"}
+
+    now = datetime.now(timezone.utc)
+    overrides = {
+        "D5": QuestionOverride(
+            variable="D5", question_type="categorical", label_roles={}, resolved_at=now, library_version="test",
+        )
+    }
+    survey = load(_PURESPECTRUM_PATH, "wcs", overrides)
+    questions_by_qid = {q.qid: q for q in survey.questions}
+    for qid in ("Q1", "Q3", "Q6"):
+        question = questions_by_qid[qid]
+        assert question.qtype is QuestionType.categorical
+        assert question.categorical_reason is not None
+
+
+# ── Section D: Round A prompt A7 — conformance guards for A1/A2/A4/A5 ───────
+#
+# Each assertion category below fails the suite if the corresponding Round A
+# fix is reverted:
+#   1. Exact question count per file (A1's dropped-block regression).
+#   2. No duplicate code key / duplicated label anywhere (A2).
+#   3. Every question classified with a reason, or queued — never both,
+#      never neither (A4).
+#   4. Every emitted figure's carried base equals the denominator used,
+#      asserted by value on Milieu q8 (A5).
+#   5. No Datamap/header line skipped without being parsed or raised on (A1).
+
+_RAKUTEN_CHN_CLANS_QUESTION_COUNT = 10
+_RAKUTEN_SUPPORT_QUESTION_COUNT = 9
+_MILIEU_QUESTION_COUNT = 9
+_TOLUNA_QUESTION_COUNT = 12
+_PURESPECTRUM_QUESTION_COUNT = 19  # with only D5 overridden; Q1/Q3/Q6 self-classify (A4)
+
+
+def _all_five_real_surveys():
+    """Load every real vendor file this project holds, skipping any that
+    are absent rather than fabricating a stand-in. Returns a dict of
+    vendor-label -> Survey for whichever files exist."""
+    from datetime import datetime, timezone
+
+    from surveytool.ingest.milieu import load as milieu_load
+    from surveytool.ingest.overrides import QuestionOverride
+    from surveytool.ingest.purespectrum import load as ps_load
+    from surveytool.ingest.rakuten import load as rakuten_load
+    from surveytool.ingest.toluna import load as toluna_load
+
+    surveys: dict[str, object] = {}
+
+    if _RAKUTEN_CHN_CLANS_PATH.exists():
+        surveys["rakuten_chn_clans"] = rakuten_load(_RAKUTEN_CHN_CLANS_PATH, "chn-clans")
+    if _RAKUTEN_PATH.exists():
+        surveys["rakuten_support"] = rakuten_load(_RAKUTEN_PATH, "support-measures")
+    if _MILIEU_PATH.exists():
+        surveys["milieu"] = milieu_load(_MILIEU_PATH, "coe")
+    if _TOLUNA_PATH.exists():
+        surveys["toluna"] = toluna_load(_TOLUNA_PATH, "misinformation")
+
+    purespectrum_path = _ROOT / "purespectrum_survey_wcs_data.xlsx"
+    if purespectrum_path.exists():
+        now = datetime.now(timezone.utc)
+        overrides = {
+            "D5": QuestionOverride(
+                variable="D5", question_type="categorical", label_roles={}, resolved_at=now, library_version="test",
+            )
+        }
+        surveys["purespectrum"] = ps_load(purespectrum_path, "wcs", overrides)
+
+    return surveys
+
+
+@pytest.mark.skipif(
+    not (_RAKUTEN_CHN_CLANS_PATH.exists() and _RAKUTEN_PATH.exists() and _MILIEU_PATH.exists()
+         and _TOLUNA_PATH.exists() and (_ROOT / "purespectrum_survey_wcs_data.xlsx").exists()),
+    reason="not every real vendor fixture is present in project root",
+)
+def test_a7_exact_question_count_per_real_file():
+    """A silently dropped question fails the run. Pins the exact count for
+    every real file this project holds — a regression of A1's Datamap
+    block-header fix (e.g. Q10/D4 silently vanishing again) changes one of
+    these counts and must fail here."""
+    surveys = _all_five_real_surveys()
+    assert len(surveys["rakuten_chn_clans"].questions) == _RAKUTEN_CHN_CLANS_QUESTION_COUNT
+    assert len(surveys["rakuten_support"].questions) == _RAKUTEN_SUPPORT_QUESTION_COUNT
+    assert len(surveys["milieu"].questions) == _MILIEU_QUESTION_COUNT
+    assert len(surveys["toluna"].questions) == _TOLUNA_QUESTION_COUNT
+    assert len(surveys["purespectrum"].questions) == _PURESPECTRUM_QUESTION_COUNT
+
+
+@pytest.mark.skipif(
+    not (_RAKUTEN_CHN_CLANS_PATH.exists() and _RAKUTEN_PATH.exists() and _MILIEU_PATH.exists()
+         and _TOLUNA_PATH.exists() and (_ROOT / "purespectrum_survey_wcs_data.xlsx").exists()),
+    reason="not every real vendor fixture is present in project root",
+)
+def test_a7_no_question_carries_a_duplicate_code_key_or_duplicated_label():
+    """A2's guard, re-asserted as a conformance check: no question in any
+    real file maps one code to two different labels, or one label to two
+    different codes. All five real files load clean with the guard active
+    (load() itself would already have raised DuplicateCodeKeyError if not,
+    since every adapter calls assert_no_duplicate_codes during construction
+    — this re-derives the same check independently, over each Question's
+    already-built labels, as a belt-and-braces conformance guard)."""
+    surveys = _all_five_real_surveys()
+    for vendor_label, survey in surveys.items():
+        for question in survey.questions:
+            seen_labels_by_code: dict = {}
+            seen_codes_by_label: dict = {}
+            for sc in question.labels:
+                if sc.code in seen_labels_by_code:
+                    assert seen_labels_by_code[sc.code] == sc.label, (
+                        f"{vendor_label} question {question.qid!r}: code {sc.code!r} maps to both "
+                        f"{seen_labels_by_code[sc.code]!r} and {sc.label!r}"
+                    )
+                seen_labels_by_code[sc.code] = sc.label
+                if sc.label in seen_codes_by_label:
+                    assert seen_codes_by_label[sc.label] == sc.code, (
+                        f"{vendor_label} question {question.qid!r}: label {sc.label!r} maps to both "
+                        f"code {seen_codes_by_label[sc.label]!r} and {sc.code!r}"
+                    )
+                seen_codes_by_label[sc.label] = sc.code
+
+
+@pytest.mark.skipif(
+    not (_ROOT / "purespectrum_survey_wcs_data.xlsx").exists(),
+    reason="purespectrum_survey_wcs_data.xlsx not found in project root",
+)
+def test_a7_every_purespectrum_question_classified_with_reason_or_queued_never_both_never_neither():
+    """A4's split, re-asserted as a conformance check on the one real file
+    where both outcomes are actually exercised (PureSpectrum: Q1/Q3/Q6
+    auto-categorical with a reason, D5 queued). Every non-exempt question
+    is either classified with a recorded reason (categorical_reason is not
+    None) or was queued for the resolver (named in the override-free
+    load's UnresolvedQuestionsError) — never both, never neither."""
+    from surveytool.charts.errors import UnresolvedQuestionsError
+    from surveytool.core.model import QuestionType
+    from surveytool.ingest.purespectrum import load
+
+    purespectrum_path = _ROOT / "purespectrum_survey_wcs_data.xlsx"
+    with pytest.raises(UnresolvedQuestionsError) as exc_info:
+        load(purespectrum_path, "wcs")
+    queued = {e.variable for e in exc_info.value.detail_entries}
+
+    surveys = _all_five_real_surveys()
+    survey = surveys["purespectrum"]
+    for question in survey.questions:
+        is_auto_categorical = (
+            question.qtype is QuestionType.categorical and question.categorical_reason is not None
+        )
+        is_queued = question.qid in queued
+        assert not (is_auto_categorical and is_queued), (
+            f"question {question.qid!r} is both auto-categorical (with a reason) and queued for the resolver"
+        )
+    # D5 achieved neither a full match nor auto-categorical classification
+    # in the override-free load (it was queued); Q1/Q3/Q6 must have
+    # reached auto-categorical, not the queue, in the resolved survey.
+    resolved_qids = {q.qid for q in survey.questions}
+    for qid in ("Q1", "Q3", "Q6"):
+        assert qid in resolved_qids
+    assert queued == {"D5"}
+
+
+@pytest.mark.skipif(
+    not _MILIEU_PATH.exists(),
+    reason="milieu_survey_coe_data.csv not found in project root",
+)
+def test_a7_milieu_q8_provenance_matches_a5_acceptance_table_by_value():
+    """A5's acceptance table, re-asserted as a conformance check: every
+    emitted figure's carried base equals the denominator actually used. See
+    test_breaks_compute.py's test_a5_acceptance_table_milieu_q8_broken_by_gender
+    for the fuller breaks-compute version of this same table — this is the
+    frequency-layer companion, over compute_question_stats directly."""
+    from surveytool.compute.frequency import compute_question_stats
+    from surveytool.ingest.milieu import load
+
+    survey = load(_MILIEU_PATH, "coe")
+    q8 = next(q for q in survey.questions if q.qid == "q8")
+    all_responses = [r for r in survey.responses if r.qid == "q8"]
+    stats = compute_question_stats(q8, all_responses)
+
+    assert stats.base == 567
+    licence = next(cs for cs in stats.code_stats if "do not have a driving licence" in cs.label)
+    assert licence.n == 244
+    assert licence.pct == pytest.approx(43.033510, abs=1e-5)
+    # base + routed + item_missing + nonsubstantive_excluded == cohort_size
+    # always holds by construction (see BaseProvenance's own docstring).
+    assert stats.base + stats.provenance.routed + stats.provenance.item_missing == stats.provenance.cohort_size
+    assert stats.provenance.cohort_size == 1000
+
+
+@pytest.mark.skipif(
+    not (_RAKUTEN_CHN_CLANS_PATH.exists() and _RAKUTEN_PATH.exists()
+         and (_ROOT / "purespectrum_survey_wcs_data.xlsx").exists()),
+    reason="not every real bracketed-Datamap fixture is present in project root",
+)
+def test_a7_no_datamap_line_skipped_without_being_parsed_or_raised_on():
+    """No Datamap line in any file is skipped without being either parsed
+    or raised on: every non-blank column-A line in each real Datamap sheet
+    is accounted for as a recognised block header or continuation marker
+    (see DatamapReader.read_codebook's own raise-on-anything-else
+    behaviour, exercised directly by the synthetic guard tests in
+    test_datamap_reader.py). Re-derives the same raw line classification
+    read_codebook uses internally, independently, over the real sheets —
+    if any line were unclassifiable, read_codebook itself would already
+    have raised DatamapMalformedLineError and these loads would never
+    reach this assertion."""
+    import openpyxl
+
+    from surveytool.ingest.datamap_reader import _extract_qid_and_text, _is_continuation_marker
+    from surveytool.ingest.vendor_profile import PURESPECTRUM_PROFILE, RAKUTEN_PROFILE
+
+    for path, profile in (
+        (_RAKUTEN_CHN_CLANS_PATH, RAKUTEN_PROFILE),
+        (_RAKUTEN_PATH, RAKUTEN_PROFILE),
+        (_ROOT / "purespectrum_survey_wcs_data.xlsx", PURESPECTRUM_PROFILE),
+    ):
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            ws = wb[profile.codebook_sheet]
+            rows = list(ws.iter_rows(values_only=True))
+        finally:
+            wb.close()
+
+        col0_lines = [
+            row[0].strip()
+            for row in rows
+            if len(row) > 0 and row[0] is not None and isinstance(row[0], str) and row[0].strip()
+        ]
+        next_by_index = {i: (col0_lines[i + 1] if i + 1 < len(col0_lines) else "") for i in range(len(col0_lines))}
+
+        for i, cell in enumerate(col0_lines):
+            if _is_continuation_marker(cell):
+                continue
+            # Every remaining column-A line must be a recognised block
+            # header: extractable as a qid, AND the next non-blank column-A
+            # line must itself be a continuation marker.
+            assert _extract_qid_and_text(cell) is not None, (
+                f"{path.name}: column-A line {cell!r} is neither a continuation marker "
+                f"nor an extractable block header"
+            )
+            assert _is_continuation_marker(next_by_index[i]), (
+                f"{path.name}: block header {cell!r} is not followed by a continuation marker "
+                f"(next line: {next_by_index[i]!r})"
+            )

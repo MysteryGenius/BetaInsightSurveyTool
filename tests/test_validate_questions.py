@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from surveytool.charts.errors import UnresolvedQuestionsError
-from surveytool.ingest.validate_questions import validate_all_questions
+from surveytool.charts.errors import DuplicateCodeKeyError, UnresolvedQuestionsError
+from surveytool.ingest.validate_questions import assert_no_duplicate_codes, validate_all_questions
 
 
 def test_three_unmatched_no_override_questions_batch_into_one_error():
@@ -94,3 +94,44 @@ def test_no_match_reason_says_nothing_matched_plainly():
     entry = exc_info.value.detail_entries[0]
     assert "none" in entry.reason.lower()
     assert "match" in entry.reason.lower()
+
+
+# ── Round A prompt A2: duplicate code key guard ─────────────────────────────
+#
+# Before prompt A1 fixed the Datamap block-header rule, this class of defect
+# happened by accident: Q9 silently absorbed Q10's rows and ended up mapping
+# code 1 to both "Very worried" and "Checked" (one overwrote the other in
+# whatever dict built from the pairs happened to run last). A1 removes the
+# cause; these tests are a guard so the same defect can't come back through
+# a different route. Constructing the duplicate in memory is correct here —
+# this is a guard test of the validation function itself, not a claim about
+# what any real vendor file contains.
+
+
+def test_duplicate_code_key_raises():
+    codes = [(1, "Very worried"), (2, "Somewhat worried"), (1, "Checked")]
+    with pytest.raises(DuplicateCodeKeyError) as exc_info:
+        assert_no_duplicate_codes("Q9", codes)
+    assert exc_info.value.qid == "Q9"
+    assert exc_info.value.conflicting_code == 1
+    assert "Q9" in str(exc_info.value)
+
+
+def test_duplicate_label_across_two_codes_raises():
+    codes = [(1, "Pass"), (2, "Fail"), (3, "Pass")]
+    with pytest.raises(DuplicateCodeKeyError) as exc_info:
+        assert_no_duplicate_codes("QC2Flag", codes)
+    assert exc_info.value.qid == "QC2Flag"
+
+
+def test_no_duplicate_codes_does_not_raise():
+    codes = [(1, "Very worried"), (2, "Somewhat worried"), (3, "Not very worried"), (4, "Not worried at all")]
+    assert_no_duplicate_codes("Q9", codes)  # must not raise
+
+
+def test_same_code_and_label_pair_repeated_does_not_raise():
+    """An exact repeat (same code, same label) is not a conflict — only a
+    code mapping to two *different* labels, or a label under two *different*
+    codes, is."""
+    codes = [(1, "Yes"), (2, "No"), (1, "Yes")]
+    assert_no_duplicate_codes("Q1", codes)  # must not raise

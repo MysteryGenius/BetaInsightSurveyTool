@@ -188,3 +188,39 @@ def test_real_rakuten_file_with_datamap_renamed_is_still_missing_sheet(client, t
     assert response.status_code == 400
     body = response.json()
     assert body["error"]["code"] == "VENDOR_MISMATCH"
+
+
+def test_unrecognized_column_halts_the_live_upload_endpoint(client, monkeypatch):
+    """Round A prompt A6, finding 3 acceptance: an unrecognized column
+    raises a structured error naming the column, through the actual
+    /api/upload HTTP path an analyst's drop goes through — not just at the
+    level of build_column_classifications called directly (already covered
+    by test_column_inventory_halt.py). Injects one bogus column into the
+    real Rakuten header via the same _column_qid_map the upload pipeline
+    calls, so the live path is what's actually exercised here."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    import surveytool.desktop.app as app_module
+
+    bogus_column = "TotallyUnrecognizedColumnXYZ"
+    original = app_module._column_qid_map
+
+    def _patched(vendor, path, survey_id, settings):
+        header, qid_by_column = original(vendor, path, survey_id, settings)
+        return [*header, bogus_column], qid_by_column
+
+    monkeypatch.setattr(app_module, "_column_qid_map", _patched)
+
+    with open(RAKUTEN_PATH, "rb") as f:
+        response = client.post(
+            "/api/upload",
+            data={"vendor": "rakuten", "survey_id": "unrecognized-column-halt"},
+            files={"file": (RAKUTEN_PATH.name, f,
+                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+
+    assert response.status_code == 400, response.text
+    body = response.json()
+    assert body["error"]["code"] == "UNCLASSIFIED_COLUMN"
+    assert bogus_column in body["error"]["message"] or bogus_column in body["error"].get("detail", "")

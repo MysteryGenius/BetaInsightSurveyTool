@@ -7,6 +7,7 @@ import pandas as pd
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.compute.frequency import compute_question_stats
+from surveytool.compute.stats import BaseProvenance
 from surveytool.core.config import ToolConfig
 from surveytool.core.demographics import (
     CONDITIONAL_DEMOGRAPHIC_ALIASES as _CONDITIONAL_DEMOGRAPHIC_ALIASES,
@@ -53,6 +54,7 @@ class CrossTabCell:
     t2b: float | None
     b2b: float | None
     mean: float | None
+    provenance: BaseProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -146,6 +148,7 @@ def _build_cell(sc, qs_result, config: ToolConfig) -> CrossTabCell:
         t2b=qs_result.t2b,
         b2b=qs_result.b2b,
         mean=qs_result.mean,
+        provenance=qs_result.provenance,
     )
 
 

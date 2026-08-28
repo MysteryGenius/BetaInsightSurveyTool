@@ -14,6 +14,7 @@ families:
   satisfaction:
     top_patterns:
       - "very satisfied"
+      - "strongly satisfied"
       - "satisfied"
     neutral_patterns:
       - "neither satisfied nor dissatisfied"
@@ -21,6 +22,7 @@ families:
       - "neither"
     bottom_patterns:
       - "very dissatisfied"
+      - "strongly dissatisfied"
       - "dissatisfied"
 
   likelihood:

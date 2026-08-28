@@ -219,6 +219,38 @@ def match_family(labels: list[str]) -> FamilyMatch:
     )
 
 
+def has_polarity_pair(labels: list[str]) -> bool:
+    """Round A prompt A4: return True if the label set contains a
+    `not`-prefixed or `un`-prefixed counterpart of another label in the same
+    set (e.g. "Able" / "Unable", "Effective" / "Not effective") — a
+    deterministic, inspectable signal that a label set is graded on a
+    single dimension even when no individual label matches a known family's
+    exact vocabulary.
+    """
+    normed = {_normalise(lb) for lb in labels}
+    for norm in normed:
+        for prefix in ("not ", "un"):
+            if norm.startswith(prefix) and norm[len(prefix):] in normed:
+                return True
+    return False
+
+
+def is_ordinal_resolver_candidate(labels: list[str]) -> bool:
+    """Round A prompt A4: decide whether a question that failed to achieve
+    a full scale match still belongs in the resolver queue (genuinely looks
+    ordinal) versus being classified as categorical outright (no evidence of
+    an underlying scale at all).
+
+    Committed position (see the prompt): a resolver candidate is a question
+    where at least one label matches a pattern in any family
+    (is_recognised_scale_point), or the label set shows a polarity pair
+    (has_polarity_pair). Everything else is categorical. Deliberately no
+    fuzzy or prefix matching beyond has_polarity_pair's exact-word check —
+    that would risk over-matching genuinely categorical lists.
+    """
+    return any(is_recognised_scale_point(lb) for lb in labels) or has_polarity_pair(labels)
+
+
 def classify_question_type(
     labels: list[str],
 ) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None] | None:

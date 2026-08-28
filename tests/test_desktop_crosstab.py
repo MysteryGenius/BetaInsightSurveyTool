@@ -196,6 +196,33 @@ def test_cross_tab_endpoint_computes_for_milieu_gender(client):
     assert len(body["cells"]) == len(expected.cells)
 
 
+def test_cross_tab_endpoint_q8_gender_carries_base_provenance(client):
+    """Round A prompt A5 acceptance, at the API layer: the /cross-tab
+    endpoint's per-cell n is the answering base (243 male, 324 female),
+    never the demographic count (490/510), and each reduced cell's
+    base_provenance names routing as the reason — the client's own
+    screenshot showed a percentage computed over 243 displayed next to a
+    demographic count of 490/510, which this field now makes impossible to
+    misread."""
+    if not MILIEU_PATH.exists():
+        pytest.skip(f"{MILIEU_PATH.name} not found in project root")
+
+    session_id = _upload_milieu(client)
+    response = client.get(f"/api/session/{session_id}/cross-tab?qid=q8&demographic=gender")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    cells_by_label = {c["subgroup_label"]: c for c in body["cells"]}
+    male = cells_by_label["Male"]
+    female = cells_by_label["Female"]
+
+    assert male["n"] == 243
+    assert female["n"] == 324
+    assert male["base_provenance"]["routed"] == 490 - 243
+    assert female["base_provenance"]["routed"] == 510 - 324
+    assert male["base_provenance"]["item_missing"] == 0
+
+
 def _upload_toluna(client) -> str:
     # Task 9: column "2" (age_band) is now a declared demographic
     # source_column in vendor_toluna.yaml, exempt from the load-path

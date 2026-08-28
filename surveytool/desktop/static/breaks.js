@@ -599,10 +599,41 @@ function buildBreaksLegend() {
   return legend;
 }
 
+// Round A prompt A10: plain-English reason(s) a cell's answering base
+// (base_valid) is smaller than its demographic cohort (base_cell), built
+// verbatim from base_provenance's already-computed counts — no arithmetic
+// beyond string formatting, per this file's own governing rule. Returns
+// null when base_provenance is absent (a suppressed cell, where every
+// other figure is also null) or carries no reduction at all.
+function baseReductionReason(col) {
+  const p = col.base_provenance;
+  if (!p) return null;
+  const parts = [];
+  if (p.routed > 0) {
+    parts.push(`${p.routed} respondent(s) were not asked this question`);
+  }
+  if (p.item_missing > 0) {
+    parts.push(`${p.item_missing} respondent(s) gave an unrecognised answer`);
+  }
+  if (p.nonsubstantive_excluded > 0) {
+    parts.push(`${p.nonsubstantive_excluded} non-substantive response(s) were excluded from the base`);
+  }
+  if (parts.length === 0) return null;
+  return `${parts.join("; ")}.`;
+}
+
 // Discrete per-column base/band strip, shown regardless of which chart type
 // is active (Prompt 4: full label path, per-column base, and both
 // suppression bands must be visible on every result). Switches purely on
 // `band` — never a base-vs-threshold comparison.
+//
+// Round A prompt A10: the base shown here is base_valid (the base the
+// figures were actually computed on), never base_cell (the demographic
+// cohort size) — the client-reported defect was exactly this: a
+// percentage computed over 243 respondents displayed next to a
+// demographic count of 490. base_cell stays visible too, labelled
+// distinctly, so an analyst can see both without mistaking one for the
+// other; when they differ, the reason is stated in plain English.
 function buildColumnStrip(qr) {
   const strip = document.createElement("div");
   strip.className = "breaks-columns";
@@ -618,8 +649,20 @@ function buildColumnStrip(qr) {
 
     const base = document.createElement("div");
     base.className = "col-base";
-    base.textContent = `n=${col.base_cell}`;
+    if (col.base_valid !== null && col.base_valid !== col.base_cell) {
+      base.textContent = `n=${col.base_valid} of ${col.base_cell}`;
+    } else {
+      base.textContent = `n=${col.base_valid !== null ? col.base_valid : col.base_cell}`;
+    }
     cell.appendChild(base);
+
+    const reason = baseReductionReason(col);
+    if (reason) {
+      const reasonEl = document.createElement("div");
+      reasonEl.className = "col-base-reason";
+      reasonEl.textContent = reason;
+      cell.appendChild(reasonEl);
+    }
 
     if (col.band === "low_base") {
       const note = document.createElement("div");
@@ -820,14 +863,25 @@ function renderTable(qr, chartArea, append) {
 
   const tbody = document.createElement("tbody");
 
+  // Round A prompt A10: the base row shows base_valid (the base the
+  // figures below it were actually computed on), not base_cell (the
+  // demographic cohort size) — carried on each cell individually, not
+  // only in the column header, and with the demographic count plus the
+  // reduction reason available on hover when the two differ.
   const baseRow = document.createElement("tr");
   const baseLabelTd = document.createElement("td");
   baseLabelTd.textContent = "Base";
   baseRow.appendChild(baseLabelTd);
   qr.columns.forEach((col) => {
     const td = document.createElement("td");
-    td.textContent = col.base_cell;
+    const displayedBase = col.base_valid !== null ? col.base_valid : col.base_cell;
+    td.textContent = displayedBase;
     td.style.padding = "4px 8px";
+    if (col.base_valid !== null && col.base_valid !== col.base_cell) {
+      const reason = baseReductionReason(col);
+      td.title = `${col.base_valid} of ${col.base_cell} respondents in this group answered this question.` +
+        (reason ? ` ${reason}` : "");
+    }
     baseRow.appendChild(td);
   });
   tbody.appendChild(baseRow);

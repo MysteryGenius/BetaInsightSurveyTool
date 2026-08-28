@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.core.model import CodeRole, QuestionType
@@ -46,11 +46,42 @@ class IncompleteOverrideError(SurveyToolError):
 _ROLE_MAP: dict[str, CodeRole] = {"top": CodeRole.top, "neutral": CodeRole.neutral, "bottom": CodeRole.bottom}
 
 
+class CorruptedOverridesFileError(SurveyToolError):
+    """Round A prompt A11: raised when a project's saved overrides file
+    exists but cannot be read as valid YAML, or doesn't match the
+    ProjectOverrides schema. Before this, a corrupted file raised a raw
+    yaml.YAMLError or pydantic.ValidationError that named no file and
+    surfaced as an opaque INTERNAL failure — the analyst had no way to
+    know their saved resolutions were the problem, and the tool never
+    silently proceeded as though no override existed (that would have
+    demoted every previously-resolved question back through the resolver
+    with no explanation)."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        detail = f"The overrides file at {path} could not be read: {reason}"
+        super().__init__(
+            ErrorCode.CONFIG_INVALID,
+            "This project's saved question resolutions could not be read.",
+            detail=detail,
+            next_action=(
+                "The overrides file may be corrupted. Check it at the path above, "
+                "restore it from a backup, or delete it to start resolving questions again."
+            ),
+        )
+
+
 def load_overrides(path: Path) -> ProjectOverrides:
     if not path.exists():
         return ProjectOverrides()
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return ProjectOverrides.model_validate(raw)
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise CorruptedOverridesFileError(path, str(exc)) from exc
+    try:
+        return ProjectOverrides.model_validate(raw)
+    except ValidationError as exc:
+        raise CorruptedOverridesFileError(path, str(exc)) from exc
 
 
 def apply_override(question_labels: list[str], override: QuestionOverride) -> dict[str, CodeRole]:

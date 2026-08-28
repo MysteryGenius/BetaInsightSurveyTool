@@ -11,7 +11,7 @@ from surveytool.core.model import (
     ScaleCode,
     Survey,
 )
-from surveytool.compute.stats import CodeStat, QuestionStats
+from surveytool.compute.stats import BaseProvenance, CodeStat, QuestionStats
 from surveytool.core.netting_gate import require_scale_for_netting
 
 _BASE_STATES: frozenset[ResponseState] = frozenset(
@@ -91,6 +91,35 @@ def _count_multi_response_codes(
     return tuple(result)
 
 
+def build_base_provenance(
+    responses: list[Response],
+    *,
+    exclude_nonsubstantive_from_base: bool = False,
+) -> BaseProvenance:
+    """Round A prompt A5: classify every response in this cohort by why it
+    is or isn't part of the answering base, from ResponseState alone —
+    deterministic, and never changes what compute_question_stats counts,
+    only names it. `responses` is the same one-row-per-respondent list
+    compute_question_stats receives (already filtered to one qid), so
+    `cohort_size == len(responses)` accounts for every respondent exactly
+    once, with no possibility of a respondent contributing zero or multiple
+    rows silently going unaccounted for.
+    """
+    routed = sum(1 for r in responses if r.state is ResponseState.not_asked)
+    item_missing = sum(1 for r in responses if r.state is ResponseState.item_missing)
+    nonsubstantive_excluded = (
+        sum(1 for r in responses if r.state is ResponseState.nonsubstantive)
+        if exclude_nonsubstantive_from_base
+        else 0
+    )
+    return BaseProvenance(
+        cohort_size=len(responses),
+        routed=routed,
+        item_missing=item_missing,
+        nonsubstantive_excluded=nonsubstantive_excluded,
+    )
+
+
 def compute_question_stats(
     question: Question,
     responses: list[Response],
@@ -111,6 +140,7 @@ def compute_question_stats(
     """
     base_resps = _base_responses(responses, exclude_nonsubstantive=exclude_nonsubstantive_from_base)
     base = len(base_resps)
+    provenance = build_base_provenance(responses, exclude_nonsubstantive_from_base=exclude_nonsubstantive_from_base)
 
     if base == 0:
         code_stats = tuple(
@@ -118,7 +148,7 @@ def compute_question_stats(
             for sc in question.labels
         )
         return QuestionStats(qid=question.qid, base=0, code_stats=code_stats,
-                             t2b=None, b2b=None, mean=None)
+                             t2b=None, b2b=None, mean=None, provenance=provenance)
 
     if question.qtype is QuestionType.multi_response:
         code_stats = _count_multi_response_codes(question, base_resps, base)
@@ -155,6 +185,7 @@ def compute_question_stats(
         t2b=t2b,
         b2b=b2b,
         mean=mean,
+        provenance=provenance,
     )
 
 

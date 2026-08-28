@@ -148,14 +148,21 @@ def test_unresolvable_scale_label_is_collected_not_hard_failed_immediately():
     assert "Gobbledygook" in entry.reason
 
 
-def test_genuine_categorical_is_collected_not_silently_single_choice():
-    """Task 5: a Single-select column where zero labels match any scale
-    family, and whose qid is not a declared demographic, used to demote
-    silently to single_choice (the any_label_matches_family gate this task
-    deletes). It must now be collected instead — the tool cannot
-    distinguish "a genuine list" from "a scale it failed to match" and
-    must not guess; the analyst confirms it once via the resolver."""
-    from surveytool.charts.errors import UnresolvedQuestionsError
+def test_genuine_categorical_classifies_directly_not_queued_for_resolver():
+    """Task 5 originally made a Single-select column where zero labels
+    match any scale family (and whose qid is not a declared demographic)
+    collect for the resolver rather than silently demote to single_choice
+    (the any_label_matches_family gate that task deleted). Round A prompt
+    A4 refines this further: a label set with no scale-pattern match AND no
+    polarity pair (e.g. "not"/"un" counterpart) shows no evidence of being
+    ordinal at all, so it is classified as `categorical` directly, with the
+    reason recorded on the question — training an analyst to click through
+    a resolver panel for questions that were never going to be scales is
+    exactly what let the real A1/A3 defects hide. Contrast with
+    test_toluna's/PureSpectrum's D5 fluency case, which does still queue
+    for the resolver despite failing the same signals (a deliberate, named
+    exception — see validate_questions._GRANDFATHERED_RESOLVER_CANDIDATES)."""
+    from surveytool.core.model import QuestionType
     from surveytool.ingest.milieu import parse_header
 
     fieldnames = ["[q98]: Single-select - Favourite colour"]
@@ -164,12 +171,11 @@ def test_genuine_categorical_is_collected_not_silently_single_choice():
         {"[q98]: Single-select - Favourite colour": "Blue"},
     ]
 
-    with pytest.raises(UnresolvedQuestionsError) as exc_info:
-        parse_header(fieldnames, rows)
-
-    entry = exc_info.value.detail_entries[0]
-    assert entry.variable == "q98"
-    assert "none" in entry.reason.lower()
+    questions = parse_header(fieldnames, rows)  # must not raise
+    q98 = next(q for q in questions if q.qid == "q98")
+    assert q98.qtype is QuestionType.categorical
+    assert q98.categorical_reason is not None
+    assert "no evidence" in q98.categorical_reason.lower()
 
 
 def test_declared_demographic_still_demotes_to_single_choice_without_resolver():

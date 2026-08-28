@@ -27,6 +27,7 @@ class ErrorCode(str, Enum):
     FILTER_ZERO_MATCH = "FILTER_ZERO_MATCH"
     UNCLASSIFIED_COLUMN = "UNCLASSIFIED_COLUMN"
     NETTING_NOT_ALLOWED = "NETTING_NOT_ALLOWED"
+    DUPLICATE_CODE_KEY = "DUPLICATE_CODE_KEY"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -53,6 +54,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.FILTER_ZERO_MATCH: 400,
     ErrorCode.UNCLASSIFIED_COLUMN: 400,
     ErrorCode.NETTING_NOT_ALLOWED: 400,
+    ErrorCode.DUPLICATE_CODE_KEY: 400,
 }
 
 
@@ -220,6 +222,35 @@ class UnresolvedQuestionsError(SurveyToolError):
             entries.append(entry_dict)
         body["error"]["detail_entries"] = entries
         return body
+
+
+class DuplicateCodeKeyError(SurveyToolError):
+    """Raised when a question's code-to-label map has the same numeric code
+    assigned to two different labels, or the same label assigned to two
+    different codes — a silent-overwrite hazard (Round A prompt A2). Before
+    prompt A1 fixed the Datamap block-header rule, this class of defect
+    happened by accident (Q9 absorbing Q10's rows gave it two labels under
+    code 1); this guard stops it recurring through any other route,
+    including a project override that would collapse two codes onto one
+    label.
+    """
+
+    def __init__(self, qid: str, code: object, label: str, other_code: object, other_label: str) -> None:
+        self.qid = qid
+        self.conflicting_code = code
+        self.conflicting_label = label
+        self.other_code = other_code
+        self.other_label = other_label
+        detail = (
+            f"Question {qid!r} has conflicting entries: code {code!r} -> {label!r} "
+            f"and code {other_code!r} -> {other_label!r}."
+        )
+        super().__init__(
+            ErrorCode.DUPLICATE_CODE_KEY,
+            f"This file's codebook has a conflicting entry for question '{qid}'.",
+            detail=detail,
+            next_action="Check the codebook sheet for this question, or pick a different file.",
+        )
 
 
 class DimensionNotInCanonicalError(SurveyToolError):

@@ -45,7 +45,16 @@ _XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # fixture (see tests/test_purespectrum_fixture.py for the load-level guard
 # on this same set). D2 was in this set before Task 9 mapped age_band for
 # PureSpectrum; it is now a declared demographic and no longer appears here.
-_PURESPECTRUM_UNRESOLVED = ("Q1", "Q3", "Q6", "Q9", "D5")
+# Q9 was in this set only because of the Round A prompt A1 Datamap-parsing
+# bug (Q10's unbracketed block header was silently absorbed into Q9,
+# corrupting its code list); A1 fixed the block-header rule so Q9 now
+# classifies cleanly as a `worry` scale and is no longer unresolved.
+# Q1/Q3/Q6 are also no longer in this set: Round A prompt A4 classifies
+# them as `categorical` directly at load time (no scale evidence at all —
+# no matching label, no polarity pair) instead of queueing them for the
+# resolver. D5 is the sole survivor, grandfathered in per A4's committed
+# decision (see validate_questions._GRANDFATHERED_RESOLVER_CANDIDATES).
+_PURESPECTRUM_UNRESOLVED = ("D5",)
 
 
 @pytest.fixture
@@ -129,8 +138,9 @@ def _upload_purespectrum_resolved(client):
 def test_purespectrum_upload_without_overrides_returns_unresolved_questions(client):
     """The acceptance-criteria demonstration for a real PureSpectrum load:
     an override-free upload raises UnresolvedQuestionsError naming exactly
-    Q1/Q3/Q6/Q9/D5, and none of the exempt columns (D1/D2/D3 declared
-    demographics, QC2/QC2Flag quality columns)."""
+    D5, and none of the exempt columns (D1/D2/D3 declared demographics,
+    QC2/QC2Flag quality columns, or Q1/Q3/Q6 which Round A prompt A4
+    classifies as categorical directly rather than queueing)."""
     if not PURESPECTRUM_PATH.exists():
         pytest.skip(f"{PURESPECTRUM_PATH.name} not found in project root")
 
@@ -145,6 +155,9 @@ def test_purespectrum_upload_without_overrides_returns_unresolved_questions(clie
     assert "D3" not in variables
     assert "QC2" not in variables
     assert "QC2Flag" not in variables
+    assert "Q1" not in variables
+    assert "Q3" not in variables
+    assert "Q6" not in variables
 
 
 def test_purespectrum_all_42_columns_classified(client):
@@ -159,6 +172,23 @@ def test_purespectrum_all_42_columns_classified(client):
     status_col = next(c for c in body["columns"] if c["column"] == "status")
     assert status_col["classification"] == "metadata"
     assert status_col["question_type"] is None
+
+
+def test_purespectrum_run_summary_lists_auto_categorical_questions_with_reasons(client):
+    """Round A prompt A4 acceptance: the run summary lists every question
+    Round A classified as categorical outright (Q1, Q3, Q6 — no scale
+    evidence at all) together with its recorded reason, so the
+    classification is never silent. D5, which stays in the resolver via the
+    grandfather exception, must not appear in this list — it's a real
+    resolver entry, not an auto-categorical one."""
+    if not PURESPECTRUM_PATH.exists():
+        pytest.skip(f"{PURESPECTRUM_PATH.name} not found in project root")
+
+    body = _upload_purespectrum_resolved(client)
+    categorical = {c["variable"]: c["reason"] for c in body["categorical_classifications"]}
+    assert set(categorical.keys()) == {"Q1", "Q3", "Q6"}
+    for reason in categorical.values():
+        assert reason and "no evidence" in reason.lower()
 
 
 @pytest.mark.parametrize(

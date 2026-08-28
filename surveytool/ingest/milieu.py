@@ -20,7 +20,7 @@ from surveytool.core.model import (
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import MatchOutcome, identify_family, match_family
 from surveytool.ingest.overrides import QuestionOverride, apply_override
-from surveytool.ingest.validate_questions import collect_unresolved_question
+from surveytool.ingest.validate_questions import AutoCategorical, classify_or_collect
 
 _DEMOGRAPHIC_SOURCE_COLUMNS = declared_demographic_source_columns("milieu")
 
@@ -158,12 +158,19 @@ def _build_single_choice_question(
     values: list[str],
     qtype: QuestionType = QuestionType.single_choice,
     nonsubstantive_labels: list[str] | None = None,
+    categorical_reason: str | None = None,
 ) -> Question:
     """Builds a non-scale question. `qtype` defaults to single_choice (the
     auto-detected shape), but a binary/categorical override passes its real
     question_type through here so the override's classification choice
     survives rather than collapsing to single_choice regardless of which
-    the analyst actually picked (see resolve_with_override)."""
+    the analyst actually picked (see resolve_with_override).
+
+    `categorical_reason`, when supplied (Round A prompt A4), records why an
+    auto-classified categorical question was classified that way — never
+    set for an override or a declared-demographic single_choice, since
+    those aren't auto-classification decisions this function needs to
+    justify."""
     labels = [
         ScaleCode(
             code=i,
@@ -179,6 +186,7 @@ def _build_single_choice_question(
         labels=labels,
         base_eligible=True,
         is_demographic=text_matches_demographic(info.text),
+        categorical_reason=categorical_reason,
     )
 
 
@@ -276,15 +284,22 @@ def parse_header(
             if match.outcome is MatchOutcome.full:
                 questions.append(_build_scale_question(info, values, grid_group, nonsubstantive_labels=nonsubstantive_labels))
             else:
-                unresolved = collect_unresolved_question(
+                outcome = classify_or_collect(
                     info.qid,
                     info.text,
                     list(enumerate(values, start=1)),
                     _substantive_values(values, nonsubstantive_labels),
                     override=None,
                 )
-                if unresolved is not None:
-                    collected.append(unresolved)
+                if isinstance(outcome, AutoCategorical):
+                    questions.append(
+                        _build_single_choice_question(
+                            info, values, qtype=QuestionType.categorical,
+                            nonsubstantive_labels=nonsubstantive_labels, categorical_reason=outcome.reason,
+                        )
+                    )
+                elif outcome is not None:
+                    collected.append(outcome)
             continue
 
         if info.qtype_token == "Single-select":
@@ -312,15 +327,22 @@ def parse_header(
             if match.outcome is MatchOutcome.full:
                 questions.append(_build_scale_question(info, values, None, nonsubstantive_labels=nonsubstantive_labels))
             else:
-                unresolved = collect_unresolved_question(
+                outcome = classify_or_collect(
                     info.qid,
                     info.text,
                     list(enumerate(values, start=1)),
                     _substantive_values(values, nonsubstantive_labels),
                     override=None,
                 )
-                if unresolved is not None:
-                    collected.append(unresolved)
+                if isinstance(outcome, AutoCategorical):
+                    questions.append(
+                        _build_single_choice_question(
+                            info, values, qtype=QuestionType.categorical,
+                            nonsubstantive_labels=nonsubstantive_labels, categorical_reason=outcome.reason,
+                        )
+                    )
+                elif outcome is not None:
+                    collected.append(outcome)
             continue
 
     if collected:

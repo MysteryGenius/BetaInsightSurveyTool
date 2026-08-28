@@ -270,3 +270,24 @@ def test_every_family_name_reachable_via_match_family():
             continue
         result = match_family(sample)
         assert result.outcome in (MatchOutcome.full, MatchOutcome.partial)
+
+
+def test_strongly_satisfied_to_strongly_dissatisfied_full_match_against_satisfaction():
+    """Round A prompt A3: Leonard loaded a real Rakuten housing-estate
+    satisfaction question labelled Strongly dissatisfied / Dissatisfied /
+    Neutral / Satisfied / Strongly satisfied and it was flagged unrecognised
+    — `satisfaction` had `very satisfied`/`very dissatisfied` but no
+    `strongly` variant. Neither Rakuten fixture in this project root
+    contains that question (see this file's fixture-vs-synthetic split
+    above), so this is synthetic edge-case coverage of the exact reported
+    label set, following this file's own documented convention for cases
+    with no vendor file to extract from — not a claim that this label set
+    was pulled from a real file."""
+    labels = ["Strongly dissatisfied", "Dissatisfied", "Neutral", "Satisfied", "Strongly satisfied"]
+    result = match_family(labels)
+    assert result.outcome is MatchOutcome.full
+    assert result.family == "satisfaction"
+    assert result.unmatched_labels == []
+    assert result.matched_labels["Strongly satisfied"] is CodeRole.top
+    assert result.matched_labels["Strongly dissatisfied"] is CodeRole.bottom
+    assert result.matched_labels["Neutral"] is CodeRole.neutral

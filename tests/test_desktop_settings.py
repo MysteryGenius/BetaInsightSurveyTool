@@ -38,6 +38,7 @@ def test_post_settings_persists_and_get_reflects_it(client):
     update = {
         "nonsubstantive_labels": ["prefer not to say", "don't know", "not applicable", "skipped"],
         "exclude_nonsubstantive_from_base": True,
+        "straightliner_action": "exclude",
     }
     post_response = client.post(f"/api/projects/{survey_id}/settings", json=update)
     assert post_response.status_code == 200
@@ -45,6 +46,95 @@ def test_post_settings_persists_and_get_reflects_it(client):
 
     get_response = client.get(f"/api/projects/{survey_id}/settings")
     assert get_response.json() == update
+
+
+def test_post_settings_without_straightliner_action_does_not_reset_a_previously_saved_one(client):
+    """Round A prompt A6, finding 2 regression: before this fix,
+    update_project_settings rebuilt the saved ToolConfig from scratch with
+    only nonsubstantive_labels/exclude_nonsubstantive_from_base populated,
+    so straightliner_action silently reverted to the class default ("keep")
+    on every save — even one that had nothing to do with straightliners.
+    Saving "exclude" once, then posting an update whose JSON body omits
+    straightliner_action entirely (as an older UI client not yet aware of
+    the field would send), must not discard the earlier "exclude"."""
+    survey_id = f"strln-preserve-{uuid.uuid4().hex[:8]}"
+
+    client.post(
+        f"/api/projects/{survey_id}/settings",
+        json={
+            "nonsubstantive_labels": ["prefer not to say"],
+            "exclude_nonsubstantive_from_base": False,
+            "straightliner_action": "exclude",
+        },
+    )
+
+    # Simulate an older client whose request body has no
+    # straightliner_action key at all, not merely one that resends "keep".
+    client.post(
+        f"/api/projects/{survey_id}/settings",
+        json={
+            "nonsubstantive_labels": ["prefer not to say", "n/a"],
+            "exclude_nonsubstantive_from_base": True,
+        },
+    )
+
+    from surveytool.desktop.app import _load_project_settings
+    assert _load_project_settings(survey_id).straightliner_action == "exclude"
+
+
+def test_straightliner_action_governs_exclusion_and_run_summary_states_it(client):
+    """Round A prompt A6, finding 2 acceptance: with straightliner_action
+    at "keep", flagged respondents are retained and the run summary says so
+    with a count; with "exclude", they are removed and the run summary
+    says so with a count. Verified end to end against the real Rakuten
+    support-measures fixture (109 real respondents flag as straightliners),
+    through the actual upload -> settings -> rerun -> run-summary path, not
+    a direct call to the internal pipeline function."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    survey_id = f"strln-govern-{uuid.uuid4().hex[:8]}"
+    with open(RAKUTEN_PATH, "rb") as f:
+        upload_response = client.post(
+            "/api/upload",
+            data={"vendor": "rakuten", "survey_id": survey_id},
+            files={"file": (RAKUTEN_PATH.name, f, _XLSX_CT)},
+        )
+    assert upload_response.status_code == 200, upload_response.text
+    session_id = upload_response.json()["session_id"]
+
+    keep_summary = client.get(f"/api/session/{session_id}/run-summary").json()
+    assert "kept in the base" in keep_summary["straightliner_statement"]
+    assert "109" in keep_summary["straightliner_statement"]
+
+    settings_response = client.post(
+        f"/api/projects/{survey_id}/settings",
+        json={
+            "nonsubstantive_labels": list(DEFAULT_NONSUBSTANTIVE_LABELS),
+            "exclude_nonsubstantive_from_base": False,
+            "straightliner_action": "exclude",
+        },
+    )
+    assert settings_response.status_code == 200, settings_response.text
+    assert settings_response.json()["straightliner_action"] == "exclude"
+
+    rerun_response = client.post(f"/api/session/{session_id}/rerun")
+    assert rerun_response.status_code == 200, rerun_response.text
+
+    exclude_summary = client.get(f"/api/session/{session_id}/run-summary").json()
+    assert "excluded from the base" in exclude_summary["straightliner_statement"]
+    assert "109" in exclude_summary["straightliner_statement"]
+
+    # The statement's count is backed by a real change in the computed
+    # base, not just wording — Q1's total-row base drops by exactly the
+    # 109 flagged respondents once straightliner_action takes effect.
+    from surveytool.desktop.app import get_session
+    session_after = get_session(session_id)
+    q1_total_base = next(
+        row.cell_base for row in session_after.findings
+        if row.qid == "Q1" and row.breakdown_variable == "total"
+    )
+    assert q1_total_base == 1000 - 109
 
 
 def test_settings_rejects_path_traversal_survey_id(client):
@@ -80,3 +170,46 @@ def test_rerun_endpoint_applies_changed_setting(client):
     rerun_response = client.post(f"/api/session/{session_id}/rerun")
     assert rerun_response.status_code == 200, rerun_response.text
     assert rerun_response.json()["session_id"] == session_id
+
+
+def test_custom_nonsubstantive_label_changes_base_on_real_file(client):
+    """Round A prompt A6, finding 1 acceptance: a project settings list
+    containing a custom label changes which responses are excluded from
+    the base, demonstrated on a real file. Rakuten's real Q1 (support
+    measures) has a substantive "Neutral" midpoint with 104 real
+    respondents (base 1000). Declaring "Neutral" as a custom
+    non-substantive label and excluding non-substantive responses from the
+    base must drop the computed base by exactly that many respondents —
+    proving the configured list, not just the built-in default six
+    patterns, is what is_nonsubstantive_label actually consults."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    from surveytool.compute.frequency import compute_question_stats
+    from surveytool.ingest.rakuten import load
+
+    survey_id = f"settings-base-change-{uuid.uuid4()}"
+
+    baseline_survey = load(RAKUTEN_PATH, survey_id)
+    q1_baseline = next(q for q in baseline_survey.questions if q.qid == "Q1")
+    q1_baseline_responses = [r for r in baseline_survey.responses if r.qid == "Q1"]
+    baseline_stats = compute_question_stats(q1_baseline, q1_baseline_responses)
+
+    client.post(
+        f"/api/projects/{survey_id}/settings",
+        json={
+            "nonsubstantive_labels": ["Neutral"],
+            "exclude_nonsubstantive_from_base": True,
+        },
+    )
+
+    custom_survey = load(RAKUTEN_PATH, survey_id, nonsubstantive_labels=["Neutral"])
+    q1_custom = next(q for q in custom_survey.questions if q.qid == "Q1")
+    q1_custom_responses = [r for r in custom_survey.responses if r.qid == "Q1"]
+    custom_stats = compute_question_stats(
+        q1_custom, q1_custom_responses, exclude_nonsubstantive_from_base=True
+    )
+
+    assert custom_stats.base < baseline_stats.base
+    assert baseline_stats.base - custom_stats.base == custom_stats.provenance.nonsubstantive_excluded
+    assert custom_stats.provenance.nonsubstantive_excluded > 0

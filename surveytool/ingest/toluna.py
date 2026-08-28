@@ -23,7 +23,7 @@ from surveytool.core.model import (
 from surveytool.core.nonsubstantive import classify_response, is_nonsubstantive_label
 from surveytool.core.scale_library import MatchOutcome, identify_family, match_family
 from surveytool.ingest.overrides import QuestionOverride, apply_override
-from surveytool.ingest.validate_questions import collect_unresolved_question
+from surveytool.ingest.validate_questions import AutoCategorical, classify_or_collect
 
 _DEMOGRAPHIC_SOURCE_COLUMNS = declared_demographic_source_columns("toluna")
 
@@ -147,12 +147,15 @@ def _build_single_choice_question(
     values: list[str],
     qtype: QuestionType = QuestionType.single_choice,
     nonsubstantive_labels: list[str] | None = None,
+    categorical_reason: str | None = None,
 ) -> Question:
     """Builds a non-scale question. `qtype` defaults to single_choice (the
     auto-detected shape), but a binary/categorical override passes its real
     question_type through here so the override's classification choice
     survives rather than collapsing to single_choice regardless of which
-    the analyst actually picked."""
+    the analyst actually picked. `categorical_reason` (Round A prompt A4)
+    records why an auto-classified categorical question was classified that
+    way."""
     labels = [
         ScaleCode(
             code=i,
@@ -168,6 +171,7 @@ def _build_single_choice_question(
         labels=labels,
         base_eligible=True,
         is_demographic=text_matches_demographic(text),
+        categorical_reason=categorical_reason,
     )
 
 
@@ -253,17 +257,23 @@ def parse_header(
             if match.outcome is MatchOutcome.full:
                 question = _build_scale_question(qid, text, values, grid_group, nonsubstantive_labels=nonsubstantive_labels)
             else:
-                unresolved = collect_unresolved_question(
+                outcome = classify_or_collect(
                     qid,
                     text,
                     list(enumerate(values, start=1)),
                     _substantive_values(values, nonsubstantive_labels),
                     override=None,
                 )
-                if unresolved is not None:
-                    collected.append(unresolved)
-                col_idx_by_qid[qid] = idx
-                continue
+                if isinstance(outcome, AutoCategorical):
+                    question = _build_single_choice_question(
+                        qid, text, values, qtype=QuestionType.categorical,
+                        nonsubstantive_labels=nonsubstantive_labels, categorical_reason=outcome.reason,
+                    )
+                else:
+                    if outcome is not None:
+                        collected.append(outcome)
+                    col_idx_by_qid[qid] = idx
+                    continue
 
         questions.append(question)
         col_idx_by_qid[qid] = idx

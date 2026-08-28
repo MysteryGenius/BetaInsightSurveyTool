@@ -72,3 +72,53 @@ def test_partial_intensity_match_returns_none_not_categorical():
     collects it as unresolved."""
     result = classify_question_type(["a lot", "somewhat", "purple"])
     assert result is None
+
+
+# ── Round A prompt A4: resolver-queue split ──────────────────────────────
+#
+# is_ordinal_resolver_candidate decides whether a question that failed a
+# full scale match still belongs in the resolver (genuinely looks ordinal)
+# or should classify as categorical outright. Two committed signals: a
+# label matches a family pattern, or the label set shows a not-/un- polarity
+# pair. The PureSpectrum Q1/Q3/Q6/D5 real-label-set acceptance cases live in
+# tests/test_purespectrum_fixture.py and tests/test_desktop_run_summary.py;
+# these are direct unit tests of the two signals themselves.
+
+from surveytool.core.scale_library import has_polarity_pair, is_ordinal_resolver_candidate
+
+
+def test_has_polarity_pair_detects_not_prefix():
+    assert has_polarity_pair(["Effective", "Not effective"]) is True
+
+
+def test_has_polarity_pair_detects_un_prefix():
+    assert has_polarity_pair(["Able", "Unable"]) is True
+
+
+def test_has_polarity_pair_false_when_no_counterpart_present():
+    assert has_polarity_pair(["Red", "Blue", "Green"]) is False
+
+
+def test_has_polarity_pair_false_for_un_prefix_with_no_bare_counterpart():
+    """"Unable" alone, with no "Able" in the set, is not a polarity pair —
+    the counterpart must actually be present."""
+    assert has_polarity_pair(["Unable", "Somewhat capable"]) is False
+
+
+def test_is_ordinal_resolver_candidate_true_when_label_matches_family_pattern():
+    """A partial match against a known family (one recognised label, even
+    without a full match) is enough evidence to route to the resolver
+    rather than auto-categorical."""
+    assert is_ordinal_resolver_candidate(["Agree", "Purple", "Banana"]) is True
+
+
+def test_is_ordinal_resolver_candidate_true_for_polarity_pair_with_no_family_match():
+    assert is_ordinal_resolver_candidate(["Effective", "Not effective", "Sideways"]) is True
+
+
+def test_is_ordinal_resolver_candidate_false_for_genuine_categorical_list():
+    """A label set with no family-pattern match and no polarity pair shows
+    no evidence of being ordinal — the exact PureSpectrum Q1 shape (a
+    three-way awareness question)."""
+    labels = ["Yes, followed it closely", "Yes, vaguely aware", "No, this is the first I'm hearing of it"]
+    assert is_ordinal_resolver_candidate(labels) is False
