@@ -21,7 +21,7 @@ from surveytool.core.model import CodeRole
 from surveytool.core.scale_library import (
     FamilyMatch,
     MatchOutcome,
-    _FAMILIES,
+    _FAMILIES_BY_NAME,
     match_family,
 )
 
@@ -53,59 +53,17 @@ def _labels_for_question(path: Path, tag: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="purespectrum fixture not present")
-def test_purespectrum_q7_partial_match_against_pre_task3_importance_family():
-    """PureSpectrum Q7's real labels, evaluated against the importance
-    family as it stood BEFORE Task 3 (commit e3215ae) added "somewhat
-    important" and "not very important". At that state, "Very important"
-    and "Not at all important" matched importance's top/bottom patterns,
-    but "Somewhat important" and "Not very important" matched nothing —
-    exactly the partial-match shape the audit (state-audit-2026-08-22.md
-    line 82) documents.
-
-    Task 3 has since landed on this branch and extended the importance
-    family, so this test reconstructs the pre-Task-3 family definition
-    inline (verified byte-for-byte against `git show
-    e3215ae:surveytool/core/scales.yaml`) rather than relying on the
-    current scales.yaml, so this demonstration stays meaningful regardless
-    of later scales.yaml edits.
-    """
-    from surveytool.core.scale_library import _label_in_family, _normalise, _role_in_family
-
-    labels = _labels_for_question(_PURESPECTRUM_PATH, "Q7")
-    assert labels == [
-        "Very important",
-        "Somewhat important",
-        "Not very important",
-        "Not at all important",
-    ]
-
-    pre_task3_importance = {
-        "top_patterns": ["extremely important", "very important", "important"],
-        "neutral_patterns": [
-            "moderately important",
-            "neutral",
-            "neither important nor unimportant",
-            "neither",
-        ],
-        "bottom_patterns": [
-            "slightly important",
-            "very unimportant",
-            "unimportant",
-            "not important",
-            "not at all important",
-            "not important at all",
-        ],
-    }
-
-    normed = [_normalise(lb) for lb in labels]
-    matched = {lb: n for lb, n in zip(labels, normed) if _label_in_family(n, pre_task3_importance)}
-    unmatched = [lb for lb, n in zip(labels, normed) if not _label_in_family(n, pre_task3_importance)]
-
-    assert set(unmatched) == {"Somewhat important", "Not very important"}
-    assert set(matched) == {"Very important", "Not at all important"}
-    assert _role_in_family(normed[0], pre_task3_importance) is CodeRole.top
-    assert _role_in_family(normed[3], pre_task3_importance) is CodeRole.bottom
+# Round B task B1 removed this file's test_purespectrum_q7_partial_match_
+# against_pre_task3_importance_family test, which reconstructed a
+# historical (pre-existing-commit) dict-shaped `importance` family
+# definition via the now-deleted private helpers `_label_in_family`/
+# `_role_in_family` purely to demonstrate a partial-match scenario. That
+# scenario is now covered by better mechanisms in the new variant-based
+# test suite (tests/test_scale_library.py's load-time and match-time
+# ambiguity/partial-match tests), and the dict-shaped family definition it
+# reconstructed no longer exists as a concept anywhere in the codebase —
+# resurrecting it here would just enshrine a dead code shape as a testing
+# convention going forward.
 
 
 @pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="purespectrum fixture not present")
@@ -169,9 +127,9 @@ def test_rakuten_q1_full_match_against_agreement():
     assert result.outcome is MatchOutcome.full
     assert result.family == "agreement"
     assert result.unmatched_labels == []
-    assert result.matched_labels["Strongly Agree"] is CodeRole.top
-    assert result.matched_labels["Strongly Disagree"] is CodeRole.bottom
-    assert result.matched_labels["Neutral"] is CodeRole.neutral
+    assert result.matched_labels["Strongly Agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["Strongly Disagree"] == (CodeRole.bottom, 1)
+    assert result.matched_labels["Neutral"] == (CodeRole.neutral, 2)
     assert set(result.matched_labels) == set(labels)
 
 
@@ -186,8 +144,8 @@ def test_full_match_no_ambiguity():
     assert result.family == "agreement"
     assert result.unmatched_labels == []
     assert not result.ambiguous
-    assert result.matched_labels["strongly agree"] is CodeRole.top
-    assert result.matched_labels["strongly disagree"] is CodeRole.bottom
+    assert result.matched_labels["strongly agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["strongly disagree"] == (CodeRole.bottom, 1)
 
 
 def test_no_match_returns_none_outcome_and_all_labels_unmatched():
@@ -205,8 +163,8 @@ def test_partial_match_records_matched_and_unmatched_labels():
     assert result.family == "agreement"
     assert result.unmatched_labels == ["banana"]
     assert set(result.matched_labels) == {"agree", "disagree"}
-    assert result.matched_labels["agree"] is CodeRole.top
-    assert result.matched_labels["disagree"] is CodeRole.bottom
+    assert result.matched_labels["agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["disagree"] == (CodeRole.bottom, 1)
     assert not result.ambiguous
 
 
@@ -222,6 +180,8 @@ def test_ambiguous_match_reports_family_with_highest_matched_count():
     assert result.ambiguous is True
     assert result.family == "agreement"
     assert set(result.matched_labels) == {"strongly agree", "agree"}
+    assert result.matched_labels["strongly agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["agree"] == (CodeRole.top, 3)
     assert result.unmatched_labels == ["very likely"]
 
 
@@ -245,6 +205,9 @@ def test_ambiguous_full_match_when_every_label_falls_in_the_winning_family():
     assert result.ambiguous is True
     assert result.unmatched_labels == []
     assert set(result.matched_labels) == {"agree", "disagree", "neutral"}
+    assert result.matched_labels["agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["disagree"] == (CodeRole.bottom, 1)
+    assert result.matched_labels["neutral"] == (CodeRole.neutral, 2)
 
 
 def test_matched_and_unmatched_labels_preserve_original_input_casing_and_order():
@@ -254,9 +217,14 @@ def test_matched_and_unmatched_labels_preserve_original_input_casing_and_order()
 
 
 def test_returns_family_match_dataclass_instance():
-    result = match_family(["yes", "no"])
+    """Round B task B1 removed 'binary' from scales.yaml entirely (it's now
+    a hardcoded literal pair in classify_question_type, not a variant, so
+    match_family — which only knows about variants — no longer recognises
+    "yes"/"no" at all). Use a real remaining family instead to prove
+    match_family still returns a genuine FamilyMatch instance."""
+    result = match_family(["strongly agree", "agree", "disagree", "strongly disagree"])
     assert isinstance(result, FamilyMatch)
-    assert result.family == "binary"
+    assert result.family == "agreement"
     assert result.outcome is MatchOutcome.full
 
 
@@ -264,12 +232,13 @@ def test_every_family_name_reachable_via_match_family():
     """Smoke check that match_family can report every family defined in
     scales.yaml, not just a hardcoded subset — guards against the function
     silently ignoring families added after this task."""
-    for name, family in _FAMILIES.items():
-        sample = (family["top_patterns"] or family["bottom_patterns"] or family["neutral_patterns"])[:1]
-        if not sample:
-            continue
-        result = match_family(sample)
-        assert result.outcome in (MatchOutcome.full, MatchOutcome.partial)
+    for name, family in _FAMILIES_BY_NAME.items():
+        for variant in family.variants:
+            sample = variant.points[0].patterns[:1]
+            if not sample:
+                continue
+            result = match_family(list(sample))
+            assert result.outcome in (MatchOutcome.full, MatchOutcome.partial)
 
 
 def test_strongly_satisfied_to_strongly_dissatisfied_full_match_against_satisfaction():
@@ -288,6 +257,6 @@ def test_strongly_satisfied_to_strongly_dissatisfied_full_match_against_satisfac
     assert result.outcome is MatchOutcome.full
     assert result.family == "satisfaction"
     assert result.unmatched_labels == []
-    assert result.matched_labels["Strongly satisfied"] is CodeRole.top
-    assert result.matched_labels["Strongly dissatisfied"] is CodeRole.bottom
-    assert result.matched_labels["Neutral"] is CodeRole.neutral
+    assert result.matched_labels["Strongly satisfied"] == (CodeRole.top, 3)
+    assert result.matched_labels["Strongly dissatisfied"] == (CodeRole.bottom, 1)
+    assert result.matched_labels["Neutral"] == (CodeRole.neutral, 2)

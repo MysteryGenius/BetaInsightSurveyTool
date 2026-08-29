@@ -96,50 +96,36 @@ def test_unresolved_questions_error_to_response_serializes_detail_entries():
 # closes that gap.
 # ---------------------------------------------------------------------------
 
-_PRE_TASK3_IMPORTANCE = {
-    "top_patterns": ["extremely important", "very important", "important"],
-    "neutral_patterns": [
-        "moderately important",
-        "neutral",
-        "neither important nor unimportant",
-        "neither",
-    ],
-    "bottom_patterns": [
-        "slightly important",
-        "very unimportant",
-        "unimportant",
-        "not important",
-        "not at all important",
-        "not important at all",
-    ],
-}
-
-
 def _match_against_pre_task3_importance(labels: list[str]):
-    """Build a genuine FamilyMatch by evaluating `labels` against the
-    reconstructed pre-Task-3 `importance` family, bypassing the current
-    (Task-3-extended) scales.yaml entirely. Uses match_family's own
-    private helpers the same way tests/test_match_family.py does, so this
-    stays a real FamilyMatch object (same shape close_family_hint_for_match
-    expects), not a hand-built stand-in."""
-    from surveytool.core.model import CodeRole
-    from surveytool.core.scale_library import FamilyMatch, _label_in_family, _normalise, _role_in_family
+    """Build a synthetic FamilyMatch by hand for a hard-coded, historical
+    (pre-Task-3) partial-match scenario over PureSpectrum Q7's real labels:
+    "Very important" and "Not at all important" matched importance's
+    top/bottom at that point in history, but "Somewhat important" and
+    "Not very important" matched nothing yet (Task 3 later added them).
 
-    normed = [_normalise(lb) for lb in labels]
-    matched_labels: dict[str, CodeRole] = {}
-    unmatched_labels: list[str] = []
-    for label, norm in zip(labels, normed):
-        if _label_in_family(norm, _PRE_TASK3_IMPORTANCE):
-            role = _role_in_family(norm, _PRE_TASK3_IMPORTANCE)
-            assert role is not None
-            matched_labels[label] = role
-        else:
-            unmatched_labels.append(label)
+    Round B task B1 deleted the private per-family dict helpers
+    (_label_in_family/_role_in_family) this used to call to derive the
+    match generically -- that dict-shaped family concept no longer exists
+    anywhere in the codebase. Since this is a fixed, known historical
+    scenario over a fixed label list, the match is just asserted directly
+    as literal (CodeRole, rank) tuples rather than re-derived from any
+    library helper; the rank values mirror the current single 3-point
+    `default` importance variant (bottom=1, neutral=2, top=3)."""
+    from surveytool.core.model import CodeRole
+    from surveytool.core.scale_library import FamilyMatch
+
+    matched_ranks = {
+        "Very important": (CodeRole.top, 3),
+        "Not at all important": (CodeRole.bottom, 1),
+    }
+    matched_labels = {lb: matched_ranks[lb] for lb in labels if lb in matched_ranks}
+    unmatched_labels = [lb for lb in labels if lb not in matched_ranks]
 
     outcome = MatchOutcome.partial if matched_labels and unmatched_labels else MatchOutcome.full
     return FamilyMatch(
         outcome=outcome,
         family="importance",
+        variant="pre_task3_importance",
         matched_labels=matched_labels,
         unmatched_labels=unmatched_labels,
         ambiguous=False,
