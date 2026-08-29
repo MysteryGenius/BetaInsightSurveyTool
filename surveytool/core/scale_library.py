@@ -229,6 +229,14 @@ class FamilyMatch:
         actually None here.
     unmatched_labels: original (unnormalised) label text for every label
         that did not match, in input order. Empty for a full match.
+    missing_point_patterns: the chosen variant's own pattern text for every
+        point no label matched (one representative pattern per missing
+        point, in rank order). Empty for a full match. A full match
+        requires both unmatched_labels AND missing_point_patterns to be
+        empty -- a question can match every one of its own labels to some
+        point (unmatched_labels empty) while still leaving some of the
+        variant's points uncovered (missing_point_patterns non-empty),
+        which is a partial match, not full (see match_family).
     ambiguous: True if the label set achieves a partial or full match count
         tied across more than one variant -- see match_family's docstring
         for the tie-breaking rule.
@@ -239,6 +247,7 @@ class FamilyMatch:
     variant: str | None
     matched_labels: dict[str, tuple[CodeRole, int]]
     unmatched_labels: list[str]
+    missing_point_patterns: list[str]
     ambiguous: bool
 
 
@@ -270,6 +279,7 @@ def match_family(labels: list[str]) -> FamilyMatch:
             variant=None,
             matched_labels={},
             unmatched_labels=list(labels),
+            missing_point_patterns=[],
             ambiguous=False,
         )
 
@@ -278,14 +288,45 @@ def match_family(labels: list[str]) -> FamilyMatch:
 
     matched_labels: dict[str, tuple[CodeRole, int]] = {}
     unmatched_labels: list[str] = []
+    matched_ranks: set[int] = set()
     for label, norm in zip(labels, normed):
         rank = best_variant.rank_for_label(norm)
         if rank is not None:
             matched_labels[label] = (best_variant.role_for_rank(rank), rank)
+            matched_ranks.add(rank)
         else:
             unmatched_labels.append(label)
 
-    outcome = MatchOutcome.partial if unmatched_labels else MatchOutcome.full
+    # "full" must mean full coverage in BOTH directions: every label in the
+    # question maps to a point in the variant (unmatched_labels empty) AND
+    # every point in the variant is covered by some label (no gaps). A
+    # strict subset of a variant's points (e.g. a 3-label question matching
+    # 3 of a 5-point variant's points) previously reported "full" here
+    # purely because unmatched_labels was empty, even though 2 of the
+    # variant's points were never used by any label -- inconsistent with
+    # identify_family's full set-equality semantics and misleading to every
+    # consumer that reads outcome=full as "this variant's points are fully
+    # accounted for" (diverging-bar charting, resolver hint text, rank
+    # contiguity).
+    missing_point_patterns = [
+        point.patterns[0] for point in best_variant.points if point.rank not in matched_ranks
+    ]
+    # "full" must mean full coverage in BOTH directions: every label in the
+    # question maps to a point in the variant (unmatched_labels empty) AND
+    # every point in the variant is covered by some label (no gaps, i.e.
+    # missing_point_patterns empty). A strict subset of a variant's points
+    # (e.g. a 3-label question matching 3 of a 5-point variant's points)
+    # previously reported "full" here purely because unmatched_labels was
+    # empty, even though 2 of the variant's points were never used by any
+    # label -- inconsistent with identify_family's full set-equality
+    # semantics and misleading to every consumer that reads outcome=full as
+    # "this variant's points are fully accounted for" (diverging-bar
+    # charting, resolver hint text, rank contiguity).
+    outcome = (
+        MatchOutcome.full
+        if not unmatched_labels and not missing_point_patterns
+        else MatchOutcome.partial
+    )
 
     return FamilyMatch(
         outcome=outcome,
@@ -293,6 +334,7 @@ def match_family(labels: list[str]) -> FamilyMatch:
         variant=best_variant.name,
         matched_labels=matched_labels,
         unmatched_labels=unmatched_labels,
+        missing_point_patterns=missing_point_patterns,
         ambiguous=ambiguous,
     )
 

@@ -68,7 +68,22 @@ def test_incomplete_override_questions_batch_into_one_error():
 
 
 def test_no_unresolved_questions_loads_cleanly():
-    raw_questions = [("Q1", "Agreement?", [(1, "Agree"), (2, "Disagree")])]
+    """Whole-branch review Finding 2: ["Agree", "Disagree"] alone is a
+    genuine PARTIAL match against agreement.five_point (it's missing
+    "Strongly Agree", "Strongly Disagree", and "Neutral" -- 3 of the
+    variant's 5 points), not a full one, so it must still raise. Before
+    the fix, match_family reported MatchOutcome.full for this case purely
+    because both of the question's own labels matched some point
+    (unmatched_labels empty), even though most of the variant's points
+    were never covered -- this test originally asserted the (incorrect)
+    non-raising behaviour that bug produced. The full label set is used
+    here instead to exercise the actual "loads cleanly" case."""
+    raw_questions = [
+        ("Q1", "Agreement?", [
+            (1, "Strongly Disagree"), (2, "Disagree"), (3, "Neutral"),
+            (4, "Agree"), (5, "Strongly Agree"),
+        ]),
+    ]
     validate_all_questions(raw_questions, overrides={})  # must not raise
 
 

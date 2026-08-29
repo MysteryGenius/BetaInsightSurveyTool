@@ -53,6 +53,18 @@ def assert_no_duplicate_codes(qid: str, codes: list[tuple[int, str]]) -> None:
         seen_codes_by_label[label] = code
 
 
+def _partial_match_detail(match: FamilyMatch) -> str:
+    """Describe why a partial match against `match.variant` isn't full: the
+    labels that didn't fit the chosen variant, or -- if every label matched
+    but the variant has points no label covers (a strict subset match, e.g.
+    a 3-label question matching only 3 of a 5-point variant) -- the missing
+    point(s) instead, so the message is never an empty, uninformative
+    list."""
+    if match.unmatched_labels:
+        return f"these response(s) don't match it: {', '.join(match.unmatched_labels)}"
+    return f"it's missing: {', '.join(match.missing_point_patterns)}"
+
+
 def close_family_hint_for_match(match: FamilyMatch) -> str | None:
     """Build the plain-language close-family hint for the resolver's hint
     element, from the same FamilyMatch already computed for reason_for_match
@@ -62,10 +74,7 @@ def close_family_hint_for_match(match: FamilyMatch) -> str | None:
     None so the field is omitted from serialization rather than present as
     an empty string (Task 6's brief: 'absent rather than empty')."""
     if match.outcome is MatchOutcome.partial:
-        return (
-            f"Close to the '{match.family}' scale — these response(s) don't match it: "
-            f"{', '.join(match.unmatched_labels)}."
-        )
+        return f"Close to the '{match.family}' scale — {_partial_match_detail(match)}."
     return None
 
 
@@ -78,10 +87,7 @@ def reason_for_match(match: FamilyMatch) -> str:
     analyst decision (probably a scale, one label short) than a no-match
     (probably a genuine categorical list)."""
     if match.outcome is MatchOutcome.partial:
-        return (
-            f"This looks close to the '{match.family}' scale, but these response(s) "
-            f"don't match it: {', '.join(match.unmatched_labels)}."
-        )
+        return f"This looks close to the '{match.family}' scale, but {_partial_match_detail(match)}."
     return "None of this question's response labels match any known scale."
 
 

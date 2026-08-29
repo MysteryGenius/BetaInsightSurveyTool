@@ -148,11 +148,22 @@ def test_rakuten_q1_full_match_against_agreement():
 def test_full_match_no_ambiguity():
     """agreement.five_point (Round B task B2) is a real 5-point variant, so
     "strongly agree" is rank 5 (top) and "strongly disagree" is rank 1
-    (bottom), not B1's intermediate 3-point placeholder's ranks."""
+    (bottom), not B1's intermediate 3-point placeholder's ranks.
+
+    Whole-branch review Finding 2: this label set is missing "neutral", one
+    of five_point's own points, so it is a genuine partial match, not full
+    -- every one of the question's own 4 labels matched (unmatched_labels
+    is empty), but the variant has a 5th point ("neutral") no label covers.
+    Before the fix, MatchOutcome.full was derived only from
+    unmatched_labels being empty, so this case (a strict subset of a
+    variant's points) was misreported as a full match; this test
+    originally asserted that same incorrect outcome and is corrected here
+    to match match_family's fixed semantics."""
     result = match_family(["strongly agree", "agree", "disagree", "strongly disagree"])
-    assert result.outcome is MatchOutcome.full
+    assert result.outcome is MatchOutcome.partial
     assert result.family == "agreement"
     assert result.unmatched_labels == []
+    assert result.missing_point_patterns == ["neutral"]
     assert not result.ambiguous
     assert result.matched_labels["strongly agree"] == (CodeRole.top, 5)
     assert result.matched_labels["strongly disagree"] == (CodeRole.bottom, 1)
@@ -230,8 +241,13 @@ def test_returns_family_match_dataclass_instance():
     a hardcoded literal pair in classify_question_type, not a variant, so
     match_family — which only knows about variants — no longer recognises
     "yes"/"no" at all). Use a real remaining family instead to prove
-    match_family still returns a genuine FamilyMatch instance."""
-    result = match_family(["strongly agree", "agree", "disagree", "strongly disagree"])
+    match_family still returns a genuine FamilyMatch instance.
+
+    Uses the full 5-point label set (not the 4-point subset missing
+    "neutral") so this is a genuine outcome=full case per Finding 2's fix
+    -- see test_full_match_no_ambiguity for the corrected partial-match
+    case over the 4-label subset."""
+    result = match_family(["strongly agree", "agree", "neutral", "disagree", "strongly disagree"])
     assert isinstance(result, FamilyMatch)
     assert result.family == "agreement"
     assert result.outcome is MatchOutcome.full

@@ -117,14 +117,21 @@ def _build_scale_question(
     variant_name: str | None = None
     if override is not None:
         roles: dict[str, tuple[CodeRole, int | None]] = apply_override(substantive_values, override)
+        family = identify_family(substantive_values)
     else:
         match = match_family(substantive_values)
         roles = dict(match.matched_labels)
         variant_name = match.variant
+        # match.outcome is guaranteed MatchOutcome.full here (the caller
+        # only reaches this function once parse_header has confirmed that),
+        # and full now means full coverage in both directions (every label
+        # matched AND every variant point covered) -- so match.family and
+        # identify_family(substantive_values) agree by construction. Using
+        # match.family directly avoids a second, redundant full scan of the
+        # library that could theoretically disagree with match.outcome.
+        family = match.family
     for label, role in ns_overrides.items():
         roles[label] = (role, None)
-
-    family = identify_family(substantive_values)
 
     ranked_values = sorted(
         (v for v in substantive_values if roles[v][1] is not None),

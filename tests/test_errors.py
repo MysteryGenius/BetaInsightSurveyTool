@@ -128,6 +128,7 @@ def _match_against_pre_task3_importance(labels: list[str]):
         variant="pre_task3_importance",
         matched_labels=matched_labels,
         unmatched_labels=unmatched_labels,
+        missing_point_patterns=[],
         ambiguous=False,
     )
 
