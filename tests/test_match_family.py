@@ -68,39 +68,47 @@ def _labels_for_question(path: Path, tag: str) -> list[str]:
 
 @pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="purespectrum fixture not present")
 def test_purespectrum_q7_current_scales_yaml_is_full_match():
-    """Sanity check documenting the CURRENT behaviour on this branch: Task 3
-    already added "somewhat important"/"not very important" to importance,
-    so against the CURRENT scales.yaml, Q7 is now a full match, not a
-    partial one. This is expected and is why the partial-match acceptance
-    case above reconstructs the pre-Task-3 family definition instead."""
+    """Round B task B2 gave `importance` three real per-vendor variants.
+    PureSpectrum Q7's real labels (Not at all important / Not very
+    important / Somewhat important / Very important) exactly equal
+    `four_point_polar`'s folded_label_set, so identify_variant/
+    classify_question_type resolve this unambiguously to that one variant.
+    match_family's coarser count-based heuristic, however, also counts a
+    partial touch against `five_point_gradated` (its "very important"
+    pattern happens to overlap), so `ambiguous` is True here even though
+    the real, single-variant resolution used by classify_question_type is
+    not in question -- see test_scale_library.py's
+    test_purespectrum_q7_five_point_gradated_importance and this file's own
+    test_ambiguous_full_match_when_every_label_falls_in_the_winning_family
+    pattern for the same count-based-ambiguity-without-real-ambiguity
+    shape."""
     labels = _labels_for_question(_PURESPECTRUM_PATH, "Q7")
     result = match_family(labels)
     assert result.outcome is MatchOutcome.full
     assert result.family == "importance"
+    assert result.variant == "four_point_polar"
     assert result.unmatched_labels == []
-    assert not result.ambiguous
+    assert result.ambiguous is True
 
 
 @pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="purespectrum fixture not present")
-def test_purespectrum_d5_fluency_labels_are_no_match_on_current_scales_yaml():
+def test_purespectrum_d5_fluency_labels_are_full_match_on_current_scales_yaml():
     """PureSpectrum D5's real labels carry a descriptive suffix after a dash
-    (e.g. "Basic — a few words or phrases"). scales.yaml's `fluency` family
-    (added by Task 3) only has the bare words ("fluent", "conversational",
-    "basic", "none", "not at all") — matching is exact normalised-label set
-    membership, not substring/prefix matching (per fold_label's own
-    docstring and the scales.yaml comment above the fluency family), so
-    these dash-suffixed labels genuinely do not match anything in the
-    CURRENT scales.yaml. This is the real, currently-true no-match case
-    used in place of Q8/Q9, both of which Task 3 already gave matching
-    families (concern, worry)."""
+    (e.g. "Basic — a few words or phrases"). Round B task B2's whole point
+    was to give `fluency` a real variant that matches these dash-suffixed
+    labels literally (four_point_suffixed) -- unlike the pre-B2 bare-word
+    fluency family, D5 now DOES achieve a full match. fold_label folds the
+    em dash to ASCII "-" on both sides (the pattern was written pre-folded,
+    the vendor label gets folded at match time), so the folded strings line
+    up exactly."""
     labels = _labels_for_question(_PURESPECTRUM_PATH, "D5")
     assert len(labels) == 4
 
     result = match_family(labels)
-    assert result.outcome is MatchOutcome.none
-    assert result.family is None
-    assert result.matched_labels == {}
-    assert result.unmatched_labels == labels
+    assert result.outcome is MatchOutcome.full
+    assert result.family == "fluency"
+    assert result.variant == "four_point_suffixed"
+    assert result.unmatched_labels == []
     assert not result.ambiguous
 
 
@@ -108,29 +116,28 @@ def test_purespectrum_d5_fluency_labels_are_no_match_on_current_scales_yaml():
 def test_rakuten_q1_full_match_against_agreement():
     """Rakuten's rakuten_survey_support_measures_data.xlsx Q1 real labels —
     a clean 5-point Strongly Disagree..Strongly Agree scale — must be a
-    full match against `agreement`.
+    full match against `agreement.five_point` (Round B task B2's real
+    5-point variant, ranks 1-5, not B1's intermediate 3-point placeholder).
 
-    Note on `ambiguous`: "Neutral" (folded to "neutral") is a literal
-    neutral_pattern shared by several families in scales.yaml (agreement,
-    satisfaction, likelihood, effectiveness, ability, importance), so by
-    the count-based ambiguity rule this label set does touch more than one
-    family — every other family only matches "Neutral" (count 1), while
-    agreement also matches "Agree"/"Disagree"/"Strongly Agree"/"Strongly
-    Disagree" (count 5) and wins outright. `family`/`outcome` are therefore
-    unambiguous in effect even though the `ambiguous` flag is set; this is
-    the intended, documented behaviour of the count-based tie-break, not a
-    bug in this test's expectations."""
+    Note on `ambiguous`: post-B2, bare "neutral" is unique to
+    `agreement.five_point` -- no other family's variant declares it as a
+    literal pattern any more (every other polar family uses a distinct
+    combined literal like "neutral / neither important nor unimportant"),
+    so this label set is no longer touched by more than one family and
+    `ambiguous` is correctly False."""
     labels = _labels_for_question(_RAKUTEN_SUPPORT_PATH, "Q1")
     assert labels == ["Strongly Disagree", "Disagree", "Neutral", "Agree", "Strongly Agree"]
 
     result = match_family(labels)
     assert result.outcome is MatchOutcome.full
     assert result.family == "agreement"
+    assert result.variant == "five_point"
     assert result.unmatched_labels == []
-    assert result.matched_labels["Strongly Agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["Strongly Agree"] == (CodeRole.top, 5)
     assert result.matched_labels["Strongly Disagree"] == (CodeRole.bottom, 1)
-    assert result.matched_labels["Neutral"] == (CodeRole.neutral, 2)
+    assert result.matched_labels["Neutral"] == (CodeRole.neutral, 3)
     assert set(result.matched_labels) == set(labels)
+    assert not result.ambiguous
 
 
 # ---------------------------------------------------------------------------
@@ -139,12 +146,15 @@ def test_rakuten_q1_full_match_against_agreement():
 
 
 def test_full_match_no_ambiguity():
+    """agreement.five_point (Round B task B2) is a real 5-point variant, so
+    "strongly agree" is rank 5 (top) and "strongly disagree" is rank 1
+    (bottom), not B1's intermediate 3-point placeholder's ranks."""
     result = match_family(["strongly agree", "agree", "disagree", "strongly disagree"])
     assert result.outcome is MatchOutcome.full
     assert result.family == "agreement"
     assert result.unmatched_labels == []
     assert not result.ambiguous
-    assert result.matched_labels["strongly agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["strongly agree"] == (CodeRole.top, 5)
     assert result.matched_labels["strongly disagree"] == (CodeRole.bottom, 1)
 
 
@@ -158,56 +168,55 @@ def test_no_match_returns_none_outcome_and_all_labels_unmatched():
 
 
 def test_partial_match_records_matched_and_unmatched_labels():
+    """agreement.five_point (Round B task B2) is a real 5-point variant --
+    "agree" is rank 4 (top), "disagree" is rank 2 (bottom)."""
     result = match_family(["agree", "banana", "disagree"])
     assert result.outcome is MatchOutcome.partial
     assert result.family == "agreement"
     assert result.unmatched_labels == ["banana"]
     assert set(result.matched_labels) == {"agree", "disagree"}
-    assert result.matched_labels["agree"] == (CodeRole.top, 3)
-    assert result.matched_labels["disagree"] == (CodeRole.bottom, 1)
+    assert result.matched_labels["agree"] == (CodeRole.top, 4)
+    assert result.matched_labels["disagree"] == (CodeRole.bottom, 2)
     assert not result.ambiguous
 
 
 def test_ambiguous_match_reports_family_with_highest_matched_count():
-    """"agree" and "strongly agree" match agreement's top_patterns, but
+    """"agree" and "strongly agree" match agreement's top patterns, but
     "agree" also matches nothing else; construct a label set that
     genuinely straddles two families: agreement's top ("strongly agree",
     "agree") plus likelihood's top ("very likely") — three labels total,
     two of which land in agreement and one in likelihood, so agreement
-    should win by count and ambiguous must be True."""
+    should win by count and ambiguous must be True.
+
+    Ranks reflect Round B task B2's real 5-point agreement.five_point
+    variant (top = rank 4 for "agree", rank 5 for "strongly agree" -- both
+    fall in the top half of a 5-point scale, not B1's intermediate 3-point
+    placeholder's single top rank)."""
     result = match_family(["strongly agree", "agree", "very likely"])
     assert result.outcome is MatchOutcome.partial
     assert result.ambiguous is True
     assert result.family == "agreement"
     assert set(result.matched_labels) == {"strongly agree", "agree"}
-    assert result.matched_labels["strongly agree"] == (CodeRole.top, 3)
-    assert result.matched_labels["agree"] == (CodeRole.top, 3)
+    assert result.matched_labels["strongly agree"] == (CodeRole.top, 5)
+    assert result.matched_labels["agree"] == (CodeRole.top, 4)
     assert result.unmatched_labels == ["very likely"]
 
 
-def test_ambiguous_full_match_when_every_label_falls_in_the_winning_family():
-    """Every label matches at least one family, but two different families
-    are touched (agreement's "agree"/"disagree" pair plus a label that also
-    happens to satisfy likelihood is not straightforward to construct from
-    real patterns without also being a no-match elsewhere, so this uses a
-    tie-breaking case instead: "neutral" is a literal neutral_pattern
-    shared by multiple families, so a label set built entirely from
-    literal "neutral" plus one family-specific label still only touches
-    the count for families containing "neutral" once each, and the
-    intended-family's other matched label breaks the tie by count."""
-    result = match_family(["agree", "disagree", "neutral"])
-    # "neutral" is a neutral_pattern in agreement, satisfaction, likelihood,
-    # effectiveness, ability, and importance's families, but agreement is
-    # the only family that also matches "agree"/"disagree", so it wins by
-    # count (3) over every other family that only matches "neutral" (1).
-    assert result.outcome is MatchOutcome.full
-    assert result.family == "agreement"
-    assert result.ambiguous is True
-    assert result.unmatched_labels == []
-    assert set(result.matched_labels) == {"agree", "disagree", "neutral"}
-    assert result.matched_labels["agree"] == (CodeRole.top, 3)
-    assert result.matched_labels["disagree"] == (CodeRole.bottom, 1)
-    assert result.matched_labels["neutral"] == (CodeRole.neutral, 2)
+# Round B task B2 deleted this file's
+# test_ambiguous_full_match_when_every_label_falls_in_the_winning_family
+# test. Its entire premise was that bare "neutral" is a literal pattern
+# shared by many families (agreement, satisfaction, likelihood,
+# effectiveness, ability, importance) in the old scales.yaml, creating a
+# count-based tie to demonstrate. Post-B2, every family's real per-vendor
+# variant except agreement.five_point uses a distinct combined literal for
+# its neutral point (e.g. "neutral / neither important nor unimportant"),
+# so bare "neutral" is now unique to agreement -- confirmed directly
+# against _ALL_VARIANTS. The scenario this test existed to demonstrate no
+# longer has any real label set to construct it from, so it is deleted
+# rather than resurrected with a synthetic scales.yaml, following the same
+# reasoning Task B1 used when it deleted
+# test_purespectrum_q7_partial_match_against_pre_task3_importance_family
+# for an analogous reason (see the comment above).
 
 
 def test_matched_and_unmatched_labels_preserve_original_input_casing_and_order():
@@ -241,22 +250,25 @@ def test_every_family_name_reachable_via_match_family():
             assert result.outcome in (MatchOutcome.full, MatchOutcome.partial)
 
 
-def test_strongly_satisfied_to_strongly_dissatisfied_full_match_against_satisfaction():
-    """Round A prompt A3: Leonard loaded a real Rakuten housing-estate
-    satisfaction question labelled Strongly dissatisfied / Dissatisfied /
-    Neutral / Satisfied / Strongly satisfied and it was flagged unrecognised
-    — `satisfaction` had `very satisfied`/`very dissatisfied` but no
-    `strongly` variant. Neither Rakuten fixture in this project root
-    contains that question (see this file's fixture-vs-synthetic split
-    above), so this is synthetic edge-case coverage of the exact reported
-    label set, following this file's own documented convention for cases
-    with no vendor file to extract from — not a claim that this label set
-    was pulled from a real file."""
+def test_strongly_satisfied_to_strongly_dissatisfied_now_only_partially_matches_agreement():
+    """Round A prompt A3 originally reported this Rakuten housing-estate
+    satisfaction question (Strongly dissatisfied / Dissatisfied / Neutral /
+    Satisfied / Strongly satisfied) as unrecognised because `satisfaction`
+    had `very satisfied`/`very dissatisfied` but no `strongly` variant.
+
+    Round B task B2 deliberately leaves `satisfaction` with ZERO variants
+    (`{}` in scales.yaml) -- no real vendor file has surfaced its actual
+    label set yet, so per the plan it fails to match loudly rather than
+    getting a placeholder invented for it. There is therefore nothing left
+    for this label set to fully match against satisfaction; the only real
+    signal left is that its bare "Neutral" label partially matches
+    agreement.five_point's neutral point (the only family that still
+    declares bare "neutral" post-B2 -- see the note on
+    test_rakuten_q1_full_match_against_agreement)."""
     labels = ["Strongly dissatisfied", "Dissatisfied", "Neutral", "Satisfied", "Strongly satisfied"]
     result = match_family(labels)
-    assert result.outcome is MatchOutcome.full
-    assert result.family == "satisfaction"
-    assert result.unmatched_labels == []
-    assert result.matched_labels["Strongly satisfied"] == (CodeRole.top, 3)
-    assert result.matched_labels["Strongly dissatisfied"] == (CodeRole.bottom, 1)
-    assert result.matched_labels["Neutral"] == (CodeRole.neutral, 2)
+    assert result.outcome is MatchOutcome.partial
+    assert result.family == "agreement"
+    assert result.unmatched_labels == ["Strongly dissatisfied", "Dissatisfied", "Satisfied", "Strongly satisfied"]
+    assert result.matched_labels == {"Neutral": (CodeRole.neutral, 3)}
+    assert not result.ambiguous
