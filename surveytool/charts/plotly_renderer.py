@@ -36,6 +36,7 @@ from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.charts.palette import assign_series_colours
 from surveytool.compute.breaks_compute import ColumnResult, QuestionResult
 from surveytool.core.chart_validity import ChartType
+from surveytool.core.precision import DISPLAY_PRECISION, format_percentage
 from surveytool.core.suppression import Band
 from surveytool.core.text_hygiene import wrap_text
 
@@ -46,6 +47,11 @@ _TEAL = "#1B667D"
 _GREY = "#9AA5A8"
 _WARM = "#C4856A"
 _SUPPRESSED_GREY = "#D0D0D0"
+
+# Single source of truth for every percentage-bar tooltip (Round C4): no
+# trace formats its own hover text independently, so a tooltip can never
+# disagree with the panel figure's DISPLAY_PRECISION-rounded value.
+_HOVER_TEMPLATE = f"%{{y:.{DISPLAY_PRECISION}f}}%%<extra>%{{fullData.name}}</extra>"
 
 
 def _header_text(
@@ -140,6 +146,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
                 x=x_labels,
                 y=y_values,
                 marker_color=colour_by_label[point.label],
+                hovertemplate=_HOVER_TEMPLATE,
             )
         )
 
@@ -192,8 +199,8 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
                 pct = 0.0 if column.percentages is None else column.percentages.get(code, 0.0)
                 neg_half.append(-pct / 2.0)
                 pos_half.append(pct / 2.0)
-            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, marker_color=colour_by_label[point.label]))
-            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, marker_color=colour_by_label[point.label], showlegend=False))
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, marker_color=colour_by_label[point.label], hovertemplate=_HOVER_TEMPLATE))
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, marker_color=colour_by_label[point.label], showlegend=False, hovertemplate=_HOVER_TEMPLATE))
             continue
 
         sign = -1.0 if point.polarity == "negative" else 1.0
@@ -209,6 +216,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
                 x=x_labels,
                 y=y_values,
                 marker_color=colour_by_label[point.label],
+                hovertemplate=_HOVER_TEMPLATE,
             )
         )
 
@@ -257,6 +265,7 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
                 x=x_labels,
                 y=y_values,
                 marker_color=colour_by_label[point.label],
+                hovertemplate=_HOVER_TEMPLATE,
             )
         )
 
@@ -288,7 +297,7 @@ def _net_bar_figure(question_result: QuestionResult) -> go.Figure:
                 y_values.append(0.0)
             else:
                 y_values.append(column.nets[net_def.net_id].percentage)
-        fig.add_trace(go.Bar(name=net_def.label, x=x_labels, y=y_values))
+        fig.add_trace(go.Bar(name=net_def.label, x=x_labels, y=y_values, hovertemplate=_HOVER_TEMPLATE))
 
     gap_y = [
         100 if c.band is Band.suppressed else 0 for c in question_result.columns
@@ -326,7 +335,7 @@ def _table_figure(question_result: QuestionResult) -> go.Figure:
             else:
                 n = column.counts.get(code, 0)
                 pct = column.percentages.get(code, 0.0) if column.percentages else 0.0
-                row.append(f"{n} ({pct:.1f}%)")
+                row.append(f"{n} ({format_percentage(pct)})")
         rows.append(row)
 
     for net_def in question_result.nets:
@@ -336,7 +345,7 @@ def _table_figure(question_result: QuestionResult) -> go.Figure:
                 row.append("suppressed")
             elif net_def.net_id in column.nets:
                 net_result = column.nets[net_def.net_id]
-                row.append(f"{net_result.count} ({net_result.percentage:.1f}%)")
+                row.append(f"{net_result.count} ({format_percentage(net_result.percentage)})")
             else:
                 row.append("—")
         rows.append(row)

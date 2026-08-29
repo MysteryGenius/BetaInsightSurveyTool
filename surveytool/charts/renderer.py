@@ -14,6 +14,7 @@ from surveytool.charts.manifest import ManifestEntry, _row_key
 from surveytool.charts.palette import assign_series_colours
 from surveytool.charts.types import ChartSpec
 from surveytool.core.model import CodeRole
+from surveytool.core.precision import format_percentage
 from surveytool.core.text_hygiene import truncate_with_ellipsis, wrap_text
 from surveytool.findings.sheet import FindingsRow
 
@@ -234,7 +235,7 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
     for (label, pct, n, role), y in zip(bar_data, y_positions):
         colour = colour_by_label.get(label, _ROLE_COLOUR.get(role, _GREY))
         ax.barh(y, pct, height=height, color=colour, zorder=2)
-        bar_label = f"{pct:.1f}%  (n={n:,})"
+        bar_label = f"{format_percentage(pct)}  (n={n:,})"
         ax.text(
             pct + 0.5, y, bar_label,
             va="center", ha="left", fontsize=9, color="#333333"
@@ -261,7 +262,7 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
     t2b_row = idx.get((level, bvar, "t2b"))
     caption_parts = []
     if t2b_row and t2b_row.value is not None:
-        caption_parts.append(f"T2B: {t2b_row.value:.1f}%")
+        caption_parts.append(f"T2B: {format_percentage(t2b_row.value)}")
         findings_keys.append(_row_key(spec.qid, bvar, level, "t2b"))
     if mean_row and mean_row.value is not None:
         caption_parts.append(f"Mean: {mean_row.value:.2f}")
@@ -334,7 +335,7 @@ def render_xbreak(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
     bars = ax.bar(x, values, color=_TEAL, width=0.55, zorder=2)
 
     for xi, (val, base) in enumerate(zip(values, bases)):
-        label_str = f"{val:.1f}{'%' if is_pct else ''}"
+        label_str = format_percentage(val) if is_pct else f"{val:.1f}"
         ax.text(xi, val + max(values) * 0.01, label_str,
                 ha="center", va="bottom", fontsize=9, color="#222222")
         ax.text(xi, -max(values) * 0.06, f"n={base:,}",

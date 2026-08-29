@@ -1050,3 +1050,22 @@ def test_title_wrapping_produces_multiple_lines_for_long_title():
     long_title = "This is a very long chart title that should wrap across more than one line when rendered " * 3
     lines = wrap_text(long_title, max_chars_per_line=90)
     assert len(lines) > 1
+
+
+@pytest.mark.skipif(not _MILIEU_PATH.exists(), reason="Milieu fixture not present")
+def test_milieu_q8_prefer_other_modes_tooltip_matches_panel_precision():
+    """Regression for the exact '8.230453' tooltip Leonard reported."""
+    from surveytool.core.precision import DISPLAY_PRECISION, format_percentage
+    # The panel figure (findings sheet raw value) keeps full precision;
+    # the tooltip/data-label formatted string must match DISPLAY_PRECISION
+    # regardless of the raw value's actual decimal length.
+    raw_value = 8.230453
+    formatted = format_percentage(raw_value)
+    assert formatted == f"{raw_value:.{DISPLAY_PRECISION}f}%"
+    assert formatted != "8.230453%"
+
+
+def test_hover_template_uses_display_precision():
+    from surveytool.charts.plotly_renderer import _HOVER_TEMPLATE
+    from surveytool.core.precision import DISPLAY_PRECISION
+    assert f".{DISPLAY_PRECISION}f" in _HOVER_TEMPLATE
