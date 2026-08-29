@@ -645,6 +645,7 @@ class ResolvedQuestionPayload(BaseModel):
     variable: str
     question_type: Literal["scale", "binary", "categorical", "excluded"]
     label_roles: dict[str, Literal["top", "neutral", "bottom"]] = {}
+    label_ranks: dict[str, int] | None = None
 
 
 class ResolveRequest(BaseModel):
@@ -690,6 +691,7 @@ async def resolve_questions(session_id: str, request: ResolveRequest):
             variable=entry.variable,
             question_type=entry.question_type,
             label_roles=entry.label_roles,
+            label_ranks=entry.label_ranks,
             resolved_at=now,
             library_version=_SCALE_LIBRARY_VERSION,
         )

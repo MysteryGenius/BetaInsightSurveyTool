@@ -104,6 +104,74 @@ def test_resolve_scale_override_applies_label_roles(client):
     assert roles_by_label[substantive_labels[0]] == "top"
 
 
+def test_resolve_with_explicit_ranks_persists_and_applies(client):
+    """A resolver save that supplies label_ranks explicitly must persist
+    those exact ranks (not the position-based backfill apply_override uses
+    for a rank-less override) and the re-run session's Question must carry
+    them.
+
+    Before this fix, ResolvedQuestionPayload had no label_ranks field, so
+    Pydantic silently dropped any label_ranks the client sent — the
+    override was written with label_ranks=None and fell through to
+    apply_override's position-based backfill instead of using what was
+    actually submitted.
+    """
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    survey_id = f"resolve-explicit-ranks-test-{uuid.uuid4()}"
+    upload_response = _upload(client, survey_id)
+    session_id = upload_response.json()["session_id"]
+
+    from surveytool.desktop.app import get_session
+    session = get_session(session_id)
+    q1 = next(q for q in session.survey.questions if q.qid == "Q1")
+    substantive_labels = [sc.label for sc in q1.labels if sc.role.value != "nonsubstantive"]
+    assert len(substantive_labels) >= 3
+
+    # Assign roles the "wrong way round" relative to label order, and ranks
+    # that deliberately do NOT match the position-based backfill
+    # apply_override would otherwise compute, so passing this test proves
+    # the explicit ranks were actually used, not silently regenerated.
+    label_roles = {lb: "top" for lb in substantive_labels}
+    label_roles[substantive_labels[0]] = "bottom"
+    n = len(substantive_labels)
+    # Reverse rank order: first label (bottom) gets the highest rank number
+    # here on purpose -- this is a deliberately unusual assignment that a
+    # position-based backfill (bottom group first, ascending) would never
+    # produce, so a match against it proves the explicit ranks won.
+    label_ranks = {lb: n - i for i, lb in enumerate(substantive_labels)}
+
+    resolve_response = client.post(
+        f"/api/session/{session_id}/resolve",
+        json={
+            "resolutions": [
+                {
+                    "variable": "Q1",
+                    "question_type": "scale",
+                    "label_roles": label_roles,
+                    "label_ranks": label_ranks,
+                }
+            ]
+        },
+    )
+    assert resolve_response.status_code == 200, resolve_response.text
+
+    # Persisted override on disk carries the exact submitted ranks.
+    from surveytool.ingest.overrides import load_overrides
+    from surveytool.desktop.app import _project_overrides_path
+    saved = load_overrides(_project_overrides_path(survey_id))
+    assert saved.overrides["Q1"].label_ranks == label_ranks
+
+    # The re-run session's Question carries those same ranks, not a
+    # position-based backfill.
+    session_after = get_session(session_id)
+    q1_after = next(q for q in session_after.survey.questions if q.qid == "Q1")
+    assert q1_after.qtype.value == "scale"
+    rank_by_label = {sc.label: sc.rank for sc in q1_after.labels if sc.label in label_ranks}
+    assert rank_by_label == label_ranks
+
+
 def test_resolve_incomplete_scale_override_rejected(client):
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
