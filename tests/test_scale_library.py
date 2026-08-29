@@ -293,9 +293,92 @@ families:
     # both fully cover one question, which cannot happen with exact
     # set-equality matching) is prevented at load time by the duplicate
     # check above -- this is a sanity check that construction succeeded;
-    # identify_family's own ambiguity path is exercised in Task B3's tests
-    # once real multi-family data exists.
+    # identify_family's own ambiguity path is exercised end-to-end through
+    # a real adapter in test_real_adapter_load_raises_ambiguous_scale_match_error
+    # below.
     assert len(families["fam_a"].variants) == 1
+
+
+def test_real_adapter_load_raises_ambiguous_scale_match_error(monkeypatch):
+    """Task B3's own gap (flagged in review): AmbiguousScaleMatchError's
+    real-data path was only ever exercised at the standalone scale_library
+    unit level (test_question_matching_two_variants_raises_ambiguous above,
+    from B1) -- never through a live adapter's actual load path. B2 was
+    careful to keep every real vendor variant distinguishable
+    (test_no_variant_anywhere_matches_two_others), and scales.yaml's own
+    load-time duplicate check (_build_families) makes a genuine ambiguous
+    scales.yaml impossible to construct through normal YAML editing -- so
+    there is no real vendor file that can exercise this path. The only way
+    to prove the ambiguity check is actually wired into the live adapter
+    code (not just callable in isolation) is to construct two variants
+    with an identical folded label set via two separate _build_families
+    calls (bypassing the single-call duplicate check, which only compares
+    variants declared in the same YAML parse), monkeypatch them into
+    _ALL_VARIANTS for the duration of this test only, and then run a real
+    adapter's parse_codebook against a worksheet whose labels exactly
+    match that shared label set.
+
+    PureSpectrum's parse_codebook is used here since it accepts a
+    worksheet-like object directly (see tests/test_purespectrum.py's
+    _FakeWorksheet), needing no real .xlsx file on disk -- but this
+    exercises the identical classify_question_type/identify_variant call
+    path shared by every adapter (rakuten.py's _build_question, and
+    toluna.py/milieu.py's match_family-based _build_scale_question all
+    route through the same scale_library entry points).
+    """
+    import surveytool.core.scale_library as sl
+    from surveytool.charts.errors import AmbiguousScaleMatchError
+    from surveytool.ingest.purespectrum import parse_codebook
+
+    class _FakeWorksheet:
+        def __init__(self, rows: list[tuple]):
+            self._rows = rows
+
+        def iter_rows(self, values_only: bool = True):
+            assert values_only
+            for row in self._rows:
+                yield row
+
+    families_a = sl._build_families(sl._parse_raw_families("""
+families:
+  fam_a:
+    variants:
+      v1:
+        points:
+          - patterns: ["low"]
+          - patterns: ["mid"]
+          - patterns: ["high"]
+"""))
+    families_b = sl._build_families(sl._parse_raw_families("""
+families:
+  fam_b:
+    variants:
+      v1:
+        points:
+          - patterns: ["low"]
+          - patterns: ["mid"]
+          - patterns: ["high"]
+"""))
+    variant_a = families_a["fam_a"].variants[0]
+    variant_b = families_b["fam_b"].variants[0]
+    assert variant_a.folded_label_set == variant_b.folded_label_set
+
+    monkeypatch.setattr(sl, "_ALL_VARIANTS", (variant_a, variant_b))
+
+    codebook_ws = _FakeWorksheet([
+        ("[Q1]: Ambiguous test question?", None, None),
+        ("Values: 1-3", None, None),
+        (None, 1, "Low"),
+        (None, 2, "Mid"),
+        (None, 3, "High"),
+        (None, None, None),
+    ])
+
+    with pytest.raises(AmbiguousScaleMatchError) as exc_info:
+        parse_codebook(codebook_ws)
+
+    assert "fam_a.v1" in exc_info.value.variant_names
+    assert "fam_b.v1" in exc_info.value.variant_names
 
 
 # ── Round B task B2: real per-vendor variant population ──────────────────
