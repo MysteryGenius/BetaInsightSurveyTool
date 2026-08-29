@@ -51,7 +51,7 @@ def _build_multi_response_questions(codebook: Codebook) -> list[Question]:
         questions.append(
             Question(
                 qid=qid,
-                text=text,
+                text=normalize_label(text),
                 qtype=QuestionType.multi_response,
                 labels=labels,
                 multi_response_delimiter="; ",
@@ -105,7 +105,8 @@ def parse_codebook(
         if options:
             continue
         _build_question(
-            qid, text, qtype_hint, codes, questions, overrides or {}, collected, nonsubstantive_labels
+            qid, normalize_label(text), qtype_hint, codes, questions, overrides or {},
+            collected, nonsubstantive_labels
         )
 
     if collected:

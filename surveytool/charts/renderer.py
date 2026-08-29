@@ -14,6 +14,7 @@ from surveytool.charts.manifest import ManifestEntry, _row_key
 from surveytool.charts.palette import assign_series_colours
 from surveytool.charts.types import ChartSpec
 from surveytool.core.model import CodeRole
+from surveytool.core.text_hygiene import truncate_with_ellipsis, wrap_text
 from surveytool.findings.sheet import FindingsRow
 
 # ── Brand palette ────────────────────────────────────────────────────────────
@@ -67,10 +68,56 @@ def _apply_theme(fig: Figure, ax) -> None:
 
 
 def _wrap_title(ax, text: str, max_chars: int = 70, base_fontsize: float = 11.0) -> None:
-    lines = textwrap.wrap(text, width=max_chars)
+    lines = wrap_text(text, max_chars_per_line=max_chars)
     title_text = "\n".join(lines)
     fontsize = base_fontsize if len(lines) <= 2 else max(9.0, base_fontsize - 1.5)
     ax.set_title(title_text, fontsize=fontsize, color="#222222", pad=10, loc="left")
+
+
+def _compute_left_margin(fig, ax, labels: list[str], max_label_chars: int = 40) -> tuple[list[str], float]:
+    """Wrap any label exceeding max_label_chars onto multiple lines; if
+    even one wrapped line still doesn't fit a sane ceiling, truncate with
+    an ellipsis (full text available on hover is a Plotly-only capability
+    -- matplotlib PNGs have no hover, so a truncated matplotlib label's
+    full text is preserved only in the findings sheet / Plotly on-screen
+    view, never fabricated as a PNG-only tooltip). Returns the
+    (possibly-wrapped) label strings to actually draw, and the left-margin
+    fraction matplotlib needs measured from the widest rendered label.
+    """
+    display_labels = []
+    for label in labels:
+        if len(label) <= max_label_chars:
+            display_labels.append(label)
+            continue
+        wrapped_lines = wrap_text(label, max_chars_per_line=max_label_chars)
+        if len(wrapped_lines) <= 3:
+            display_labels.append("\n".join(wrapped_lines))
+        else:
+            # Even a truncated label must stay wrapped onto multiple lines
+            # -- rendering the shortened text as one long unbroken line
+            # would still overflow the (capped) left margin for a label
+            # this long, defeating the truncation's purpose.
+            shortened = truncate_with_ellipsis(label, max_label_chars * 2)
+            display_labels.append(
+                "\n".join(wrap_text(shortened, max_chars_per_line=max_label_chars))
+            )
+
+    # Measure the widest rendered label in points, convert to a figure-
+    # fraction left margin. renderer.get_window_extent requires a draw
+    # pass; use a throwaway text artist to measure without committing it
+    # to the final figure.
+    renderer_ = fig.canvas.get_renderer()
+    max_width_px = 0.0
+    for label in display_labels:
+        widest_line = max(label.split("\n"), key=len)
+        t = ax.text(0, 0, widest_line, fontsize=9, alpha=0)
+        bbox = t.get_window_extent(renderer=renderer_)
+        max_width_px = max(max_width_px, bbox.width)
+        t.remove()
+
+    fig_width_px = fig.get_figwidth() * fig.dpi
+    margin_fraction = min(0.45, max(0.12, (max_width_px / fig_width_px) + 0.03))
+    return display_labels, margin_fraction
 
 
 def _index_rows(rows: list[FindingsRow]) -> dict[tuple[str, str, str], FindingsRow]:
@@ -180,6 +227,10 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
     for i in range(n_ns):
         y_positions.append(n_ns - 1 - i)
 
+    labels_only = [label for label, _, _, _ in bar_data]
+    display_labels, left_margin_fraction = _compute_left_margin(fig, ax, labels_only)
+    label_by_original = dict(zip(labels_only, display_labels))
+
     for (label, pct, n, role), y in zip(bar_data, y_positions):
         colour = colour_by_label.get(label, _ROLE_COLOUR.get(role, _GREY))
         ax.barh(y, pct, height=height, color=colour, zorder=2)
@@ -189,8 +240,9 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
             va="center", ha="left", fontsize=9, color="#333333"
         )
         ax.text(
-            -0.5, y, label,
-            va="center", ha="right", fontsize=9, color="#333333"
+            -0.02, y, label_by_original[label],
+            va="center", ha="right", fontsize=9, color="#333333",
+            transform=ax.get_yaxis_transform(),
         )
 
     # Divider line between substantive and nonsubstantive groups.
@@ -219,8 +271,9 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
     ax.set_xlabel("  |  ".join(caption_parts), fontsize=9, color="#555555", labelpad=10)
 
     ax.set_yticks([])
-    ax.set_xlim(left=-18, right=min(110, max(p for _, p, _, _ in bar_data) + 20))
+    ax.set_xlim(left=0, right=min(110, max(p for _, p, _, _ in bar_data) + 20))
     ax.xaxis.set_visible(False)
+    fig.subplots_adjust(left=left_margin_fraction)
 
     title = spec.question_text
     if bvar != "total":

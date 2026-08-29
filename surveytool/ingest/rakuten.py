@@ -53,7 +53,8 @@ def parse_codebook(
     collected: list[UnresolvedQuestion] = []
     for qid, (text, codes, qtype_hint, _options) in codebook.items():
         _build_question(
-            qid, text, qtype_hint, codes, questions, overrides or {}, collected, nonsubstantive_labels
+            qid, normalize_label(text), qtype_hint, codes, questions, overrides or {},
+            collected, nonsubstantive_labels
         )
 
     if collected:

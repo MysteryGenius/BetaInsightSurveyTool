@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from surveytool.core.model import CodeRole
+from surveytool.core.text_hygiene import normalise_whitespace
 
 _DASH_FOLD = str.maketrans({
     "–": "-",  # en dash
@@ -19,8 +20,13 @@ _WHITESPACE_RE = re.compile(r"\s+")
 
 
 def normalize_label(label: str) -> str:
-    """Strip whitespace and replace non-breaking spaces with regular spaces."""
-    return label.replace("\xa0", " ").strip()
+    """Normalise a label or question text: collapse any internal
+    whitespace run (space, tab, newline, non-breaking space) to a single
+    space, and strip leading/trailing whitespace. Delegates to
+    surveytool.core.text_hygiene.normalise_whitespace, the single shared
+    policy both chart renderers and the findings sheet rely on having
+    already been applied to any text they receive (Round C2)."""
+    return normalise_whitespace(label)
 
 
 def fold_label(label: str) -> str:

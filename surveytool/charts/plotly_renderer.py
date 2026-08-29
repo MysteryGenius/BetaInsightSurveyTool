@@ -37,6 +37,7 @@ from surveytool.charts.palette import assign_series_colours
 from surveytool.compute.breaks_compute import ColumnResult, QuestionResult
 from surveytool.core.chart_validity import ChartType
 from surveytool.core.suppression import Band
+from surveytool.core.text_hygiene import wrap_text
 
 # Brand palette, reused from renderer.py's conventions (module docstring
 # point 3: visual consistency is a judgment call, not a hard requirement --
@@ -66,7 +67,7 @@ def _header_text(
     else:
         filter_text = "(none)"
 
-    lines = [
+    raw_lines = [
         question_result.question_text,
         (
             f"Break by: {break_text}  |  Filter by: {filter_text}  |  "
@@ -77,7 +78,10 @@ def _header_text(
             f"Base filtered: {question_result.base_filtered:,}"
         ),
     ]
-    return "<br>".join(lines)
+    wrapped_lines = []
+    for line in raw_lines:
+        wrapped_lines.extend(wrap_text(line, max_chars_per_line=90))
+    return "<br>".join(wrapped_lines)
 
 
 def _apply_header(
@@ -94,7 +98,7 @@ def _apply_header(
             "xanchor": "left",
             "font": {"size": 13},
         },
-        margin={"t": 120},
+        margin={"t": 140},
         paper_bgcolor="#F4F1EA",
         plot_bgcolor="#F4F1EA",
         font={"color": "#222222"},

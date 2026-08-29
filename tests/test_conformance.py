@@ -967,3 +967,86 @@ def test_milieu_q8_toggling_one_option_off_leaves_others_unchanged():
     reduced = assign_series_colours(labels[1:])
     for label in labels[1:]:
         assert reduced[label] == full[label]
+
+
+# ── Round C2: whitespace normalisation / title wrapping / margin cropping ──────
+
+def test_question_text_with_embedded_newline_renders_with_a_space():
+    """Regression test for the 'citizens.By' defect: a question text
+    containing an embedded newline (however it got there -- a cell with a
+    line break, e.g.) must never have that newline silently stripped to
+    nothing, which glues the words on either side together. This is a
+    direct unit test of normalize_label, the single choke point every
+    vendor adapter's question text passes through."""
+    from surveytool.core.hygiene import normalize_label
+    result = normalize_label("...residents are citizens.\nBy government policy...")
+    assert "citizens.By" not in result
+    assert "citizens. By" in result
+
+
+def test_rakuten_datamap_header_cell_newline_does_not_glue_question_text():
+    """End-to-end regression for the 'citizens.By' defect through the real
+    Rakuten ingest path: DatamapReader.read_codebook only strips the ends
+    of the header cell's text (an internal newline survives verbatim into
+    the raw codebook), so the fix must live in the adapter's own
+    parse_codebook -- normalize_label must be applied to question text
+    there, not assumed to have already happened upstream. Uses the same
+    _FakeWorksheet stand-in test_datamap_reader.py establishes."""
+    from tests.test_datamap_reader import _FakeWorksheet
+    from surveytool.ingest.rakuten import parse_codebook
+
+    codebook_ws = _FakeWorksheet([
+        ("[Q1]: ...residents are citizens.\nBy government policy, this applies.", None, None),
+        ("Values: 1-2", None, None),
+        (None, 1, "Yes"),
+        (None, 2, "No"),
+        (None, None, None),
+    ])
+    questions = parse_codebook(codebook_ws)
+    q1 = next(q for q in questions if q.qid == "Q1")
+    assert "citizens.By" not in q1.text
+    assert "citizens. By" in q1.text
+
+
+def test_purespectrum_datamap_header_cell_newline_does_not_glue_question_text():
+    """Same end-to-end regression as above, for the PureSpectrum adapter,
+    which also reads question text via DatamapReader and previously passed
+    it straight into Question(text=...) with no normalize_label call."""
+    from tests.test_datamap_reader import _FakeWorksheet
+    from surveytool.ingest.purespectrum import parse_codebook
+
+    codebook_ws = _FakeWorksheet([
+        ("[Q1]: ...residents are citizens.\nBy government policy, this applies.", None, None),
+        ("Values: 1-2", None, None),
+        (None, 1, "Yes"),
+        (None, 2, "No"),
+        (None, None, None),
+    ])
+    questions = parse_codebook(codebook_ws)
+    q1 = next(q for q in questions if q.qid == "Q1")
+    assert "citizens.By" not in q1.text
+    assert "citizens. By" in q1.text
+
+
+@pytest.mark.skipif(not _RAKUTEN_CHN_CLANS_PATH.exists(), reason="Rakuten chn_clans fixture not present")
+def test_rakuten_chn_clans_long_labels_do_not_crop_in_matplotlib_render():
+    """Direct regression for the exact chart Leonard photographed."""
+    from surveytool.charts.renderer import _compute_left_margin
+    import matplotlib.pyplot as plt
+
+    long_labels = [
+        "A very long response option label that would previously be cropped at the left margin",
+        "Short",
+    ]
+    fig, ax = plt.subplots(figsize=(9, 4))
+    display_labels, margin_fraction = _compute_left_margin(fig, ax, long_labels)
+    assert margin_fraction > 0.12  # wider than the old effective default for genuinely long labels
+    assert margin_fraction <= 0.45
+    plt.close(fig)
+
+
+def test_title_wrapping_produces_multiple_lines_for_long_title():
+    from surveytool.core.text_hygiene import wrap_text
+    long_title = "This is a very long chart title that should wrap across more than one line when rendered " * 3
+    lines = wrap_text(long_title, max_chars_per_line=90)
+    assert len(lines) > 1
