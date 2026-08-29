@@ -47,7 +47,7 @@ def _count_scale_codes(
     for sc in question.labels:
         n = counts[sc.code]
         pct = n / base * 100 if base > 0 else 0.0
-        result.append(CodeStat(code=sc.code, label=sc.label, role=sc.role, n=n, pct=pct))
+        result.append(CodeStat(code=sc.code, label=sc.label, role=sc.role, n=n, pct=pct, rank=sc.rank))
     return tuple(result)
 
 
@@ -87,7 +87,7 @@ def _count_multi_response_codes(
     for sc in question.labels:
         n = counts[sc.code]
         pct = n / base * 100 if base > 0 else 0.0
-        result.append(CodeStat(code=sc.code, label=sc.label, role=sc.role, n=n, pct=pct))
+        result.append(CodeStat(code=sc.code, label=sc.label, role=sc.role, n=n, pct=pct, rank=sc.rank))
     return tuple(result)
 
 

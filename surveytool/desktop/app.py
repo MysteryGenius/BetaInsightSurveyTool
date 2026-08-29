@@ -440,6 +440,59 @@ def _verification_sheet_used(vendor: str, path: Path) -> bool:
         wb.close()
 
 
+_MEAN_NEWLY_AVAILABLE_VENDORS = frozenset({"toluna", "milieu"})
+
+
+def _mean_newly_available_entries(vendor: str, survey: Survey, findings: list) -> list[dict]:
+    """Round B4: Toluna and Milieu never had a numeric vendor code to derive
+    a mean from before Round B introduced rank (both vendors' scale
+    questions are text-labelled, with no real numeric code of their own --
+    see toluna.py/milieu.py's _build_scale_question docstrings). Now that
+    rank drives mean for every vendor uniformly, a scale question's mean is
+    newly available for these two vendors specifically -- Rakuten and
+    PureSpectrum already had a vendor numeric code and so already had *a*
+    mean before this round (Round B only corrected which order it uses, see
+    test_purespectrum_inverted_questions_mean_now_derives_from_rank_not_code),
+    so the flag never fires for them. Surfaced in the run summary so an
+    analyst comparing this run to a pre-Round-B one understands why a new
+    figure appeared, rather than wondering if it's a bug.
+    """
+    if vendor not in _MEAN_NEWLY_AVAILABLE_VENDORS:
+        return []
+
+    scale_qids = {
+        q.qid for q in survey.questions
+        if q.qtype is QuestionType.scale
+    }
+    if not scale_qids:
+        return []
+
+    mean_by_qid: dict[str, float] = {}
+    for row in findings:
+        if (
+            row.breakdown_variable == "total"
+            and row.metric == "mean"
+            and row.qid in scale_qids
+            and row.value is not None
+        ):
+            mean_by_qid[row.qid] = row.value
+
+    questions_by_qid = {q.qid: q for q in survey.questions}
+    entries = []
+    for qid in sorted(mean_by_qid):
+        question = questions_by_qid[qid]
+        entries.append({
+            "variable": qid,
+            "message": (
+                f"'{qid}' now has a mean ({mean_by_qid[qid]:.2f}). {vendor.title()} "
+                "supplies no vendor numeric code for scale questions, so no mean was "
+                "computable before Round B's rank-based mean -- this figure is newly "
+                "available in this run."
+            ),
+        })
+    return entries
+
+
 def _build_session_run_summary(
     vendor: str,
     path: Path,
@@ -449,6 +502,7 @@ def _build_session_run_summary(
     straightliner_count: int = 0,
     straightliner_action: str = "keep",
     settings: ToolConfig | None = None,
+    findings: list | None = None,
 ) -> RunSummary:
     profile = get_vendor_profile(vendor)
     header, qid_by_column = _column_qid_map(vendor, path, survey_id, settings)
@@ -482,6 +536,8 @@ def _build_session_run_summary(
         if q.qtype is QuestionType.categorical and q.categorical_reason is not None
     ]
 
+    mean_newly_available = _mean_newly_available_entries(vendor, survey, findings or [])
+
     return build_run_summary(
         profile=profile,
         column_classifications=column_classifications,
@@ -493,6 +549,7 @@ def _build_session_run_summary(
         straightliner_action=straightliner_action,
         not_collected=registry.not_collected_for_vendor(vendor),
         categorical_classifications=categorical_classifications,
+        mean_newly_available=mean_newly_available,
     )
 
 
@@ -522,6 +579,7 @@ def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session
         straightliner_count=len(flagged),
         straightliner_action=settings.straightliner_action,
         settings=settings,
+        findings=findings,
     )
 
     session = Session(
@@ -791,6 +849,7 @@ async def get_run_summary(session_id: str):
         "override_resolutions": summary.override_resolutions,
         "notices": summary.notices,
         "categorical_classifications": summary.categorical_classifications,
+        "mean_newly_available": summary.mean_newly_available,
     }
 
 

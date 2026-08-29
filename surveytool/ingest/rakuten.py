@@ -130,7 +130,7 @@ def _build_question(
 
     override_result = resolve_with_override(substantive_norm, overrides, qid)
     if override_result is not None:
-        qtype, roles, family = override_result
+        qtype, roles, family, variant_name = override_result
     else:
         classified = classify_question_type(substantive_norm)
         if classified is None:
@@ -156,7 +156,7 @@ def _build_question(
             elif outcome is not None:
                 collected.append(outcome)
             return
-        qtype, roles, family = classified
+        qtype, roles, family, variant_name = classified
 
     if qtype is QuestionType.excluded:
         out.append(Question(qid=qid, text=text, qtype=QuestionType.excluded, base_eligible=False))
@@ -205,6 +205,7 @@ def _build_question(
                 labels=scale_codes,
                 scale_direction=direction,
                 scale_family=family,
+                scale_variant=variant_name,
                 base_eligible=True,
             )
         )

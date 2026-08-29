@@ -1,49 +1,42 @@
-# Scale polarity registry (build plan section 9).
+# Scale polarity registry (Round B4).
 #
-# Keyed by scale_family -- the same identifier already carried on
-# QuestionResult.scale_id (== Question.scale_family). This is NOT a new
-# per-question identifier; it is a lookup over the family names already
-# defined in scales.yaml.
+# Keyed by "<family>.<variant>" -- NOT by family alone, since Round B gave
+# one family multiple variants of different lengths (e.g. importance has a
+# 5-point gradated variant and a 4-point polar variant), and midpoint
+# centering for diverging_stacked_bar depends on point count (odd variants
+# center on the neutral point; even variants center between the two middle
+# ranks) -- a decision that must be made per-variant, not per-family.
 #
-# An entry here means the family is a genuine bipolar scale with a declared,
-# meaningful midpoint (i.e. eligible for diverging_stacked_bar). Absence of
-# an entry means undeclared -> chart_validity reports
-# SCALE_POLARITY_UNDECLARED for that family. Declaring polarity is a
-# deliberate editorial call per family, not a reflexive default -- see
-# surveytool/core/chart_validity.py module docstring and task-7-report.md
-# for the reasoning behind each decision below.
-scale_families:
-  agreement:
+# An entry here means the variant is a genuine bipolar scale eligible for
+# diverging_stacked_bar. Absence means undeclared.
+scale_variants:
+  agreement.five_point:
     polarity: declared
-    midpoint_role: neutral
-  satisfaction:
+  importance.five_point_gradated:
     polarity: declared
-    midpoint_role: neutral
-  likelihood:
+  importance.four_point_polar:
     polarity: declared
-    midpoint_role: neutral
-  importance:
+  importance.five_point_polar:
     polarity: declared
-    midpoint_role: neutral
-  effectiveness:
+  likelihood.five_point_polar:
     polarity: declared
-    midpoint_role: neutral
-  ability:
+  effectiveness.five_point_polar:
     polarity: declared
-    midpoint_role: neutral
+  ability.five_point_polar:
+    polarity: declared
+  intensity.four_point_not_at_all:
+    polarity: declared
+  intensity.four_point_not_really:
+    polarity: declared
+  relevance.five_point:
+    polarity: declared
+  concern.four_point:
+    polarity: declared
+  worry.four_point:
+    polarity: declared
+  fluency.four_point_suffixed:
+    polarity: declared
 
-  # frequency and zero_to_ten are deliberately left undeclared:
-  #
-  # frequency's top/bottom patterns (always/very often/often vs.
-  # rarely/never/very rarely) describe an amount-of-occurrence scale rather
-  # than a symmetric agree<->disagree style valence, and its "sometimes"
-  # neutral_pattern is not the same kind of explicit "neither X nor Y"
-  # midpoint the declared families above all have. Treating it as bipolar
-  # would be an inference, not a fact read off scales.yaml.
-  #
-  # zero_to_ten is a bare numeric scale (0-10) with no inherent semantic
-  # valence of its own -- what it means (agreement, likelihood, NPS, etc.)
-  # depends entirely on the question wording, which this registry has no
-  # visibility into. Declaring polarity for it would require inferring
-  # meaning from context this file doesn't have, which the build plan
-  # explicitly forbids ("never infer polarity from labels").
+  # satisfaction, frequency, zero_to_ten, calendar_frequency have no
+  # variants populated yet (Task B2) -- nothing to declare here until a
+  # real file supplies one.

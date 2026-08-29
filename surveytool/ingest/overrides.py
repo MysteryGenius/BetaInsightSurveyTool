@@ -129,29 +129,35 @@ def resolve_with_override(
     substantive_labels: list[str],
     overrides: dict[str, "QuestionOverride"],
     qid: str,
-) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None] | None:
+) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None, str | None] | None:
     """Adapter-facing entry point: if `qid` has a project override, resolve
     this question's classification and roles from the override instead of
-    the shared scale library, and return the same (qtype, roles, family)
-    shape classify_question_type returns so it drops into each adapter's
-    existing branch structure unchanged. Returns None when there's no
-    override for this qid, so the caller falls through to its normal
-    classify_question_type/resolve_roles call.
+    the shared scale library, and return the same (qtype, roles, family,
+    variant) shape classify_question_type returns so it drops into each
+    adapter's existing branch structure unchanged. Returns None when
+    there's no override for this qid, so the caller falls through to its
+    normal classify_question_type/resolve_roles call.
 
     An "excluded" override maps to QuestionType.excluded with roles=None —
     adapters use this to build a placeholder Question that stays out of
     reporting (base_eligible=False) instead of calling classify at all.
+
+    `variant` is always None for an override-resolved scale question: an
+    override assigns roles/ranks directly per label, with no named library
+    variant behind it (Task B4). This is intentional and means
+    diverging-bar centering (which needs variant identity) is correctly
+    not permitted for an override-resolved scale question.
     """
     override = overrides.get(qid)
     if override is None:
         return None
     if override.question_type == "excluded":
-        return QuestionType.excluded, None, None
+        return QuestionType.excluded, None, None, None
     if override.question_type == "scale":
         roles = apply_override(substantive_labels, override)
         family = identify_family(substantive_labels)
-        return QuestionType.scale, roles, family
-    return _QTYPE_MAP[override.question_type], None, None
+        return QuestionType.scale, roles, family, None
+    return _QTYPE_MAP[override.question_type], None, None, None
 
 
 def write_override(path: Path, override: QuestionOverride) -> None:

@@ -258,3 +258,76 @@ def test_run_summary_lists_override_resolutions_with_timestamps(client):
     assert len(resolutions) == 1
     assert resolutions[0]["variable"] == "Q1"
     assert resolutions[0]["resolved_at"]
+
+
+# ── Task B4: mean_newly_available flag (Toluna/Milieu only) ───────────────
+
+
+def test_toluna_run_summary_flags_q7_mean_newly_available(client):
+    """Round B4: Toluna supplies no vendor numeric code for its scale
+    questions, so a mean was never computable before Round B's rank-based
+    mean. Q7 (test_toluna_q7_local_mainstream_media_rank_and_netting in
+    test_conformance.py) has a real, non-null mean (3.387) -- it must be
+    flagged here as newly available."""
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    body = _upload_and_get_summary(client, "toluna", TOLUNA_PATH, _XLSX_CT)
+    flagged = {e["variable"] for e in body["mean_newly_available"]}
+    assert "7_local_mainstream_media" in flagged
+
+
+def test_rakuten_run_summary_never_flags_mean_newly_available(client):
+    """Rakuten supplies a real vendor numeric code for its scale questions,
+    so it already had *a* mean before Round B (Round B only corrected which
+    order that mean uses, never introduced the concept for the first time)
+    -- the flag must never fire for it."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    body = _upload_and_get_summary(client, "rakuten", RAKUTEN_PATH, _XLSX_CT)
+    assert body["mean_newly_available"] == []
+
+
+def test_purespectrum_run_summary_never_flags_mean_newly_available():
+    """Same reasoning as Rakuten: PureSpectrum already had a vendor numeric
+    code, so it already had a mean before Round B.
+
+    Exercised at the unit level (surveytool.desktop.app's own helper)
+    rather than through the full upload+resolve HTTP round trip:
+    PureSpectrum's real fixture has genuinely unresolved questions
+    (test_purespectrum_upload_without_overrides_returns_unresolved_questions
+    above) that require the /resolve endpoint round trip
+    (_upload_purespectrum_resolved) to clear first, and that flow is broken
+    independent of this task (see the pre-existing failures in
+    tests/test_desktop_resolve.py::test_purespectrum_upload_unresolved_produces_a_resolvable_session
+    and friends) -- this test does not need that machinery to prove the
+    mean_newly_available logic itself never fires for PureSpectrum."""
+    if not PURESPECTRUM_PATH.exists():
+        pytest.skip(f"{PURESPECTRUM_PATH.name} not found in project root")
+
+    from surveytool.desktop.app import _mean_newly_available_entries
+    from surveytool.findings.sheet import build_findings_sheet
+    from surveytool.ingest.purespectrum import load
+
+    overrides_path_survey_id = f"ps-mean-unit-{uuid.uuid4()}"
+    from surveytool.desktop.app import _project_overrides_path
+    from surveytool.ingest.overrides import QuestionOverride, write_override
+
+    now = datetime.now(timezone.utc)
+    overrides_path = _project_overrides_path(overrides_path_survey_id)
+    for variable in _PURESPECTRUM_UNRESOLVED:
+        write_override(
+            overrides_path,
+            QuestionOverride(
+                variable=variable, question_type="categorical", label_roles={},
+                resolved_at=now, library_version="test",
+            ),
+        )
+    from surveytool.ingest.overrides import load_overrides
+    overrides = load_overrides(overrides_path).overrides
+
+    survey = load(PURESPECTRUM_PATH, "ps_wcs", overrides)
+    findings = build_findings_sheet(survey)
+    entries = _mean_newly_available_entries("purespectrum", survey, findings)
+    assert entries == []

@@ -817,3 +817,25 @@ def test_purespectrum_inverted_questions_mean_now_derives_from_rank_not_code():
         rank_order = [sc.code for sc in sorted(question.labels, key=lambda sc: sc.rank or 0)]
         code_order = [sc.code for sc in sorted(question.labels, key=lambda sc: sc.numeric_value or 0)]
         assert rank_order != code_order, f"{qid}: expected rank order to differ from code order (the defect this task fixes)"
+
+
+# ── Task B4: diverging bar permitted on a real vendor scale question ──────
+
+@pytest.mark.skipif(not _TOLUNA_PATH.exists(), reason="Toluna fixture not present")
+def test_toluna_scale_question_permits_diverging_stacked_bar():
+    from surveytool.ingest.toluna import load
+    from surveytool.compute.breaks_compute import _scale_points, _net_definitions
+    from surveytool.core.chart_validity import evaluate_chart_permissions, ChartType
+    from surveytool.core.config import ToolConfig
+    from surveytool.compute.breaks_compute import QuestionResult
+
+    survey = load(_TOLUNA_PATH, "toluna_misinfo")
+    q7 = next(q for q in survey.questions if q.qid == "7_local_mainstream_media")
+    result = QuestionResult(
+        question_id=q7.qid, question_text=q7.text, scale_id=q7.scale_family,
+        scale_variant=q7.scale_variant, scale_points=_scale_points(q7),
+        nets=_net_definitions(q7), base_total=1000, base_filtered=1000, columns=[],
+    )
+    permissions = evaluate_chart_permissions(result, column_count=1, config=ToolConfig())
+    diverging = next(p for p in permissions if p.chart_type is ChartType.diverging_stacked_bar)
+    assert diverging.permitted is True

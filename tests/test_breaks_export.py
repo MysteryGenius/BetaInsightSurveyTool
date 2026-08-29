@@ -135,14 +135,32 @@ def test_stacked_bar_100_figure_has_one_trace_per_scale_point(question_result):
 def test_diverging_stacked_bar_figure_signs_by_polarity(question_result):
     fig = build_figure(question_result, ChartType.diverging_stacked_bar)
     bar_traces = [t for t in fig.data if isinstance(t, go.Bar)]
-    assert len(bar_traces) == 5
-    by_name = {t.name: t for t in bar_traces}
+    # 5 scale points + 1 extra trace for Neutral's straddle-zero split
+    # (Round B4: the neutral point is rendered as two half-magnitude
+    # traces, one on each side of zero, so it visually centers on the
+    # dividing line instead of stacking onto the positive wing).
+    assert len(bar_traces) == 6
+    by_name: dict[str, list] = {}
+    for t in bar_traces:
+        by_name.setdefault(t.name, []).append(t)
     # negative-polarity points extend into negative y.
-    assert all(v <= 0 for v in by_name["Strongly disagree"].y)
-    assert all(v <= 0 for v in by_name["Disagree"].y)
+    assert all(v <= 0 for v in by_name["Strongly disagree"][0].y)
+    assert all(v <= 0 for v in by_name["Disagree"][0].y)
     # positive-polarity points extend into positive y.
-    assert all(v >= 0 for v in by_name["Agree"].y)
-    assert all(v >= 0 for v in by_name["Strongly agree"].y)
+    assert all(v >= 0 for v in by_name["Agree"][0].y)
+    assert all(v >= 0 for v in by_name["Strongly agree"][0].y)
+    # Neutral straddles zero: one trace non-positive, one non-negative,
+    # and the two halves are equal in magnitude (a true split down the
+    # middle, not an arbitrary asymmetric split).
+    neutral_traces = by_name["Neutral"]
+    assert len(neutral_traces) == 2
+    neg_trace, pos_trace = sorted(neutral_traces, key=lambda t: t.y[0])
+    assert all(v <= 0 for v in neg_trace.y)
+    assert all(v >= 0 for v in pos_trace.y)
+    assert list(neg_trace.y) == [-v for v in pos_trace.y]
+    # Only one of the two carries the legend entry.
+    showlegend_flags = {t.showlegend for t in neutral_traces}
+    assert showlegend_flags == {None, False} or False in showlegend_flags
 
 
 def test_grouped_bar_figure_uses_group_mode(question_result):

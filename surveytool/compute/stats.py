@@ -12,6 +12,7 @@ class CodeStat:
     role: CodeRole
     n: int
     pct: float  # n / base * 100, full precision — round only at presentation
+    rank: int | None = None
 
 
 @dataclass(frozen=True)

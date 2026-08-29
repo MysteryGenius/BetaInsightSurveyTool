@@ -54,6 +54,7 @@ class Question(BaseModel):
     base_eligible: bool = True
     multi_response_delimiter: str | None = None
     scale_family: str | None = None
+    scale_variant: str | None = None
     categorical_reason: str | None = None
 
     @model_validator(mode="after")

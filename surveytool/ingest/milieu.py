@@ -114,11 +114,13 @@ def _build_scale_question(
     }
     substantive_values = [v for v in values if v not in ns_overrides]
 
+    variant_name: str | None = None
     if override is not None:
         roles: dict[str, tuple[CodeRole, int | None]] = apply_override(substantive_values, override)
     else:
         match = match_family(substantive_values)
         roles = dict(match.matched_labels)
+        variant_name = match.variant
     for label, role in ns_overrides.items():
         roles[label] = (role, None)
 
@@ -148,6 +150,7 @@ def _build_scale_question(
         labels=labels,
         scale_direction=direction,
         scale_family=family,
+        scale_variant=variant_name,
         grid_group=grid_group,
         base_eligible=True,
     )

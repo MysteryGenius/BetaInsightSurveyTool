@@ -16,19 +16,21 @@ def test_classify_full_scale_match_returns_scale():
         "neutral",
         "disagree", "strongly disagree",
     ]
-    qtype, roles, family = classify_question_type(labels)
+    qtype, roles, family, variant = classify_question_type(labels)
     assert qtype is QuestionType.scale
     assert family == "agreement"
+    assert variant == "five_point"
     role, rank = roles["strongly agree"]
     assert role is CodeRole.top
     assert rank == 5
 
 
 def test_classify_binary_match_returns_binary_no_roles():
-    qtype, roles, family = classify_question_type(["yes", "no"])
+    qtype, roles, family, variant = classify_question_type(["yes", "no"])
     assert qtype is QuestionType.binary
     assert roles is None
     assert family is None
+    assert variant is None
 
 
 def test_classify_no_match_returns_none_not_categorical():
@@ -71,10 +73,11 @@ def test_binary_pair_classifies_without_scales_yaml_entry():
     and binary has no ordinal rank anyway, so classify_question_type checks
     a fixed literal yes/no (or true/false) pair instead of routing through
     the variant system."""
-    qtype, roles, family = classify_question_type(["yes", "no"])
+    qtype, roles, family, variant = classify_question_type(["yes", "no"])
     assert qtype is QuestionType.binary
     assert roles is None
     assert family is None
+    assert variant is None
 
 
 def test_calendar_frequency_family_has_no_variants_yet():
@@ -400,27 +403,29 @@ def test_importance_has_three_distinct_variants():
 
 
 def test_purespectrum_q7_five_point_gradated_importance():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Not important at all", "Slightly important", "Moderately important", "Very important", "Extremely important"]
     )
     assert qtype is QuestionType.scale
     assert family == "importance"
+    assert variant == "five_point_gradated"
     assert roles["Not important at all"] == (CodeRole.bottom, 1)
     assert roles["Extremely important"] == (CodeRole.top, 5)
 
 
 def test_toluna_five_point_polar_importance_distinct_from_gradated():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Very Unimportant", "Unimportant", "Neutral / Neither Important nor Unimportant", "Important", "Very Important"]
     )
     assert qtype is QuestionType.scale
     assert family == "importance"
+    assert variant == "five_point_polar"
     assert roles["Very Unimportant"] == (CodeRole.bottom, 1)
     assert roles["Neutral / Neither Important nor Unimportant"] == (CodeRole.neutral, 3)
 
 
 def test_toluna_likelihood_five_point_polar():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Very Unlikely", "Unlikely", "Neutral / Neither Likely nor Unlikely", "Likely", "Very Likely"]
     )
     assert qtype is QuestionType.scale
@@ -441,17 +446,19 @@ def test_intensity_has_two_distinct_four_point_variants():
 
 
 def test_purespectrum_q2_intensity_not_at_all_variant():
-    qtype, roles, family = classify_question_type(["Not at all", "A little", "Somewhat", "A lot"])
+    qtype, roles, family, variant = classify_question_type(["Not at all", "A little", "Somewhat", "A lot"])
     assert qtype is QuestionType.scale
     assert family == "intensity"
+    assert variant == "four_point_not_at_all"
     assert roles["Not at all"] == (CodeRole.bottom, 1)
     assert roles["A lot"] == (CodeRole.top, 4)
 
 
 def test_purespectrum_q5_intensity_not_really_variant():
-    qtype, roles, family = classify_question_type(["Not really", "A little", "Somewhat", "A great deal"])
+    qtype, roles, family, variant = classify_question_type(["Not really", "A little", "Somewhat", "A great deal"])
     assert qtype is QuestionType.scale
     assert family == "intensity"
+    assert variant == "four_point_not_really"
     assert roles["Not really"] == (CodeRole.bottom, 1)
     assert roles["A great deal"] == (CodeRole.top, 4)
 
@@ -463,13 +470,13 @@ def test_fluency_matches_full_literal_suffixed_labels():
         "Conversational — can hold an everyday conversation",
         "Fluent — comfortable in most situations",
     ]
-    qtype, roles, family = classify_question_type(labels)
+    qtype, roles, family, variant = classify_question_type(labels)
     assert qtype is QuestionType.scale
     assert family == "fluency"
 
 
 def test_relevance_five_point():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Not relevant at all", "Not very relevant", "Neutral/don't know enough to say", "Relevant", "Extremely relevant"]
     )
     assert qtype is QuestionType.scale
@@ -478,7 +485,7 @@ def test_relevance_five_point():
 
 
 def test_concern_four_point():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Not concerned at all", "Not very concerned", "Somewhat concerned", "Very concerned"]
     )
     assert qtype is QuestionType.scale
@@ -488,7 +495,7 @@ def test_concern_four_point():
 
 
 def test_worry_four_point():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Not worried at all", "Not very worried", "Somewhat worried", "Very worried"]
     )
     assert qtype is QuestionType.scale
@@ -498,13 +505,13 @@ def test_worry_four_point():
 
 
 def test_effectiveness_and_ability_five_point_polar():
-    qtype, roles, family = classify_question_type(
+    qtype, roles, family, variant = classify_question_type(
         ["Very Ineffective", "Ineffective", "Neutral / Neither Effective nor Ineffective", "Effective", "Very Effective"]
     )
     assert qtype is QuestionType.scale
     assert family == "effectiveness"
 
-    qtype2, roles2, family2 = classify_question_type(
+    qtype2, roles2, family2, variant2 = classify_question_type(
         ["Extremely unable to", "Somewhat unable to", "Neutral / Neither able nor unable to", "Somewhat able to", "Extremely able to"]
     )
     assert qtype2 is QuestionType.scale

@@ -331,11 +331,11 @@ def is_ordinal_resolver_candidate(labels: list[str]) -> bool:
 
 def classify_question_type(
     labels: list[str],
-) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None] | None:
+) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None, str | None] | None:
     """Classify a question's substantive labels as SCALE or BINARY.
 
     SCALE: every label matches a single variant (identify_variant succeeds).
-    Returns (QuestionType.scale, {label: (role, rank)}, family_name).
+    Returns (QuestionType.scale, {label: (role, rank)}, family_name, variant_name).
 
     BINARY: exactly two labels matching "yes"/"no" (or "true"/"false") --
     binary has no rank, so this checks a fixed literal pair rather than
@@ -352,7 +352,7 @@ def classify_question_type(
         frozenset({"true", "false"}),
     )
     if len(labels) == 2 and frozenset(normed) in _BINARY_PAIRS:
-        return QuestionType.binary, None, None
+        return QuestionType.binary, None, None, None
 
     variant = identify_variant(labels)
     if variant is not None:
@@ -361,6 +361,6 @@ def classify_question_type(
             rank = variant.rank_for_label(norm)
             assert rank is not None
             roles[label] = (variant.role_for_rank(rank), rank)
-        return QuestionType.scale, roles, variant.family
+        return QuestionType.scale, roles, variant.family, variant.name
 
     return None

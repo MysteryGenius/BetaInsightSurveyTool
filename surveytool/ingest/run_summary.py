@@ -24,6 +24,13 @@ class RunSummary(BaseModel):
     override_resolutions: list[dict]
     notices: list[str]
     categorical_classifications: list[dict] = []
+    mean_newly_available: list[dict] = []
+    """Round B4: one entry per Toluna/Milieu scale question whose mean is
+    newly computable now that rank (not a vendor numeric code neither
+    vendor ever supplied) drives mean uniformly across every vendor. Never
+    populated for Rakuten/PureSpectrum, which already had a vendor numeric
+    code (and therefore already had *a* mean) before this round -- see
+    surveytool.desktop.app._mean_newly_available_entries."""
 
 
 def _quality_flag_statement(profile: VendorProfile) -> str:
@@ -81,6 +88,7 @@ def build_run_summary(
     straightliner_action: str = "keep",
     not_collected: list[NotCollectedEntry] | None = None,
     categorical_classifications: list[tuple[str, str]] | None = None,
+    mean_newly_available: list[dict] | None = None,
 ) -> RunSummary:
     classification_counts = dict(Counter(column_classifications.values()))
     disposition_counts = dict(Counter(status_values))
@@ -98,4 +106,5 @@ def build_run_summary(
         categorical_classifications=[
             {"variable": qid, "reason": reason} for qid, reason in (categorical_classifications or [])
         ],
+        mean_newly_available=mean_newly_available or [],
     )

@@ -57,12 +57,13 @@ _NET_DEFINITIONS: tuple[tuple[str, str, CodeRole], ...] = (
 
 
 class ScalePoint(BaseModel):
-    """One scale point of a question, in the question's declared code order."""
+    """One scale point of a question, in rank order (see _scale_points)."""
 
     code: str | int
     label: str
     order: int
     polarity: str | None
+    rank: int | None = None
 
 
 class NetDefinition(BaseModel):
@@ -135,6 +136,7 @@ class QuestionResult(BaseModel):
     question_id: str
     question_text: str
     scale_id: str | None
+    scale_variant: str | None = None
     scale_points: list[ScalePoint]
     nets: list[NetDefinition]
     base_total: int
@@ -171,6 +173,7 @@ def _scale_points(question: Question) -> list[ScalePoint]:
             label=sc.label,
             order=i,
             polarity=_POLARITY_BY_ROLE.get(sc.role),
+            rank=sc.rank,
         )
         for i, sc in enumerate(ordered)
     ]
@@ -384,6 +387,7 @@ def compute_breaks_crosstab(
                 question_id=question.qid,
                 question_text=question.text,
                 scale_id=question.scale_family,
+                scale_variant=question.scale_variant,
                 scale_points=_scale_points(question),
                 nets=_net_definitions(question),
                 base_total=base_total,

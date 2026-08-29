@@ -129,7 +129,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
 
-    for order, point in enumerate(question_result.scale_points):
+    for point in question_result.scale_points:
         code = str(point.code)
         y_values = []
         for column in question_result.columns:
@@ -142,7 +142,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
                 name=point.label,
                 x=x_labels,
                 y=y_values,
-                marker_color=_scale_colour(order),
+                marker_color=_scale_colour(point.rank or 0),
             )
         )
 
@@ -167,16 +167,37 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
 
 
 def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
-    """Bars diverging from 0: negative-polarity points extend left/down,
-    positive-polarity points extend right/up, neutral is centered as a
-    separate zero-based segment. Polarity is read verbatim from each
-    ScalePoint.polarity (never re-derived from labels).
+    """Bars diverging from 0: bottom-half points (by rank) extend left,
+    top-half points extend right. An odd-length variant's exact-middle
+    point (CodeRole.neutral) is rendered as its own centered segment
+    straddling zero, half on each side, so it visually sits on the
+    dividing line rather than stacking onto either wing. An even-length
+    variant has no neutral point at all -- it divides cleanly at the
+    midpoint with no straddling segment needed.
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
 
-    for order, point in enumerate(question_result.scale_points):
+    for point in question_result.scale_points:
         code = str(point.code)
+        if point.polarity == "neutral":
+            # Straddle zero: half the value on each side, as two half-
+            # magnitude traces sharing one legend name via one trace with
+            # a symmetric base -- Plotly's relative stacking doesn't
+            # support a single bar straddling zero directly, so split the
+            # value in half and draw one negative-side and one positive-
+            # side trace, both using this point's colour and label, with
+            # showlegend suppressed on the second so it appears once.
+            neg_half = []
+            pos_half = []
+            for column in question_result.columns:
+                pct = 0.0 if column.percentages is None else column.percentages.get(code, 0.0)
+                neg_half.append(-pct / 2.0)
+                pos_half.append(pct / 2.0)
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, marker_color=_scale_colour(point.rank or 0)))
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, marker_color=_scale_colour(point.rank or 0), showlegend=False))
+            continue
+
         sign = -1.0 if point.polarity == "negative" else 1.0
         y_values = []
         for column in question_result.columns:
@@ -189,7 +210,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
                 name=point.label,
                 x=x_labels,
                 y=y_values,
-                marker_color=_scale_colour(order),
+                marker_color=_scale_colour(point.rank or 0),
             )
         )
 
@@ -223,7 +244,7 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
 
-    for order, point in enumerate(question_result.scale_points):
+    for point in question_result.scale_points:
         code = str(point.code)
         y_values = []
         for column in question_result.columns:
@@ -236,7 +257,7 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
                 name=point.label,
                 x=x_labels,
                 y=y_values,
-                marker_color=_scale_colour(order),
+                marker_color=_scale_colour(point.rank or 0),
             )
         )
 

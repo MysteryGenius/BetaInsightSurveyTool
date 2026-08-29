@@ -28,6 +28,7 @@ def _scale_points(n: int) -> list[ScalePoint]:
 
 def _question_result(
     scale_id: str | None = "agreement",
+    scale_variant: str | None = "five_point",
     n_scale_points: int = 5,
     nets: list[NetDefinition] | None = None,
     n_columns: int = 3,
@@ -36,6 +37,7 @@ def _question_result(
         question_id="Q1",
         question_text="Synthetic question",
         scale_id=scale_id,
+        scale_variant=scale_variant,
         scale_points=_scale_points(n_scale_points),
         nets=nets if nets is not None else [],
         base_total=100,
@@ -87,6 +89,35 @@ def test_diverging_stacked_bar_declared_vs_undeclared_scale_family():
 def test_diverging_stacked_bar_none_scale_id_is_undeclared():
     config = ToolConfig()
     result = _question_result(scale_id=None)
+    perms = evaluate_chart_permissions(result, column_count=3, config=config)
+    perm = _permission_by_type(perms, ChartType.diverging_stacked_bar)
+    assert perm.permitted is False
+    assert perm.reason == "SCALE_POLARITY_UNDECLARED"
+
+
+def test_diverging_stacked_bar_none_scale_variant_is_undeclared_even_with_known_family():
+    """Round B4: an override-resolved scale question has scale_family set
+    but scale_variant=None (an override assigns roles/ranks directly, with
+    no named library variant behind it) -- this must be undeclared even
+    though 'agreement' by itself is a family with a declared variant,
+    because polarity is now looked up by variant identity, not bare
+    family name."""
+    config = ToolConfig()
+    result = _question_result(scale_id="agreement", scale_variant=None)
+    perms = evaluate_chart_permissions(result, column_count=3, config=config)
+    perm = _permission_by_type(perms, ChartType.diverging_stacked_bar)
+    assert perm.permitted is False
+    assert perm.reason == "SCALE_POLARITY_UNDECLARED"
+
+
+def test_diverging_stacked_bar_wrong_variant_for_family_is_undeclared():
+    """A family name paired with a variant name that isn't actually
+    declared for that family (e.g. a typo, or a variant that genuinely
+    isn't in scale_polarity.yaml) must be undeclared -- the lookup is
+    strictly by the "<family>.<variant>" composite key, never by family
+    alone."""
+    config = ToolConfig()
+    result = _question_result(scale_id="agreement", scale_variant="not_a_real_variant")
     perms = evaluate_chart_permissions(result, column_count=3, config=config)
     perm = _permission_by_type(perms, ChartType.diverging_stacked_bar)
     assert perm.permitted is False
@@ -189,9 +220,11 @@ def test_toluna_scale_families_declared_polarity(scale_family, expected_declared
     """Pins the build plan's reporting deliverable: which of the four Toluna
     named scales (ability, effectiveness, importance, likelihood) have
     declared polarity in scale_polarity.yaml. All four are declared -- see
-    scale_polarity.yaml and task-7-report.md for the reasoning."""
+    scale_polarity.yaml and task-7-report.md for the reasoning. Each of
+    these families' real Toluna variant is named "five_point_polar" (Round
+    B4: polarity is now declared per-variant, not per-family)."""
     config = ToolConfig()
-    result = _question_result(scale_id=scale_family)
+    result = _question_result(scale_id=scale_family, scale_variant="five_point_polar")
     perms = evaluate_chart_permissions(result, column_count=3, config=config)
     perm = _permission_by_type(perms, ChartType.diverging_stacked_bar)
     assert perm.permitted is expected_declared

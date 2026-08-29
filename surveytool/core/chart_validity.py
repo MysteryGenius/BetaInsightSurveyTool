@@ -10,10 +10,11 @@ Only five chart types exist. Pie and donut are explicitly excluded by the
 build plan and are not in the enum.
 
 Polarity is looked up, never inferred: ``diverging_stacked_bar`` consults the
-``scale_polarity.yaml`` registry keyed by ``scale_family`` (the same string
-already carried as ``QuestionResult.scale_id``) and never looks at scale
-point labels. A family absent from the registry is undeclared by design --
-see ``scale_polarity.yaml`` for the reasoning behind each family's
+``scale_polarity.yaml`` registry keyed by ``<scale_family>.<scale_variant>``
+(Round B4 -- one family can have multiple variants of different lengths, so
+polarity is declared per-variant, not per-family) and never looks at scale
+point labels. A variant absent from the registry is undeclared by design --
+see ``scale_polarity.yaml`` for the reasoning behind each variant's
 declared/undeclared status.
 """
 from __future__ import annotations
@@ -35,7 +36,7 @@ _REASON_COLUMN_COUNT_EXCEEDS_RENDER_LIMIT = "COLUMN_COUNT_EXCEEDS_RENDER_LIMIT"
 
 def _load_polarity_registry() -> dict[str, dict]:
     raw = yaml.safe_load(_POLARITY_PATH.read_text(encoding="utf-8"))
-    return raw["scale_families"]
+    return raw["scale_variants"]
 
 
 _POLARITY_REGISTRY: dict[str, dict] = _load_polarity_registry()
@@ -63,8 +64,15 @@ class ChartPermission(BaseModel):
     reason: str | None = None
 
 
-def _has_declared_polarity(scale_id: str | None) -> bool:
-    return scale_id is not None and scale_id in _POLARITY_REGISTRY
+def _variant_key(scale_id: str | None, scale_variant: str | None) -> str | None:
+    if scale_id is None or scale_variant is None:
+        return None
+    return f"{scale_id}.{scale_variant}"
+
+
+def _has_declared_polarity(scale_id: str | None, scale_variant: str | None) -> bool:
+    key = _variant_key(scale_id, scale_variant)
+    return key is not None and key in _POLARITY_REGISTRY
 
 
 def evaluate_chart_permissions(
@@ -89,7 +97,7 @@ def evaluate_chart_permissions(
                 chart_type=ChartType.diverging_stacked_bar,
                 permitted=True,
             )
-            if _has_declared_polarity(question_result.scale_id)
+            if _has_declared_polarity(question_result.scale_id, question_result.scale_variant)
             else ChartPermission(
                 chart_type=ChartType.diverging_stacked_bar,
                 permitted=False,

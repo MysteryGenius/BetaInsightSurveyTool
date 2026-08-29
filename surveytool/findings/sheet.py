@@ -29,6 +29,7 @@ class FindingsRow:
     value: float | None
     convention: str           # "T2B" | "B2B" | "mean" | "pct" | "n"
     role: CodeRole | None = None  # populated for pct_<label> rows; None for aggregates
+    rank: int | None = None  # populated for pct_<label> rows; None for aggregates and n_<label> rows
 
 
 def _find_banner_question(survey: Survey, name: str) -> Question | None:
@@ -62,6 +63,7 @@ def _emit_rows(
             value=cs.pct,
             convention="pct",
             role=cs.role,
+            rank=cs.rank,
         ))
         rows.append(FindingsRow(
             survey_id=survey_id,
