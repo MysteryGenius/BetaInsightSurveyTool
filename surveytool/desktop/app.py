@@ -52,6 +52,12 @@ from surveytool.core.straightliner import detect_straightliners
 from surveytool.findings.sheet import build_findings_sheet
 from surveytool.ingest.column_inventory import build_column_classifications
 from surveytool.ingest.fingerprint import check_fingerprint
+from surveytool.ingest.display_order import (
+    DisplayOrder,
+    delete_display_order,
+    load_display_orders,
+    write_display_order,
+)
 from surveytool.ingest.overrides import (
     OverrideNotice,
     QuestionOverride,
@@ -77,6 +83,7 @@ _APP_DATA_DIR = Path.home() / ".surveytool"
 _OVERRIDES_DIR = _APP_DATA_DIR / "overrides"
 _OLD_OVERRIDES_DIR = Path(tempfile.gettempdir()) / "surveytool-overrides"
 _SETTINGS_DIR = Path(tempfile.gettempdir()) / "surveytool-settings"
+_DISPLAY_ORDER_DIR = _APP_DATA_DIR / "display_order"
 _logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -290,6 +297,24 @@ def _project_overrides_path(survey_id: str) -> Path:
     new_path = _resolve_under(_OVERRIDES_DIR, survey_id)
     _migrate_legacy_override(survey_id, new_path)
     return new_path
+
+
+def _project_display_order_path(survey_id: str) -> Path:
+    """Per-survey_id manual display-order store (Round C3). Mirrors
+    _project_overrides_path's validation/layout — one YAML file per
+    survey_id, in its own directory. No legacy-migration concern here
+    since this is a brand-new file kind with no prior tempdir location,
+    unlike overrides' _migrate_legacy_override — this file has always
+    lived under _APP_DATA_DIR from its first day."""
+    _validate_survey_id(survey_id)
+    new_path = _resolve_under(_DISPLAY_ORDER_DIR, survey_id)
+    return new_path
+
+
+def _load_display_orders_for_survey(survey_id: str) -> dict[str, list[str]]:
+    path = _project_display_order_path(survey_id)
+    orders = load_display_orders(path)
+    return {qid: entry.label_order for qid, entry in orders.orders.items()}
 
 
 def _read_fingerprint_signals(path: Path) -> tuple[frozenset[str], frozenset[str]]:
@@ -564,10 +589,12 @@ def _run_pipeline(file_path: Path, survey_id: str, vendor: str) -> tuple[Session
     registry = _load_session_registry(vendor, survey)
     flagged = detect_straightliners(survey.responses, survey.questions)
     excluded = flagged if settings.straightliner_action == "exclude" else set()
+    display_order_manual_qids = set(_load_display_orders_for_survey(survey_id))
     findings = build_findings_sheet(
         survey,
         exclude_respondent_ids=excluded or None,
         exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
+        display_order_manual_qids=display_order_manual_qids,
     )
     respondent_frame = to_respondent_frame(survey)
     run_summary = _build_session_run_summary(
@@ -813,6 +840,52 @@ async def update_project_settings(survey_id: str, payload: ProjectSettingsPayloa
         exclude_nonsubstantive_from_base=settings.exclude_nonsubstantive_from_base,
         straightliner_action=settings.straightliner_action,
     )
+
+
+class DisplayOrderPayload(BaseModel):
+    label_order: list[str]
+
+
+@app.get("/api/projects/{survey_id}/display-order/{qid}")
+async def get_display_order(survey_id: str, qid: str) -> DisplayOrderPayload | None:
+    """Round C3: the analyst's saved manual display order for one question,
+    if any. Keyed by survey_id directly (not session_id), same as project
+    settings — editable independent of any active upload session. Returns
+    None (204-shaped null body) when no manual order has been saved, so the
+    UI can distinguish 'default rank order' from 'a saved order'."""
+    path = _project_display_order_path(survey_id)
+    orders = load_display_orders(path)
+    entry = orders.orders.get(qid)
+    if entry is None:
+        return None
+    return DisplayOrderPayload(label_order=entry.label_order)
+
+
+@app.put("/api/projects/{survey_id}/display-order/{qid}")
+async def put_display_order(survey_id: str, qid: str, payload: DisplayOrderPayload) -> DisplayOrderPayload:
+    """Save a manual display order for one question. Does not itself
+    recompute anything — the next crosstab call for this survey_id picks it
+    up via _load_display_orders_for_survey (post_crosstab/post_breaks_export),
+    exactly as a project-settings change is picked up on the next run."""
+    path = _project_display_order_path(survey_id)
+    order = DisplayOrder(
+        variable=qid,
+        label_order=payload.label_order,
+        is_manual=True,
+        saved_at=datetime.now(timezone.utc),
+    )
+    write_display_order(path, order)
+    return payload
+
+
+@app.delete("/api/projects/{survey_id}/display-order/{qid}")
+async def reset_display_order(survey_id: str, qid: str) -> dict:
+    """Reset one question back to its default order (rank order for scale
+    questions, vendor-declared order for categorical) by deleting its saved
+    manual order entirely. A no-op if no manual order was saved."""
+    path = _project_display_order_path(survey_id)
+    delete_display_order(path, qid)
+    return {"reset": True}
 
 
 @app.get("/api/session/{session_id}/run-summary")
@@ -1088,6 +1161,7 @@ async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[Quest
         session.registry,
         session.vendor,
         config,
+        display_orders=_load_display_orders_for_survey(session.survey_id),
     )
     return attach_chart_permissions(results, config)
 
@@ -1136,6 +1210,7 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
         session.registry,
         session.vendor,
         config,
+        display_orders=_load_display_orders_for_survey(session.survey_id),
     )
     results = attach_chart_permissions(results, config)
     question_result = results[0]

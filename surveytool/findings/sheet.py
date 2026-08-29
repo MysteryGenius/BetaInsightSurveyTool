@@ -30,6 +30,11 @@ class FindingsRow:
     convention: str           # "T2B" | "B2B" | "mean" | "pct" | "n"
     role: CodeRole | None = None  # populated for pct_<label> rows; None for aggregates
     rank: int | None = None  # populated for pct_<label> rows; None for aggregates and n_<label> rows
+    display_order_is_manual: bool = False
+    """Round C3 provenance: True when this question has a saved manual
+    display order. Never affects any value on this row -- the findings
+    sheet is a long-format table with no meaningful ordinal row order, so
+    this is a marker only, not a reordering of rows."""
 
 
 def _find_banner_question(survey: Survey, name: str) -> Question | None:
@@ -46,6 +51,7 @@ def _emit_rows(
     breakdown_variable: str,
     breakdown_level: str,
     breakdown_level_label: str,
+    display_order_is_manual: bool = False,
 ) -> list[FindingsRow]:
     rows: list[FindingsRow] = []
     base = qs_result.base
@@ -64,6 +70,7 @@ def _emit_rows(
             convention="pct",
             role=cs.role,
             rank=cs.rank,
+            display_order_is_manual=display_order_is_manual,
         ))
         rows.append(FindingsRow(
             survey_id=survey_id,
@@ -76,6 +83,7 @@ def _emit_rows(
             metric=f"n_{cs.label}",
             value=float(cs.n),
             convention="n",
+            display_order_is_manual=display_order_is_manual,
         ))
 
     if qs_result.t2b is not None:
@@ -90,6 +98,7 @@ def _emit_rows(
             metric="t2b",
             value=qs_result.t2b,
             convention="T2B",
+            display_order_is_manual=display_order_is_manual,
         ))
 
     if qs_result.b2b is not None:
@@ -104,6 +113,7 @@ def _emit_rows(
             metric="b2b",
             value=qs_result.b2b,
             convention="B2B",
+            display_order_is_manual=display_order_is_manual,
         ))
 
     if qs_result.mean is not None:
@@ -118,6 +128,7 @@ def _emit_rows(
             metric="mean",
             value=qs_result.mean,
             convention="mean",
+            display_order_is_manual=display_order_is_manual,
         ))
 
     return rows
@@ -128,6 +139,7 @@ def build_findings_sheet(
     banner: list[str] | None = None,
     exclude_respondent_ids: set[str] | None = None,
     exclude_nonsubstantive_from_base: bool = False,
+    display_order_manual_qids: set[str] | None = None,
 ) -> list[FindingsRow]:
     """Build the long-format findings sheet.
 
@@ -139,6 +151,11 @@ def build_findings_sheet(
     setting from UI build prompt 9. Never applied to the banner/demographic
     breakdown itself (only to each question's own base), matching
     compute_question_stats's own documented scope.
+
+    ``display_order_manual_qids`` (Round C3): qids with a saved manual
+    display order, recorded as provenance on every row for that question
+    (``FindingsRow.display_order_is_manual``). Never changes row order or
+    any value — the findings sheet's row order was never ordinal.
     """
     if banner is None:
         banner = _DEFAULT_BANNER
@@ -175,11 +192,14 @@ def build_findings_sheet(
 
     rows: list[FindingsRow] = []
 
+    manual_qids = display_order_manual_qids or set()
+
     for question in survey.questions:
         if not question.base_eligible:
             continue
 
         q_responses = response_index.get(question.qid, [])
+        is_manual = question.qid in manual_qids
 
         # Total breakdown
         qs_total = compute_question_stats(
@@ -190,6 +210,7 @@ def build_findings_sheet(
             breakdown_variable="total",
             breakdown_level="Total",
             breakdown_level_label="Total",
+            display_order_is_manual=is_manual,
         ))
 
         # Per-banner breakdowns
@@ -216,6 +237,7 @@ def build_findings_sheet(
                     breakdown_variable=bname,
                     breakdown_level=sc.label,
                     breakdown_level_label=sc.label,
+                    display_order_is_manual=is_manual,
                 ))
 
     return rows

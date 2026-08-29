@@ -152,21 +152,38 @@ class QuestionResult(BaseModel):
     notification mechanism, filtered down to only the dimensions actually
     broken out here so a table never carries a note about a dimension it
     doesn't display. Empty when the break spec includes no such dimension."""
+    display_order_is_manual: bool = False
+    """Round C3: True when this question's scale_points were ordered from
+    an analyst's saved manual DisplayOrder rather than the rank-order
+    default. Never affects nets/mean -- those are always computed from
+    rank regardless of this flag or of scale_points' order."""
 
 
-def _scale_points(question: Question) -> list[ScalePoint]:
-    """Order by rank ascending (rank 1 = bottom), never by the position a
-    label happened to land at in question.labels (which for Milieu/Toluna
-    is vendor-data-appearance order and carries no ordinal meaning -- see
-    Round B). A code with no rank (categorical/binary/nonsubstantive) sorts
-    after every ranked point, in its original question.labels order, since
-    there is no ordinal position to place it at."""
-    ranked = sorted(
-        (sc for sc in question.labels if sc.rank is not None),
-        key=lambda sc: sc.rank,
-    )
-    unranked = [sc for sc in question.labels if sc.rank is None]
-    ordered = ranked + unranked
+def _scale_points(question: Question, manual_label_order: list[str] | None = None) -> list[ScalePoint]:
+    """Order by manual_label_order if provided (Round C3 -- an analyst's
+    saved reorder), else by rank ascending (rank 1 = bottom, Round B
+    default), else by original question.labels position for anything with
+    no rank at all. Manual order NEVER changes which points exist or their
+    role/rank/polarity -- only their display position. Never by the
+    position a label happened to land at in question.labels (which for
+    Milieu/Toluna is vendor-data-appearance order and carries no ordinal
+    meaning -- see Round B). A code with no rank (categorical/binary/
+    nonsubstantive) sorts after every ranked point, in its original
+    question.labels order, since there is no ordinal position to place it
+    at."""
+    if manual_label_order is not None:
+        order_index = {label: i for i, label in enumerate(manual_label_order)}
+        ordered = sorted(
+            question.labels,
+            key=lambda sc: order_index.get(sc.label, len(manual_label_order)),
+        )
+    else:
+        ranked = sorted(
+            (sc for sc in question.labels if sc.rank is not None),
+            key=lambda sc: sc.rank,
+        )
+        unranked = [sc for sc in question.labels if sc.rank is None]
+        ordered = ranked + unranked
     return [
         ScalePoint(
             code=sc.code,
@@ -335,6 +352,7 @@ def compute_breaks_crosstab(
     registry: ResolvedRegistry,
     vendor: str,
     config: ToolConfig,
+    display_orders: dict[str, list[str]] | None = None,
 ) -> list[QuestionResult]:
     """Compute an N-dimensional cross-tab for each requested question.
 
@@ -346,6 +364,13 @@ def compute_breaks_crosstab(
     Expects an already-validated request: validation (break/filter spec
     legality) belongs to ``surveytool.core.break_filter.validate_request`` and
     is surfaced by ``surveytool.core.projection.project``, not repeated here.
+
+    ``display_orders`` (Round C3): an optional qid -> manual label order map,
+    pre-loaded by the caller from ``ProjectDisplayOrders``. Affects only
+    ``QuestionResult.scale_points``' ordering and ``display_order_is_manual``
+    -- every count/percentage/net/mean in ``columns`` comes from
+    ``compute_question_stats`` exactly as before and is completely
+    unaffected by display order.
     """
     filtered_ids = apply_filter(respondent_frame, filter_spec, registry, survey, vendor)
     cells = resolve_cells(
@@ -382,18 +407,21 @@ def compute_breaks_crosstab(
             _column_for_cell(cell, question, q_responses, config) for cell in cells
         ]
 
+        manual_label_order = display_orders.get(question.qid) if display_orders else None
+
         results.append(
             QuestionResult(
                 question_id=question.qid,
                 question_text=question.text,
                 scale_id=question.scale_family,
                 scale_variant=question.scale_variant,
-                scale_points=_scale_points(question),
+                scale_points=_scale_points(question, manual_label_order),
                 nets=_net_definitions(question),
                 base_total=base_total,
                 base_filtered=base_filtered,
                 columns=columns,
                 demographic_notices=demographic_notices,
+                display_order_is_manual=bool(display_orders and question.qid in display_orders),
             )
         )
 

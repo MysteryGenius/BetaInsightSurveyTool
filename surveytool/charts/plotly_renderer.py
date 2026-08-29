@@ -78,6 +78,8 @@ def _header_text(
             f"Base filtered: {question_result.base_filtered:,}"
         ),
     ]
+    if question_result.display_order_is_manual:
+        raw_lines.append("⚠ Response options manually reordered")
     wrapped_lines = []
     for line in raw_lines:
         wrapped_lines.extend(wrap_text(line, max_chars_per_line=90))
