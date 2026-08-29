@@ -117,7 +117,7 @@ def _build_scale_question(
     variant_name: str | None = None
     if override is not None:
         roles: dict[str, tuple[CodeRole, int | None]] = apply_override(substantive_values, override)
-        family = identify_family(substantive_values)
+        family = identify_family(substantive_values, qid=info.qid)
     else:
         match = match_family(substantive_values)
         roles = dict(match.matched_labels)

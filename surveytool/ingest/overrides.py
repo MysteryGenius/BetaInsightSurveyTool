@@ -44,6 +44,27 @@ class IncompleteOverrideError(SurveyToolError):
         )
 
 
+class InvalidRankAssignmentError(SurveyToolError):
+    """Raised when a SCALE override's label_ranks are present but don't form
+    a valid rank assignment: not exactly {1, 2, ..., N} for the N
+    substantive (non-nonsubstantive) labels being ranked. A duplicate rank
+    (e.g. two labels both ranked 3) or a gap (e.g. 1, 2, 4 with nothing at
+    3) silently degrades mean computation and chart ordering downstream, so
+    this is checked and rejected at write time rather than allowed to reach
+    a Question and break in some far-away consumer."""
+
+    def __init__(self, variable: str, ranks: dict[str, int]) -> None:
+        self.variable = variable
+        self.ranks = ranks
+        detail = f"Override for {variable!r} has invalid ranks: {ranks!r}. Ranks must be exactly 1..{len(ranks)}, each used once."
+        super().__init__(
+            ErrorCode.UNRESOLVED_SCALE_LABELS,
+            f"The saved resolution for '{variable}' has an invalid rank assignment.",
+            detail=detail,
+            next_action="Open the resolver and assign each response a unique rank, numbered consecutively starting at 1 with no gaps or repeats.",
+        )
+
+
 _ROLE_MAP: dict[str, CodeRole] = {"top": CodeRole.top, "neutral": CodeRole.neutral, "bottom": CodeRole.bottom}
 
 
@@ -92,7 +113,11 @@ def apply_override(question_labels: list[str], override: QuestionOverride) -> di
     any role.
 
     Rank resolution: if the override carries label_ranks, use them
-    directly (validated to cover the same labels as label_roles). If the
+    directly (validated to cover the same labels as label_roles, AND to be
+    a valid rank assignment -- exactly {1, ..., N} for the N labels being
+    ranked, each used exactly once; raises InvalidRankAssignmentError
+    otherwise, since a duplicate or gapped rank silently skews any mean
+    computed over this scale and breaks chart ordering). If the
     override predates Round B (label_ranks is None), derive a rank
     deterministically from role order among question_labels themselves,
     in the order role groups naturally sort (bottom, then neutral, then
@@ -114,7 +139,11 @@ def apply_override(question_labels: list[str], override: QuestionOverride) -> di
         rank_missing = [lb for lb in question_labels if lb not in override.label_ranks]
         if rank_missing:
             raise IncompleteOverrideError(override.variable, rank_missing)
-        return {lb: (roles[lb], override.label_ranks[lb]) for lb in question_labels}
+        ranks_for_question = {lb: override.label_ranks[lb] for lb in question_labels}
+        expected = set(range(1, len(question_labels) + 1))
+        if set(ranks_for_question.values()) != expected:
+            raise InvalidRankAssignmentError(override.variable, ranks_for_question)
+        return {lb: (roles[lb], ranks_for_question[lb]) for lb in question_labels}
 
     _ROLE_ORDER = {CodeRole.bottom: 0, CodeRole.neutral: 1, CodeRole.top: 2, CodeRole.nonsubstantive: 3}
     ordered = sorted(question_labels, key=lambda lb: (_ROLE_ORDER[roles[lb]], question_labels.index(lb)))
@@ -155,7 +184,7 @@ def resolve_with_override(
         return QuestionType.excluded, None, None, None
     if override.question_type == "scale":
         roles = apply_override(substantive_labels, override)
-        family = identify_family(substantive_labels)
+        family = identify_family(substantive_labels, qid=qid)
         return QuestionType.scale, roles, family, None
     return _QTYPE_MAP[override.question_type], None, None, None
 
@@ -188,7 +217,7 @@ def check_override_still_needed(
     switches behaviour, only surfaces the fact for the run summary."""
     if override.question_type != "scale":
         return None
-    family = identify_family(labels)
+    family = identify_family(labels, qid=variable)
     if family is None:
         return None
     return OverrideNotice(

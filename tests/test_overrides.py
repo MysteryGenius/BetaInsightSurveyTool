@@ -8,6 +8,7 @@ import yaml
 from surveytool.core.model import CodeRole
 from surveytool.ingest.overrides import (
     IncompleteOverrideError,
+    InvalidRankAssignmentError,
     ProjectOverrides,
     QuestionOverride,
     apply_override,
@@ -64,6 +65,55 @@ def test_apply_override_incomplete_assignment_raises():
     with pytest.raises(IncompleteOverrideError) as exc_info:
         apply_override(["Purple", "Green"], override)
     assert "Green" in str(exc_info.value)
+
+
+def test_apply_override_explicit_ranks_used_directly():
+    override = QuestionOverride(
+        variable="Q3",
+        question_type="scale",
+        label_roles={"Low": "bottom", "Mid": "neutral", "High": "top"},
+        label_ranks={"Low": 1, "Mid": 2, "High": 3},
+        resolved_at=datetime.now(timezone.utc),
+        library_version="1.0.0",
+    )
+    roles = apply_override(["Low", "Mid", "High"], override)
+    assert roles == {
+        "Low": (CodeRole.bottom, 1),
+        "Mid": (CodeRole.neutral, 2),
+        "High": (CodeRole.top, 3),
+    }
+
+
+def test_apply_override_duplicate_ranks_rejected():
+    """Whole-branch review Minor #5: {"Low": 5, "Mid": 5, "High": 5} must be
+    rejected -- duplicate ranks silently degrade mean computation and chart
+    ordering downstream, and were previously accepted with no validation at
+    all."""
+    override = QuestionOverride(
+        variable="Q3",
+        question_type="scale",
+        label_roles={"Low": "bottom", "Mid": "neutral", "High": "top"},
+        label_ranks={"Low": 5, "Mid": 5, "High": 5},
+        resolved_at=datetime.now(timezone.utc),
+        library_version="1.0.0",
+    )
+    with pytest.raises(InvalidRankAssignmentError) as exc_info:
+        apply_override(["Low", "Mid", "High"], override)
+    assert "Q3" in str(exc_info.value)
+
+
+def test_apply_override_gapped_ranks_rejected():
+    """Ranks 1, 2, 4 (a gap at 3) must be rejected -- not exactly 1..N."""
+    override = QuestionOverride(
+        variable="Q3",
+        question_type="scale",
+        label_roles={"Low": "bottom", "Mid": "neutral", "High": "top"},
+        label_ranks={"Low": 1, "Mid": 2, "High": 4},
+        resolved_at=datetime.now(timezone.utc),
+        library_version="1.0.0",
+    )
+    with pytest.raises(InvalidRankAssignmentError):
+        apply_override(["Low", "Mid", "High"], override)
 
 
 def test_write_override_then_read_back(tmp_path: Path):

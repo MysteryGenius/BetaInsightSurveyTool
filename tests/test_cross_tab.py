@@ -54,9 +54,13 @@ def _make_scale_question(qid: str = "Q1", text: str = "Q") -> Question:
         text=text,
         qtype=QuestionType.scale,
         labels=[
-            ScaleCode(code=1, label="Agree", role=CodeRole.top, numeric_value=1, rank=1),
+            # rank 1 = bottom of the scale everywhere in this codebase, so
+            # "Disagree" (bottom) is rank 1 and "Agree" (top) is rank 3 --
+            # the reverse of numeric_value/code, which follow this
+            # fixture's own listed order and are unrelated to rank.
+            ScaleCode(code=1, label="Agree", role=CodeRole.top, numeric_value=1, rank=3),
             ScaleCode(code=2, label="Neutral", role=CodeRole.neutral, numeric_value=2, rank=2),
-            ScaleCode(code=3, label="Disagree", role=CodeRole.bottom, numeric_value=3, rank=3),
+            ScaleCode(code=3, label="Disagree", role=CodeRole.bottom, numeric_value=3, rank=1),
         ],
         scale_family="agreement",
     )

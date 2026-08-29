@@ -132,7 +132,7 @@ def _build_question(
     if override_result is not None:
         qtype, roles, family, variant_name = override_result
     else:
-        classified = classify_question_type(substantive_norm)
+        classified = classify_question_type(substantive_norm, qid=qid)
         if classified is None:
             # No override and no full scale/binary match: this is not this
             # function's call to make silently (Task 5) — collect it for

@@ -328,6 +328,14 @@ def test_real_adapter_load_raises_ambiguous_scale_match_error(monkeypatch):
     path shared by every adapter (rakuten.py's _build_question, and
     toluna.py/milieu.py's match_family-based _build_scale_question all
     route through the same scale_library entry points).
+
+    Whole-branch review Finding 3: identify_variant always raised
+    AmbiguousScaleMatchError with qid=None, so a real ambiguous-match error
+    never named the question that triggered it -- not actionable for a
+    non-technical analyst ("resolve this question manually" doesn't say
+    which one). classify_question_type/identify_variant now take an
+    optional qid, threaded through from this adapter's real Q1, so the
+    raised error's .qid is asserted below.
     """
     import surveytool.core.scale_library as sl
     from surveytool.charts.errors import AmbiguousScaleMatchError
@@ -382,6 +390,8 @@ families:
 
     assert "fam_a.v1" in exc_info.value.variant_names
     assert "fam_b.v1" in exc_info.value.variant_names
+    assert exc_info.value.qid == "Q1"
+    assert "Q1" in str(exc_info.value)
 
 
 # ── Round B task B2: real per-vendor variant population ──────────────────

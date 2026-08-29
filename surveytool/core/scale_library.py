@@ -7,11 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from surveytool.charts.errors import (
-    AmbiguousScaleMatchError,
-    ScaleLibraryConfigError,
-    UnresolvedScaleLabelsError,
-)
+from surveytool.charts.errors import AmbiguousScaleMatchError, ScaleLibraryConfigError
 from surveytool.core.hygiene import fold_label
 from surveytool.core.model import CodeRole, QuestionType
 
@@ -176,7 +172,7 @@ def _variants_fully_matching(labels: list[str]) -> list[Variant]:
     return [v for v in _ALL_VARIANTS if v.folded_label_set == normed]
 
 
-def identify_variant(labels: list[str]) -> Variant | None:
+def identify_variant(labels: list[str], qid: str | None = None) -> Variant | None:
     """Return the single Variant whose folded label set exactly equals this
     question's folded label set, or None if no variant matches at all.
 
@@ -187,20 +183,27 @@ def identify_variant(labels: list[str]) -> Variant | None:
     independent guard at the point of use, per the Round B spec's "ambiguity
     in the library is a library defect and must surface as one" -- it
     should be unreachable in practice given B1's load-time check, but a
-    classify-time caller must never silently pick one if it somehow is."""
+    classify-time caller must never silently pick one if it somehow is.
+
+    `qid`, when the caller has one in scope (a real adapter classifying a
+    real question), is threaded into the raised error so an end user sees
+    which question triggered it -- see AmbiguousScaleMatchError's docstring.
+    A synthetic/unit-test caller with no real question in scope passes None
+    (the default), same as before this parameter existed."""
     matches = _variants_fully_matching(labels)
     if not matches:
         return None
     if len(matches) > 1:
-        raise AmbiguousScaleMatchError(None, labels, [f"{v.family}.{v.name}" for v in matches])
+        raise AmbiguousScaleMatchError(qid, labels, [f"{v.family}.{v.name}" for v in matches])
     return matches[0]
 
 
-def identify_family(labels: list[str]) -> str | None:
+def identify_family(labels: list[str], qid: str | None = None) -> str | None:
     """Return the scale family name if the full label set matches exactly
     one variant. Raises AmbiguousScaleMatchError on a multi-variant match
-    (see identify_variant)."""
-    variant = identify_variant(labels)
+    (see identify_variant). `qid` is forwarded to identify_variant so a real
+    ambiguous-match error names the question."""
+    variant = identify_variant(labels, qid=qid)
     return variant.family if variant is not None else None
 
 
@@ -373,6 +376,7 @@ def is_ordinal_resolver_candidate(labels: list[str]) -> bool:
 
 def classify_question_type(
     labels: list[str],
+    qid: str | None = None,
 ) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None, str | None] | None:
     """Classify a question's substantive labels as SCALE or BINARY.
 
@@ -386,6 +390,10 @@ def classify_question_type(
     position, just two poles).
 
     Neither: returns None. CATEGORICAL is never inferred here.
+
+    `qid`, when the caller (a real adapter) has one in scope, is forwarded
+    to identify_variant so a real ambiguous-match error names the question
+    that triggered it.
     """
     normed = [_normalise(lb) for lb in labels]
 
@@ -396,7 +404,7 @@ def classify_question_type(
     if len(labels) == 2 and frozenset(normed) in _BINARY_PAIRS:
         return QuestionType.binary, None, None, None
 
-    variant = identify_variant(labels)
+    variant = identify_variant(labels, qid=qid)
     if variant is not None:
         roles: dict[str, tuple[CodeRole, int]] = {}
         for label, norm in zip(labels, normed):

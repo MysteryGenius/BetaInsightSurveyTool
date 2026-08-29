@@ -99,13 +99,18 @@ def test_nonsubstantive_in_base_not_mean():
         if r.state is ResponseState.answered and r.raw_value is not None
     ]
     label_map = {sc.code: sc for sc in QUESTION.labels}
-    numeric_values = [
-        label_map[r.raw_value].numeric_value
+    # Round B: mean is derived from rank, not numeric_value (numeric_value
+    # is only ever the vendor-code join key -- see
+    # test_no_compute_path_orders_or_nets_by_numeric_value below). This
+    # hand-rolled mean check mirrors compute_question_stats' own logic in
+    # surveytool/compute/frequency.py so it agrees with EXPECTED_MEAN.
+    ranks = [
+        label_map[r.raw_value].rank
         for r in substantive
-        if r.raw_value in label_map and label_map[r.raw_value].numeric_value is not None
+        if r.raw_value in label_map and label_map[r.raw_value].rank is not None
     ]
 
-    mean = sum(numeric_values) / len(numeric_values)
+    mean = sum(ranks) / len(ranks)
     assert mean == pytest.approx(EXPECTED_MEAN)
 
     # Confirm the non-substantive respondent is in the base count

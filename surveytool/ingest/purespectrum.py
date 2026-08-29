@@ -148,7 +148,7 @@ def _build_question(
     if override_result is not None:
         qtype, roles, family, variant_name = override_result
     else:
-        classified = classify_question_type(substantive_norm)
+        classified = classify_question_type(substantive_norm, qid=qid)
         if classified is None:
             if is_declared_demographic:
                 qtype, roles, family, variant_name = QuestionType.categorical, None, None, None
