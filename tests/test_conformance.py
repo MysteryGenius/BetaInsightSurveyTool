@@ -839,3 +839,98 @@ def test_toluna_scale_question_permits_diverging_stacked_bar():
     permissions = evaluate_chart_permissions(result, column_count=1, config=ToolConfig())
     diverging = next(p for p in permissions if p.chart_type is ChartType.diverging_stacked_bar)
     assert diverging.permitted is True
+
+
+# ── Task B5: Round B conformance suite ──────────────────────────────────────
+#
+# Standing regression guards locking in Round B's behavior. Per the task
+# brief: "The suite fails if B2 or B3 is reverted." Steps 3 (Toluna Q7 table)
+# and 5 (duplicate-variant-raises-at-load) were already added incrementally
+# in Tasks B3 and B1 respectively (test_toluna_q7_local_mainstream_media_rank_and_netting
+# above, and test_duplicate_folded_label_set_across_variants_raises_at_load
+# in tests/test_scale_library.py) — only Steps 1 and 2 below are new.
+
+
+@pytest.mark.skipif(
+    not (_TOLUNA_PATH.exists() and _MILIEU_PATH.exists() and _PURESPECTRUM_PATH.exists()
+         and _RAKUTEN_CHN_CLANS_PATH.exists() and _RAKUTEN_PATH.exists()),
+    reason="Not all five real vendor fixtures present",
+)
+def test_every_scale_question_in_every_real_file_matches_exactly_one_variant():
+    """Round B5: a scale question matching zero or more than one variant
+    fails the run. This sweep loads all five real files and checks every
+    Question with qtype == scale carries both scale_family and
+    scale_variant (a question that reached qtype=scale via classify_or_collect's
+    single-full-match path always has both; an override-resolved scale
+    question has scale_family set but scale_variant=None by design -- Task
+    B4 Step 5's documented limitation -- so this sweep only asserts on
+    non-override-resolved scale questions, identified as those with
+    scale_variant is not None OR scale_family is None entirely, i.e. it
+    never accepts a scale question with scale_family set but scale_variant
+    unset UNLESS that question's qid has a stored override).
+
+    PureSpectrum is loaded with the same D5/Q1/Q3/Q6-categorical override
+    set used by every other passing conformance test in this module (see
+    test_no_real_scale_question_changes_family_across_all_five_files and
+    test_purespectrum_shared_conformance_assertions above) rather than an
+    override-free load, specifically to avoid the 17 known-broken
+    PureSpectrum classification paths that are out of this task's scope
+    (Task B5 brief's explicit scope boundary) -- an override-free load
+    raises UnresolvedQuestionsError for D5, which is not what this sweep is
+    testing."""
+    from datetime import datetime, timezone
+
+    from surveytool.ingest.milieu import load as milieu_load
+    from surveytool.ingest.overrides import QuestionOverride
+    from surveytool.ingest.purespectrum import load as ps_load
+    from surveytool.ingest.rakuten import load as rakuten_load
+    from surveytool.ingest.toluna import load as toluna_load
+
+    now = datetime.now(timezone.utc)
+    overrides = {
+        v: QuestionOverride(variable=v, question_type="categorical", label_roles={}, resolved_at=now, library_version="t")
+        for v in ["Q1", "Q3", "Q6", "D5"]
+    }
+
+    surveys = [
+        rakuten_load(_RAKUTEN_CHN_CLANS_PATH, "chn_clans"),
+        rakuten_load(_RAKUTEN_PATH, "support_measures"),
+        ps_load(_PURESPECTRUM_PATH, "ps_wcs", overrides),
+        toluna_load(_TOLUNA_PATH, "toluna_misinfo"),
+        milieu_load(_MILIEU_PATH, "milieu_coe"),
+    ]
+    overridden_qids = set(overrides.keys())
+    for survey in surveys:
+        for q in survey.questions:
+            if q.qtype.value != "scale":
+                continue
+            assert q.scale_family is not None, f"{survey.id}/{q.qid}: scale question with no family"
+            if q.scale_variant is None and q.qid not in overridden_qids:
+                pytest.fail(
+                    f"{survey.id}/{q.qid}: scale question with family "
+                    f"{q.scale_family!r} but no variant -- either an "
+                    f"override resolved it (acceptable, but this sweep "
+                    f"found none configured for these fixtures) or the "
+                    f"library match path failed to record one (a defect)."
+                )
+
+
+def test_no_compute_path_orders_or_nets_by_numeric_value():
+    """Round B5: structural guard against regression. numeric_value must
+    never again appear in an ordering, netting, or mean expression. This
+    greps the specific files Task B3 fixed rather than the whole tree,
+    since numeric_value legitimately still exists on ScaleCode as the join
+    key (Round B's own design) -- this test isn't "ban the field", it's
+    "ban using it for the things rank now owns"."""
+    import re
+    guarded_files = [
+        _ROOT / "surveytool" / "compute" / "frequency.py",
+        _ROOT / "surveytool" / "compute" / "breaks_compute.py",
+    ]
+    forbidden = re.compile(r"numeric_value")
+    for path in guarded_files:
+        text = path.read_text(encoding="utf-8")
+        assert not forbidden.search(text), (
+            f"{path} references numeric_value -- Round B requires rank for "
+            f"ordering/netting/mean, never the vendor's numeric code."
+        )

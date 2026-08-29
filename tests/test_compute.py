@@ -198,6 +198,13 @@ def test_compute_survey_stats_skips_non_eligible():
 #
 # These load the real vendor files and validate against human-verified HC counts.
 # They are skipped when the vendor files are not present.
+#
+# Round B (2026-08-29) depends on every assertion in this module continuing
+# to pass unchanged -- Rakuten's vendor codes are uniformly ascending, so
+# rank == code for every Rakuten scale question, and Round B's rank-based
+# netting/mean must reproduce these exact figures. See
+# docs/superpowers/plans/2026-08-29-round-b-scale-ordinal-rank.md Task B3
+# Step 11.
 
 @pytest.mark.skipif(
     not SOCIAL_MOBILITY_PATH.exists(),
