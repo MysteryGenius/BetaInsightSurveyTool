@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 import yaml
 
-from surveytool.charts.errors import UnresolvedScaleLabelsError
+from surveytool.charts.errors import (
+    AmbiguousScaleMatchError,
+    ScaleLibraryConfigError,
+    UnresolvedScaleLabelsError,
+)
 from surveytool.core.hygiene import fold_label
 from surveytool.core.model import CodeRole, QuestionType
 
@@ -16,195 +20,268 @@ _NEITHER_NOR = re.compile(r"neither.+nor", re.IGNORECASE)
 _SCALES_PATH = Path(__file__).parent / "scales.yaml"
 
 
-def _load_families() -> dict[str, dict[str, list[str]]]:
-    raw = yaml.safe_load(_SCALES_PATH.read_text(encoding="utf-8"))
-    return raw["families"]
-
-
-_FAMILIES: dict[str, dict[str, list[str]]] = _load_families()
-
-
 def _normalise(label: str) -> str:
     return fold_label(label)
 
 
-def _is_neutral_label(norm: str, family: dict[str, list[str]]) -> bool:
-    """A label counts as neutral for a family if it matches the neither…nor
-    regex, or is a literal member of that family's neutral_patterns."""
-    return bool(_NEITHER_NOR.search(norm)) or norm in family["neutral_patterns"]
+@dataclass(frozen=True)
+class ScalePointDef:
+    """One point of a variant: the set of label patterns (already folded)
+    that map to this point, and its 1-based rank within the variant (1 =
+    bottom)."""
+
+    patterns: tuple[str, ...]
+    rank: int
 
 
-def _match_role(norm: str) -> CodeRole | None:
-    for family in _FAMILIES.values():
-        if norm in family["top_patterns"]:
-            return CodeRole.top
-        if _is_neutral_label(norm, family):
-            return CodeRole.neutral
-        if norm in family["bottom_patterns"]:
-            return CodeRole.bottom
-    return None
+@dataclass(frozen=True)
+class Variant:
+    """A complete, ordered scale: every point from bottom (rank 1) to top
+    (rank len(points)). Role is derived from rank and point count, never
+    declared -- see role_for_rank."""
+
+    name: str
+    family: str
+    points: tuple[ScalePointDef, ...]
+    folded_label_set: frozenset[str] = field(compare=False)
+
+    def role_for_rank(self, rank: int) -> CodeRole:
+        """Odd-length variant: the exact middle rank is neutral, everything
+        below is bottom, everything above is top. Even-length variant: no
+        neutral rank exists; the lower half is bottom, the upper half is
+        top (split at the midpoint, e.g. 4 points -> ranks 1-2 bottom,
+        3-4 top)."""
+        n = len(self.points)
+        if n % 2 == 1:
+            mid = (n + 1) // 2
+            if rank == mid:
+                return CodeRole.neutral
+            return CodeRole.bottom if rank < mid else CodeRole.top
+        half = n // 2
+        return CodeRole.bottom if rank <= half else CodeRole.top
+
+    def rank_for_label(self, folded_label: str) -> int | None:
+        for point in self.points:
+            if folded_label in point.patterns:
+                return point.rank
+        return None
+
+
+@dataclass(frozen=True)
+class Family:
+    name: str
+    variants: tuple[Variant, ...]
+
+
+def _parse_raw_families(yaml_text: str) -> dict:
+    raw = yaml.safe_load(yaml_text)
+    return raw.get("families", {}) if raw else {}
+
+
+def _build_families(raw_families: dict) -> dict[str, Family]:
+    """Build and validate Family/Variant objects from the raw parsed YAML.
+
+    Validation (Round B task B1, step 3):
+    - a pattern appearing at two different ranks within one variant raises
+    - a variant with fewer than 3 points raises
+    - two variants anywhere in the file (same or different family) sharing
+      a folded label set raises
+    All patterns are folded via fold_label at this point, so YAML authors
+    can write labels exactly as they appear in a vendor file (folding
+    handles case/dash/apostrophe variance) -- see scales.yaml itself.
+    """
+    families: dict[str, Family] = {}
+    seen_label_sets: dict[frozenset[str], tuple[str, str]] = {}  # label_set -> (family, variant)
+
+    for family_name, family_raw in raw_families.items():
+        variants: list[Variant] = []
+        for variant_name, variant_raw in (family_raw.get("variants") or {}).items():
+            points_raw = variant_raw.get("points", [])
+            if len(points_raw) < 3:
+                raise ScaleLibraryConfigError(
+                    f"Family {family_name!r}, variant {variant_name!r} has "
+                    f"{len(points_raw)} point(s); every variant must have "
+                    f"at least 3 points."
+                )
+
+            seen_patterns: dict[str, int] = {}
+            points: list[ScalePointDef] = []
+            all_patterns: set[str] = set()
+            for idx, point_raw in enumerate(points_raw, start=1):
+                folded_patterns = tuple(_normalise(p) for p in point_raw["patterns"])
+                for fp in folded_patterns:
+                    if fp in seen_patterns:
+                        raise ScaleLibraryConfigError(
+                            f"Family {family_name!r}, variant {variant_name!r}: "
+                            f"pattern {fp!r} appears at both rank "
+                            f"{seen_patterns[fp]} and rank {idx}."
+                        )
+                    seen_patterns[fp] = idx
+                    all_patterns.add(fp)
+                points.append(ScalePointDef(patterns=folded_patterns, rank=idx))
+
+            label_set = frozenset(all_patterns)
+            if label_set in seen_label_sets:
+                other_family, other_variant = seen_label_sets[label_set]
+                raise ScaleLibraryConfigError(
+                    f"Variant {family_name!r}.{variant_name!r} and "
+                    f"{other_family!r}.{other_variant!r} resolve to the same "
+                    f"folded label set: {sorted(label_set)!r}."
+                )
+            seen_label_sets[label_set] = (family_name, variant_name)
+
+            variants.append(
+                Variant(
+                    name=variant_name,
+                    family=family_name,
+                    points=tuple(points),
+                    folded_label_set=label_set,
+                )
+            )
+        families[family_name] = Family(name=family_name, variants=tuple(variants))
+
+    return families
+
+
+_FAMILIES_BY_NAME: dict[str, Family] = _build_families(
+    _parse_raw_families(_SCALES_PATH.read_text(encoding="utf-8"))
+)
+_ALL_VARIANTS: tuple[Variant, ...] = tuple(
+    variant for family in _FAMILIES_BY_NAME.values() for variant in family.variants
+)
+
+
+def _is_neutral_label(norm: str) -> bool:
+    """Kept for is_recognised_scale_point's neither/nor shortcut -- a label
+    matching the neither...nor regex is treated as a scale point regardless
+    of which variant it might belong to."""
+    return bool(_NEITHER_NOR.search(norm))
 
 
 def is_recognised_scale_point(label: str) -> bool:
-    """Return True if `label` (after the same fold_label normalisation the
-    scale library uses everywhere else) exactly matches a top, neutral, or
-    bottom pattern in any scale family.
+    """Return True if `label` (after fold_label) is a pattern in any point
+    of any variant in the library, or matches the neither...nor regex.
 
-    Used by `surveytool.core.nonsubstantive.is_nonsubstantive_label` to
+    Used by surveytool.core.nonsubstantive.is_nonsubstantive_label to
     protect a label like PureSpectrum's "Neutral/don't know enough to say"
-    (an exact, deliberate member of the `relevance` family's
-    neutral_patterns — see the comment in scales.yaml) from being nixed by
-    the generic non-substantive pattern list just because it happens to
-    contain a phrase like "don't know" as a substring. A label the scale
-    library recognises by exact match is a more specific, deliberate
-    classification than a loose substring heuristic and takes precedence."""
-    return _match_role(_normalise(label)) is not None
-
-
-def resolve_roles(
-    labels: list[str],
-    override: dict[str, CodeRole] | None = None,
-) -> dict[str, CodeRole]:
-    """
-    Map each label to a CodeRole.
-
-    Resolution order:
-    1. Explicit per-label override
-    2. neither…nor regex → neutral
-    3. Scale library pattern match
-    4. Raise ValueError naming every unresolved label
-    """
-    result: dict[str, CodeRole] = {}
-    unresolved: list[str] = []
-
-    for label in labels:
-        if override and label in override:
-            result[label] = override[label]
-            continue
-        role = _match_role(_normalise(label))
-        if role is None:
-            unresolved.append(label)
-        else:
-            result[label] = role
-
-    if unresolved:
-        raise UnresolvedScaleLabelsError(unresolved)
-    return result
-
-
-def _label_in_family(norm: str, family: dict[str, list[str]]) -> bool:
-    if norm in family["top_patterns"] or norm in family["bottom_patterns"]:
+    from being nixed by the generic non-substantive pattern list."""
+    norm = _normalise(label)
+    if _is_neutral_label(norm):
         return True
-    return _is_neutral_label(norm, family)
+    return any(norm in point.patterns for variant in _ALL_VARIANTS for point in variant.points)
 
 
-def _role_in_family(norm: str, family: dict[str, list[str]]) -> CodeRole | None:
-    """Like `_match_role`, but resolved against one specific family's
-    patterns rather than searching every family in library order — needed
-    wherever the caller has already chosen which family a label belongs to
-    (e.g. the best-matching family in an ambiguous match), since a label
-    can appear in more than one family's patterns and `_match_role` would
-    silently return the role from whichever family it hits first."""
-    if norm in family["top_patterns"]:
-        return CodeRole.top
-    if _is_neutral_label(norm, family):
-        return CodeRole.neutral
-    if norm in family["bottom_patterns"]:
-        return CodeRole.bottom
-    return None
+def _variants_fully_matching(labels: list[str]) -> list[Variant]:
+    normed = frozenset(_normalise(lb) for lb in labels)
+    return [v for v in _ALL_VARIANTS if v.folded_label_set == normed]
+
+
+def identify_variant(labels: list[str]) -> Variant | None:
+    """Return the single Variant whose folded label set exactly equals this
+    question's folded label set, or None if no variant matches at all.
+
+    Raises AmbiguousScaleMatchError if more than one variant matches --
+    exact set-equality matching means this can only happen if scales.yaml
+    itself has two variants with the same label set, which _build_families
+    already prevents at load time; this check exists as a second,
+    independent guard at the point of use, per the Round B spec's "ambiguity
+    in the library is a library defect and must surface as one" -- it
+    should be unreachable in practice given B1's load-time check, but a
+    classify-time caller must never silently pick one if it somehow is."""
+    matches = _variants_fully_matching(labels)
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise AmbiguousScaleMatchError(None, labels, [f"{v.family}.{v.name}" for v in matches])
+    return matches[0]
 
 
 def identify_family(labels: list[str]) -> str | None:
-    """Return the scale family name if the full label set matches exactly one family."""
-    normed = [_normalise(lb) for lb in labels]
-    matches: list[str] = []
-    for name, family in _FAMILIES.items():
-        if all(_label_in_family(n, family) for n in normed):
-            matches.append(name)
-    return matches[0] if len(matches) == 1 else None
+    """Return the scale family name if the full label set matches exactly
+    one variant. Raises AmbiguousScaleMatchError on a multi-variant match
+    (see identify_variant)."""
+    variant = identify_variant(labels)
+    return variant.family if variant is not None else None
 
 
 class MatchOutcome(str, Enum):
     """Result of matching a question's label set against the scale library."""
 
     full = "full"
-    """Every label maps to a role in a single family."""
     partial = "partial"
-    """At least one label maps to a family and at least one does not."""
     none = "none"
-    """No label maps to any family."""
 
 
 @dataclass(frozen=True)
 class FamilyMatch:
     """Richer, non-raising result of matching a question's labels against
-    the scale library — unlike `identify_family`, this distinguishes a
-    partial match (some labels resolve, some don't) from a genuine
-    non-match (nothing resolves), and records which specific labels fell on
-    each side plus the role each matched label would take.
+    the scale library.
 
     outcome: MatchOutcome.full / .partial / .none.
     family: the family name for a full or partial match; None for no match.
-        When candidate families tie or multiple families each match at
-        least one label, this is the family with the highest count of
-        matched labels (ties broken by _FAMILIES iteration order).
-    matched_labels: original (unnormalised) label text -> CodeRole, for
-        every label that matched `family`'s patterns. Empty for no match.
+    variant: the variant name for a full or partial match; None for no
+        match. Always paired with `family` (both set or both None).
+    matched_labels: original (unnormalised) label text -> (CodeRole, rank)
+        for every label that matched the chosen variant's points. Empty for
+        no match. rank is None only if this can't happen for a matched
+        label (every matched label has a point, hence a rank) -- included
+        for type-shape symmetry with unmatched paths elsewhere, never
+        actually None here.
     unmatched_labels: original (unnormalised) label text for every label
-        that did not match `family`'s patterns, in input order. Empty for
-        a full match.
-    ambiguous: True if labels matched (at least partially) across more
-        than one family — `family` is then the family with the highest
-        match count, chosen deterministically, but callers should treat
-        the result as uncertain.
+        that did not match, in input order. Empty for a full match.
+    ambiguous: True if the label set achieves a partial or full match count
+        tied across more than one variant -- see match_family's docstring
+        for the tie-breaking rule.
     """
 
     outcome: MatchOutcome
     family: str | None
-    matched_labels: dict[str, CodeRole]
+    variant: str | None
+    matched_labels: dict[str, tuple[CodeRole, int]]
     unmatched_labels: list[str]
     ambiguous: bool
 
 
 def match_family(labels: list[str]) -> FamilyMatch:
-    """Match a question's full label set against every scale family and
-    report how well it fits the best-matching family, without raising.
+    """Match a question's full label set against every variant in the
+    library and report how well it fits the best-matching variant, without
+    raising.
 
-    Unlike `identify_family` (which only succeeds when every label matches
-    exactly one family), this reports partial matches — useful for telling
-    "one label short of a known scale" apart from "not a scale at all".
-
-    Where labels match across more than one family, the family with the
-    highest count of matched labels is reported and `ambiguous` is set.
+    Unlike identify_variant (full-set-equality only), this reports partial
+    matches: how many of this question's labels are covered by each
+    variant's points. The variant with the highest coverage count wins;
+    ties are broken by variant iteration order (family declaration order in
+    scales.yaml, then variant declaration order within the family) --
+    deterministic, but callers should treat a tied/ambiguous result as
+    uncertain (see `ambiguous`).
     """
     normed = [_normalise(lb) for lb in labels]
 
-    counts: dict[str, int] = {}
-    for name, family in _FAMILIES.items():
-        count = sum(1 for n in normed if _label_in_family(n, family))
+    counts: dict[Variant, int] = {}
+    for variant in _ALL_VARIANTS:
+        count = sum(1 for n in normed if variant.rank_for_label(n) is not None)
         if count > 0:
-            counts[name] = count
+            counts[variant] = count
 
     if not counts:
         return FamilyMatch(
             outcome=MatchOutcome.none,
             family=None,
+            variant=None,
             matched_labels={},
             unmatched_labels=list(labels),
             ambiguous=False,
         )
 
-    best_family = max(counts, key=lambda name: counts[name])
+    best_variant = max(counts, key=lambda v: counts[v])
     ambiguous = len(counts) > 1
 
-    family_def = _FAMILIES[best_family]
-    matched_labels: dict[str, CodeRole] = {}
+    matched_labels: dict[str, tuple[CodeRole, int]] = {}
     unmatched_labels: list[str] = []
     for label, norm in zip(labels, normed):
-        if _label_in_family(norm, family_def):
-            role = _role_in_family(norm, family_def)
-            assert role is not None
-            matched_labels[label] = role
+        rank = best_variant.rank_for_label(norm)
+        if rank is not None:
+            matched_labels[label] = (best_variant.role_for_rank(rank), rank)
         else:
             unmatched_labels.append(label)
 
@@ -212,7 +289,8 @@ def match_family(labels: list[str]) -> FamilyMatch:
 
     return FamilyMatch(
         outcome=outcome,
-        family=best_family,
+        family=best_variant.family,
+        variant=best_variant.name,
         matched_labels=matched_labels,
         unmatched_labels=unmatched_labels,
         ambiguous=ambiguous,
@@ -245,7 +323,7 @@ def is_ordinal_resolver_candidate(labels: list[str]) -> bool:
     where at least one label matches a pattern in any family
     (is_recognised_scale_point), or the label set shows a polarity pair
     (has_polarity_pair). Everything else is categorical. Deliberately no
-    fuzzy or prefix matching beyond has_polarity_pair's exact-word check —
+    fuzzy or prefix matching beyond has_polarity_pair's exact-word check --
     that would risk over-matching genuinely categorical lists.
     """
     return any(is_recognised_scale_point(lb) for lb in labels) or has_polarity_pair(labels)
@@ -253,37 +331,36 @@ def is_ordinal_resolver_candidate(labels: list[str]) -> bool:
 
 def classify_question_type(
     labels: list[str],
-) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None] | None:
+) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None] | None:
     """Classify a question's substantive labels as SCALE or BINARY.
 
-    SCALE: every label matches a single family (identify_family succeeds).
-    Netting applies; returns the resolved roles and family name.
+    SCALE: every label matches a single variant (identify_variant succeeds).
+    Returns (QuestionType.scale, {label: (role, rank)}, family_name).
 
-    BINARY: exactly two labels, and they match the 'binary' family.
-    No netting; roles/family are None since a binary question has no
-    top/neutral/bottom ordering to net over.
+    BINARY: exactly two labels matching "yes"/"no" (or "true"/"false") --
+    binary has no rank, so this checks a fixed literal pair rather than
+    routing through the variant system (a 2-point variant would violate
+    B1's 3-point-minimum rule, and binary genuinely has no ordinal
+    position, just two poles).
 
-    Neither: returns None. CATEGORICAL is no longer inferred here — a
-    label set that doesn't achieve a full scale or binary match (including
-    a genuine partial match, where some labels match a family and others
-    don't) is not this function's business to demote silently. Callers
-    (the vendor adapters, via the load-path collector in
-    surveytool.ingest.validate_questions) collect a None result as an
-    unresolved question for the analyst to confirm via the resolver.
-    CATEGORICAL remains a valid Question.qtype, but only ever as the
-    outcome of a stored project override, never as an inference from a
-    failed match — see Task 5's brief.
+    Neither: returns None. CATEGORICAL is never inferred here.
     """
     normed = [_normalise(lb) for lb in labels]
 
-    if len(labels) == 2:
-        binary_family = _FAMILIES.get("binary")
-        if binary_family is not None and all(_label_in_family(n, binary_family) for n in normed):
-            return QuestionType.binary, None, None
+    _BINARY_PAIRS = (
+        frozenset({"yes", "no"}),
+        frozenset({"true", "false"}),
+    )
+    if len(labels) == 2 and frozenset(normed) in _BINARY_PAIRS:
+        return QuestionType.binary, None, None
 
-    family = identify_family(labels)
-    if family is not None:
-        roles = {lb: role for lb, role in zip(labels, (_match_role(n) for n in normed))}
-        return QuestionType.scale, roles, family
+    variant = identify_variant(labels)
+    if variant is not None:
+        roles: dict[str, tuple[CodeRole, int]] = {}
+        for label, norm in zip(labels, normed):
+            rank = variant.rank_for_label(norm)
+            assert rank is not None
+            roles[label] = (variant.role_for_rank(rank), rank)
+        return QuestionType.scale, roles, variant.family
 
     return None

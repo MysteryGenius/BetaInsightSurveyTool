@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from surveytool.core.model import CodeRole, QuestionType, ResponseState
-from surveytool.core.scale_library import resolve_roles
 from surveytool.core.straightliner import detect_straightliners
 
 
@@ -140,18 +139,12 @@ def test_routed_question_bases_on_asked():
 
 
 # ── 5. Unknown labels fail loudly ─────────────────────────────────────────────
-
-def test_unknown_label_raises():
-    """
-    A label set containing a label that no scale family recognises
-    must raise ValueError naming the unresolved label.
-    """
-    from tests.fixtures.unknown_labels import UNRESOLVABLE_LABEL, UNKNOWN_LABELS
-
-    with pytest.raises(ValueError) as exc_info:
-        resolve_roles(UNKNOWN_LABELS)
-
-    assert UNRESOLVABLE_LABEL in str(exc_info.value)
+#
+# Round B task B1 removed resolve_roles (superseded by variant-based
+# matching in scale_library.py) along with this test, which was its only
+# direct caller outside scale_library.py itself -- a synthetic conformance
+# test exercising a dead-path function with no remaining callers in the
+# live path (see grep confirmation in the B1 task brief, step 6).
 
 
 # ── 6. Grids group by grid_group id ──────────────────────────────────────────

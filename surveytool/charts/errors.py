@@ -28,6 +28,8 @@ class ErrorCode(str, Enum):
     UNCLASSIFIED_COLUMN = "UNCLASSIFIED_COLUMN"
     NETTING_NOT_ALLOWED = "NETTING_NOT_ALLOWED"
     DUPLICATE_CODE_KEY = "DUPLICATE_CODE_KEY"
+    SCALE_LIBRARY_CONFIG_INVALID = "SCALE_LIBRARY_CONFIG_INVALID"
+    AMBIGUOUS_SCALE_MATCH = "AMBIGUOUS_SCALE_MATCH"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -55,6 +57,8 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.UNCLASSIFIED_COLUMN: 400,
     ErrorCode.NETTING_NOT_ALLOWED: 400,
     ErrorCode.DUPLICATE_CODE_KEY: 400,
+    ErrorCode.SCALE_LIBRARY_CONFIG_INVALID: 500,
+    ErrorCode.AMBIGUOUS_SCALE_MATCH: 400,
 }
 
 
@@ -250,6 +254,45 @@ class DuplicateCodeKeyError(SurveyToolError):
             f"This file's codebook has a conflicting entry for question '{qid}'.",
             detail=detail,
             next_action="Check the codebook sheet for this question, or pick a different file.",
+        )
+
+
+class ScaleLibraryConfigError(SurveyToolError):
+    """Raised when scales.yaml itself is malformed: two variants (anywhere
+    in the file, same or different families) share a folded label set, a
+    variant declares fewer than three points, or one pattern appears at two
+    different ranks within a single variant. This is always a defect in the
+    shipped library file, never something a user's data can trigger."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(
+            ErrorCode.SCALE_LIBRARY_CONFIG_INVALID,
+            "The scale library configuration is invalid.",
+            detail=detail,
+            next_action="This is a defect in the application's scale library file, not your data. Report it.",
+        )
+
+
+class AmbiguousScaleMatchError(SurveyToolError):
+    """Raised when a question's full label set matches more than one
+    variant in the scale library. Ambiguity is never resolved by picking
+    one variant silently -- see the Round B spec's B1 task: 'Ambiguity in
+    the library is a library defect and must surface as one.'"""
+
+    def __init__(self, qid: str | None, labels: list[str], variant_names: list[str]) -> None:
+        self.qid = qid
+        self.labels = labels
+        self.variant_names = variant_names
+        where = f"Question {qid!r}" if qid else "This label set"
+        detail = (
+            f"{where} with labels {labels!r} matches more than one scale "
+            f"variant: {variant_names!r}."
+        )
+        super().__init__(
+            ErrorCode.AMBIGUOUS_SCALE_MATCH,
+            "This question's response options match more than one known scale, and the tool won't guess which.",
+            detail=detail,
+            next_action="Resolve this question manually in the resolver, or add a distinguishing variant to the scale library.",
         )
 
 

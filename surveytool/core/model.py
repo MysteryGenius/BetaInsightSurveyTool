@@ -39,6 +39,7 @@ class ScaleCode(BaseModel):
     label: str
     role: CodeRole
     numeric_value: int | None = None
+    rank: int | None = None
 
 
 class Question(BaseModel):
