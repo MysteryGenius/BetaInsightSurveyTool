@@ -156,14 +156,14 @@ def compute_question_stats(
     else:
         code_stats = _count_scale_codes(question, base_resps, base)
         label_map = _build_label_map(question)
-        numeric_values = [
-            label_map[r.raw_value].numeric_value
+        ranks = [
+            label_map[r.raw_value].rank
             for r in responses
             if r.state is ResponseState.answered
             and r.raw_value in label_map
-            and label_map[r.raw_value].numeric_value is not None
+            and label_map[r.raw_value].rank is not None
         ]
-        mean = sum(numeric_values) / len(numeric_values) if numeric_values else None
+        mean = sum(ranks) / len(ranks) if ranks else None
 
     has_top = any(sc.role is CodeRole.top for sc in question.labels)
     has_bottom = any(sc.role is CodeRole.bottom for sc in question.labels)

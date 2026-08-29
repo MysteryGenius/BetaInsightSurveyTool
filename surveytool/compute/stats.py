@@ -59,5 +59,5 @@ class QuestionStats:
     code_stats: tuple[CodeStat, ...]
     t2b: float | None  # None if question has no top codes
     b2b: float | None  # None if question has no bottom codes
-    mean: float | None  # None if no code has numeric_value
+    mean: float | None  # None if no code has rank
     provenance: BaseProvenance | None = None

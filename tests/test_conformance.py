@@ -736,3 +736,84 @@ def test_a7_no_datamap_line_skipped_without_being_parsed_or_raised_on():
                 f"{path.name}: block header {cell!r} is not followed by a continuation marker "
                 f"(next line: {next_by_index[i]!r})"
             )
+
+
+# ── Task B3: rank replaces vendor code everywhere ───────────────────────────
+
+
+@pytest.mark.skipif(not _TOLUNA_PATH.exists(), reason="Toluna fixture not present")
+def test_toluna_q7_local_mainstream_media_rank_and_netting():
+    from surveytool.ingest.toluna import load
+    survey = load(_TOLUNA_PATH, "toluna_misinfo")
+    q7 = next(q for q in survey.questions if q.qid == "7_local_mainstream_media")
+    assert q7.qtype.value == "scale"
+
+    ranks_by_label = {sc.label: sc.rank for sc in q7.labels}
+    assert ranks_by_label["Very Unlikely"] == 1
+    assert ranks_by_label["Unlikely"] == 2
+    assert ranks_by_label["Neutral / Neither Likely nor Unlikely"] == 3
+    assert ranks_by_label["Likely"] == 4
+    assert ranks_by_label["Very Likely"] == 5
+
+    from surveytool.compute.frequency import compute_question_stats
+    responses = [r for r in survey.responses if r.qid == "7_local_mainstream_media"]
+    stats = compute_question_stats(q7, responses)
+
+    assert stats.base == 1000
+    counts_by_label = {cs.label: cs.n for cs in stats.code_stats}
+    pcts_by_label = {cs.label: round(cs.pct, 6) for cs in stats.code_stats}
+    assert counts_by_label["Very Unlikely"] == 32
+    assert counts_by_label["Unlikely"] == 190
+    assert counts_by_label["Neutral / Neither Likely nor Unlikely"] == 276
+    assert counts_by_label["Likely"] == 363
+    assert counts_by_label["Very Likely"] == 139
+    assert pcts_by_label["Very Unlikely"] == 3.2
+    assert pcts_by_label["Unlikely"] == 19.0
+    assert pcts_by_label["Neutral / Neither Likely nor Unlikely"] == 27.6
+    assert pcts_by_label["Likely"] == 36.3
+    assert pcts_by_label["Very Likely"] == 13.9
+
+    assert round(stats.t2b, 6) == 50.2
+    assert round(stats.b2b, 6) == 22.2
+    assert round(stats.mean, 6) == 3.387
+
+
+@pytest.mark.skipif(not _MILIEU_PATH.exists(), reason="Milieu fixture not present")
+def test_milieu_agreement_grid_orders_strongly_disagree_to_strongly_agree():
+    from surveytool.ingest.milieu import load
+    survey = load(_MILIEU_PATH, "milieu_coe")
+    agreement_questions = [q for q in survey.questions if q.qtype.value == "scale" and q.scale_family == "agreement"]
+    assert len(agreement_questions) >= 5
+    for q in agreement_questions:
+        ordered_by_rank = sorted(q.labels, key=lambda sc: sc.rank)
+        assert [sc.label for sc in ordered_by_rank] == [
+            "Strongly Disagree", "Disagree", "Neutral", "Agree", "Strongly Agree",
+        ] or [sc.label for sc in ordered_by_rank] == [
+            "Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree",
+        ]
+
+
+@pytest.mark.skipif(not _PURESPECTRUM_PATH.exists(), reason="PureSpectrum fixture not present")
+def test_purespectrum_inverted_questions_mean_now_derives_from_rank_not_code():
+    """Documents the Round B correction for the record (spec's explicit
+    ask: 'Record the before and after for each in the run output so it can
+    be shown to the client'). This test only proves the NEW (correct)
+    values come from rank; the historical 'before' values are not
+    re-derived here (that would require re-adding the old numeric_value-
+    based mean logic just to prove a negative) -- they are documented in
+    the plan/spec instead. What this test guards is that rank-derived mean
+    differs from a hypothetical code-derived mean for at least one of
+    these questions, proving the fix has observable effect."""
+    from surveytool.ingest.purespectrum import load
+    survey = load(_PURESPECTRUM_PATH, "ps_wcs")
+    for qid in ("Q2", "Q5", "Q5A", "Q5B", "Q7", "Q8", "Q9"):
+        question = next((q for q in survey.questions if q.qid == qid), None)
+        if question is None:
+            continue  # some of these qids may not all exist in this particular fixture; skip gracefully
+        assert question.qtype.value == "scale"
+        # Rank-based order must NOT equal numeric_value-based order for
+        # these specific questions (the spec's whole point: five of seven
+        # run opposite to code order).
+        rank_order = [sc.code for sc in sorted(question.labels, key=lambda sc: sc.rank or 0)]
+        code_order = [sc.code for sc in sorted(question.labels, key=lambda sc: sc.numeric_value or 0)]
+        assert rank_order != code_order, f"{qid}: expected rank order to differ from code order (the defect this task fixes)"

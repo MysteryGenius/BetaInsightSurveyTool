@@ -54,9 +54,9 @@ def _make_scale_question(qid: str = "Q1", text: str = "Q") -> Question:
         text=text,
         qtype=QuestionType.scale,
         labels=[
-            ScaleCode(code=1, label="Agree", role=CodeRole.top, numeric_value=1),
-            ScaleCode(code=2, label="Neutral", role=CodeRole.neutral, numeric_value=2),
-            ScaleCode(code=3, label="Disagree", role=CodeRole.bottom, numeric_value=3),
+            ScaleCode(code=1, label="Agree", role=CodeRole.top, numeric_value=1, rank=1),
+            ScaleCode(code=2, label="Neutral", role=CodeRole.neutral, numeric_value=2, rank=2),
+            ScaleCode(code=3, label="Disagree", role=CodeRole.bottom, numeric_value=3, rank=3),
         ],
         scale_family="agreement",
     )

@@ -153,14 +153,26 @@ class QuestionResult(BaseModel):
 
 
 def _scale_points(question: Question) -> list[ScalePoint]:
+    """Order by rank ascending (rank 1 = bottom), never by the position a
+    label happened to land at in question.labels (which for Milieu/Toluna
+    is vendor-data-appearance order and carries no ordinal meaning -- see
+    Round B). A code with no rank (categorical/binary/nonsubstantive) sorts
+    after every ranked point, in its original question.labels order, since
+    there is no ordinal position to place it at."""
+    ranked = sorted(
+        (sc for sc in question.labels if sc.rank is not None),
+        key=lambda sc: sc.rank,
+    )
+    unranked = [sc for sc in question.labels if sc.rank is None]
+    ordered = ranked + unranked
     return [
         ScalePoint(
             code=sc.code,
             label=sc.label,
-            order=order,
+            order=i,
             polarity=_POLARITY_BY_ROLE.get(sc.role),
         )
-        for order, sc in enumerate(question.labels)
+        for i, sc in enumerate(ordered)
     ]
 
 

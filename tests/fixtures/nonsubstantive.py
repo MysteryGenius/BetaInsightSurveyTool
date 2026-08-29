@@ -19,12 +19,12 @@ QUESTION = Question(
     text="How satisfied are you with the service?",
     qtype=QuestionType.scale,
     labels=[
-        ScaleCode(code=1, label="Very Satisfied", role=CodeRole.top, numeric_value=1),
-        ScaleCode(code=2, label="Satisfied", role=CodeRole.top, numeric_value=2),
-        ScaleCode(code=3, label="Neutral", role=CodeRole.neutral, numeric_value=3),
-        ScaleCode(code=4, label="Dissatisfied", role=CodeRole.bottom, numeric_value=4),
-        ScaleCode(code=5, label="Very Dissatisfied", role=CodeRole.bottom, numeric_value=5),
-        ScaleCode(code=99, label="Prefer not to answer", role=CodeRole.nonsubstantive, numeric_value=None),
+        ScaleCode(code=1, label="Very Satisfied", role=CodeRole.top, numeric_value=1, rank=1),
+        ScaleCode(code=2, label="Satisfied", role=CodeRole.top, numeric_value=2, rank=2),
+        ScaleCode(code=3, label="Neutral", role=CodeRole.neutral, numeric_value=3, rank=3),
+        ScaleCode(code=4, label="Dissatisfied", role=CodeRole.bottom, numeric_value=4, rank=4),
+        ScaleCode(code=5, label="Very Dissatisfied", role=CodeRole.bottom, numeric_value=5, rank=5),
+        ScaleCode(code=99, label="Prefer not to answer", role=CodeRole.nonsubstantive, numeric_value=None, rank=None),
     ],
     scale_family="satisfaction",
 )

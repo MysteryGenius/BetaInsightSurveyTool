@@ -164,30 +164,38 @@ def _build_question(
 
     if qtype is QuestionType.scale:
         for ns_label, ns_role in ns_overrides.items():
-            roles[ns_label] = ns_role
-
-        substantive_codes_sorted = [
-            (code, normalize_label(label))
-            for code, label in sorted(codes, key=lambda x: x[0])
-            if normalize_label(label) not in ns_overrides
-        ]
-        direction: str | None = None
-        if substantive_codes_sorted:
-            lowest_role = roles.get(substantive_codes_sorted[0][1])
-            if lowest_role is CodeRole.bottom:
-                direction = "ascending"
-            elif lowest_role is CodeRole.top:
-                direction = "descending"
+            roles[ns_label] = (ns_role, None)
 
         scale_codes = [
             ScaleCode(
                 code=code,
                 label=normalize_label(label),
-                role=roles[normalize_label(label)],
+                role=roles[normalize_label(label)][0],
                 numeric_value=code,
+                rank=roles[normalize_label(label)][1],
             )
             for code, label in codes
         ]
+
+        substantive_ranked = sorted(
+            (sc for sc in scale_codes if sc.rank is not None),
+            key=lambda sc: sc.rank,
+        )
+        direction: str | None = None
+        if substantive_ranked:
+            # Direction is now about whether the vendor's code order agrees
+            # or disagrees with rank order, purely for informational/
+            # provenance purposes -- it is never used to derive rank, role,
+            # netting, or mean (those all come from rank, Task B3). Compare
+            # the code order (as codes appear in the codebook, already
+            # sorted by code since `codes` is codebook row order) against
+            # rank order for the same labels.
+            codes_by_rank_order = [sc.code for sc in substantive_ranked]
+            codes_in_codebook_order = [c for c, lb in codes if normalize_label(lb) not in ns_overrides]
+            if codes_in_codebook_order == codes_by_rank_order:
+                direction = "ascending"
+            elif codes_in_codebook_order == list(reversed(codes_by_rank_order)):
+                direction = "descending"
 
         out.append(
             Question(

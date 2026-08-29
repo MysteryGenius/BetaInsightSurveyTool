@@ -18,6 +18,7 @@ class QuestionOverride(BaseModel):
     variable: str
     question_type: Literal["scale", "binary", "categorical", "excluded"]
     label_roles: dict[str, Literal["top", "neutral", "bottom"]] = Field(default_factory=dict)
+    label_ranks: dict[str, int] | None = None
     resolved_at: datetime
     library_version: str
 
@@ -84,14 +85,41 @@ def load_overrides(path: Path) -> ProjectOverrides:
         raise CorruptedOverridesFileError(path, str(exc)) from exc
 
 
-def apply_override(question_labels: list[str], override: QuestionOverride) -> dict[str, CodeRole]:
-    """Apply a SCALE override's label_roles to a question's actual label
-    set. Raises IncompleteOverrideError if any label lacks an assignment —
-    never defaults an unassigned label to any role."""
+def apply_override(question_labels: list[str], override: QuestionOverride) -> dict[str, tuple[CodeRole, int]]:
+    """Apply a SCALE override's label_roles (and label_ranks, if present) to
+    a question's actual label set. Raises IncompleteOverrideError if any
+    label lacks a role assignment -- never defaults an unassigned label to
+    any role.
+
+    Rank resolution: if the override carries label_ranks, use them
+    directly (validated to cover the same labels as label_roles). If the
+    override predates Round B (label_ranks is None), derive a rank
+    deterministically from role order among question_labels themselves,
+    in the order role groups naturally sort (bottom, then neutral, then
+    top), preserving question_labels' own relative order within each role
+    group -- this reproduces a reasonable rank for old overrides without
+    forcing every project to re-resolve, though it is a best-effort
+    backfill, not a guarantee of matching what the analyst would pick
+    today. New overrides saved after this change always carry label_ranks
+    explicitly (Task C3/UI layer's responsibility going forward), so this
+    fallback only ever applies to overrides written before Round B shipped.
+    """
     missing = [lb for lb in question_labels if lb not in override.label_roles]
     if missing:
         raise IncompleteOverrideError(override.variable, missing)
-    return {lb: _ROLE_MAP[override.label_roles[lb]] for lb in question_labels}
+
+    roles = {lb: _ROLE_MAP[override.label_roles[lb]] for lb in question_labels}
+
+    if override.label_ranks is not None:
+        rank_missing = [lb for lb in question_labels if lb not in override.label_ranks]
+        if rank_missing:
+            raise IncompleteOverrideError(override.variable, rank_missing)
+        return {lb: (roles[lb], override.label_ranks[lb]) for lb in question_labels}
+
+    _ROLE_ORDER = {CodeRole.bottom: 0, CodeRole.neutral: 1, CodeRole.top: 2, CodeRole.nonsubstantive: 3}
+    ordered = sorted(question_labels, key=lambda lb: (_ROLE_ORDER[roles[lb]], question_labels.index(lb)))
+    rank_by_label = {lb: i + 1 for i, lb in enumerate(ordered) if roles[lb] is not CodeRole.nonsubstantive}
+    return {lb: (roles[lb], rank_by_label.get(lb)) for lb in question_labels}
 
 
 _QTYPE_MAP = {"scale": QuestionType.scale, "binary": QuestionType.binary, "categorical": QuestionType.categorical}
@@ -101,7 +129,7 @@ def resolve_with_override(
     substantive_labels: list[str],
     overrides: dict[str, "QuestionOverride"],
     qid: str,
-) -> tuple[QuestionType, dict[str, CodeRole] | None, str | None] | None:
+) -> tuple[QuestionType, dict[str, tuple[CodeRole, int]] | None, str | None] | None:
     """Adapter-facing entry point: if `qid` has a project override, resolve
     this question's classification and roles from the override instead of
     the shared scale library, and return the same (qtype, roles, family)

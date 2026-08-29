@@ -49,8 +49,8 @@ def test_apply_override_full_assignment_produces_roles():
         library_version="1.0.0",
     )
     roles = apply_override(["Purple", "Green"], override)
-    assert roles["Purple"] is CodeRole.top
-    assert roles["Green"] is CodeRole.bottom
+    assert roles["Purple"][0] is CodeRole.top
+    assert roles["Green"][0] is CodeRole.bottom
 
 
 def test_apply_override_incomplete_assignment_raises():

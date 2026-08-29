@@ -103,43 +103,43 @@ def _build_scale_question(
     """Builds a scale Question. Caller (parse_header) is responsible for
     only reaching this function once it already knows the substantive
     label set achieves a full match_family outcome (or an override says
-    scale) — this function no longer calls resolve_roles/raises on its own
-    (Task 5 removed the load-path raise), it just re-derives the same
-    roles match_family already computed."""
+    scale). Role and rank both come from the matched variant (Task B3) --
+    `values`' own data-appearance order plays no part in role, rank,
+    netting, or mean; it is used only as the ScaleCode.code join key
+    (a synthesized 1-based sequential id, since Milieu has no real vendor
+    numeric code) and, informationally, for `scale_direction`.
+    """
     ns_overrides: dict[str, CodeRole] = {
         v: CodeRole.nonsubstantive for v in values if is_nonsubstantive_label(v, nonsubstantive_labels)
     }
     substantive_values = [v for v in values if v not in ns_overrides]
 
     if override is not None:
-        roles = apply_override(substantive_values, override)
+        roles: dict[str, tuple[CodeRole, int | None]] = apply_override(substantive_values, override)
     else:
         match = match_family(substantive_values)
         roles = dict(match.matched_labels)
     for label, role in ns_overrides.items():
-        roles[label] = role
-
-    ordered_substantive = [v for v in substantive_values]
-    direction: str | None = None
-    if ordered_substantive:
-        first_role = roles.get(ordered_substantive[0])
-        last_role = roles.get(ordered_substantive[-1])
-        if first_role is CodeRole.top:
-            direction = "descending"
-        elif first_role is CodeRole.bottom:
-            direction = "ascending"
-        elif last_role is CodeRole.top:
-            direction = "ascending"
-        elif last_role is CodeRole.bottom:
-            direction = "descending"
+        roles[label] = (role, None)
 
     family = identify_family(substantive_values)
 
+    ranked_values = sorted(
+        (v for v in substantive_values if roles[v][1] is not None),
+        key=lambda v: roles[v][1],
+    )
+    direction: str | None = None
+    if ranked_values:
+        if substantive_values == ranked_values:
+            direction = "ascending"
+        elif substantive_values == list(reversed(ranked_values)):
+            direction = "descending"
+
     labels: list[ScaleCode] = []
     for i, value in enumerate(values, start=1):
-        role = roles[value]
+        role, rank = roles[value]
         numeric_value = i if role is not CodeRole.nonsubstantive else None
-        labels.append(ScaleCode(code=i, label=value, role=role, numeric_value=numeric_value))
+        labels.append(ScaleCode(code=i, label=value, role=role, numeric_value=numeric_value, rank=rank))
 
     return Question(
         qid=info.qid,
