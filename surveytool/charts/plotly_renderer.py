@@ -33,6 +33,7 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
+from surveytool.charts.palette import assign_series_colours
 from surveytool.compute.breaks_compute import ColumnResult, QuestionResult
 from surveytool.core.chart_validity import ChartType
 from surveytool.core.suppression import Band
@@ -44,17 +45,6 @@ _TEAL = "#1B667D"
 _GREY = "#9AA5A8"
 _WARM = "#C4856A"
 _SUPPRESSED_GREY = "#D0D0D0"
-
-# A qualitative palette for scale points, cycled by point order. Kept
-# distinct from the role-keyed legacy palette because a scale point here has
-# no CodeRole info of its own beyond polarity (which only diverging uses).
-_SCALE_PALETTE = [
-    "#1B667D", "#3E8FA6", "#6FB1C4", "#9AA5A8", "#C4856A", "#A65A3E", "#7A3E2A",
-]
-
-
-def _scale_colour(order: int) -> str:
-    return _SCALE_PALETTE[order % len(_SCALE_PALETTE)]
 
 
 def _header_text(
@@ -128,6 +118,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
+    colour_by_label = assign_series_colours([point.label for point in question_result.scale_points])
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -142,7 +133,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
                 name=point.label,
                 x=x_labels,
                 y=y_values,
-                marker_color=_scale_colour(point.rank or 0),
+                marker_color=colour_by_label[point.label],
             )
         )
 
@@ -177,6 +168,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
+    colour_by_label = assign_series_colours([point.label for point in question_result.scale_points])
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -194,8 +186,8 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
                 pct = 0.0 if column.percentages is None else column.percentages.get(code, 0.0)
                 neg_half.append(-pct / 2.0)
                 pos_half.append(pct / 2.0)
-            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, marker_color=_scale_colour(point.rank or 0)))
-            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, marker_color=_scale_colour(point.rank or 0), showlegend=False))
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, marker_color=colour_by_label[point.label]))
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, marker_color=colour_by_label[point.label], showlegend=False))
             continue
 
         sign = -1.0 if point.polarity == "negative" else 1.0
@@ -210,7 +202,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
                 name=point.label,
                 x=x_labels,
                 y=y_values,
-                marker_color=_scale_colour(point.rank or 0),
+                marker_color=colour_by_label[point.label],
             )
         )
 
@@ -243,6 +235,7 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
+    colour_by_label = assign_series_colours([point.label for point in question_result.scale_points])
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -257,7 +250,7 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
                 name=point.label,
                 x=x_labels,
                 y=y_values,
-                marker_color=_scale_colour(point.rank or 0),
+                marker_color=colour_by_label[point.label],
             )
         )
 

@@ -30,6 +30,7 @@ class ErrorCode(str, Enum):
     DUPLICATE_CODE_KEY = "DUPLICATE_CODE_KEY"
     SCALE_LIBRARY_CONFIG_INVALID = "SCALE_LIBRARY_CONFIG_INVALID"
     AMBIGUOUS_SCALE_MATCH = "AMBIGUOUS_SCALE_MATCH"
+    PALETTE_EXHAUSTED = "PALETTE_EXHAUSTED"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -59,6 +60,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.DUPLICATE_CODE_KEY: 400,
     ErrorCode.SCALE_LIBRARY_CONFIG_INVALID: 500,
     ErrorCode.AMBIGUOUS_SCALE_MATCH: 400,
+    ErrorCode.PALETTE_EXHAUSTED: 400,
 }
 
 
@@ -503,4 +505,25 @@ class FilterZeroMatchError(SurveyToolError):
             "No respondents match this filter combination.",
             detail=detail,
             next_action="Remove or loosen one of the filter selections and try again.",
+        )
+
+
+class PaletteExhaustedError(SurveyToolError):
+    """Raised when a chart needs more distinct series colours than the
+    shared categorical palette has entries. Never cycles the palette
+    silently — a repeated colour within one chart would make two different
+    response options visually indistinguishable, which is worse than
+    refusing outright and telling the analyst why."""
+
+    def __init__(self, series_count: int, palette_size: int) -> None:
+        self.series_count = series_count
+        self.palette_size = palette_size
+        detail = f"{series_count} distinct series requested; the palette has {palette_size} entries."
+        super().__init__(
+            ErrorCode.PALETTE_EXHAUSTED,
+            f"This chart has {series_count} response options, more than the "
+            f"{palette_size} distinct colours available — it can't be drawn "
+            f"without repeating a colour.",
+            detail=detail,
+            next_action="Combine or filter response options, or view this question as a table instead.",
         )

@@ -294,3 +294,110 @@ def test_nonsubstantive_codes_in_manifest_and_chart_renders(tmp_path: Path) -> N
         f"Non-substantive row key {ns_key!r} missing from manifest. "
         f"Got: {entry.findings_row_keys}"
     )
+
+
+# ── Round C1: shared categorical palette in render_dist ──────────────────────
+
+def _captured_axes(monkeypatch, spec, tmp_path):
+    """Render `spec` via render_dist, capturing the Axes render_dist drew on
+    (via a plt.subplots wrapper) so the test can inspect actual bar colours
+    after the call -- render_dist itself only returns a ManifestEntry."""
+    import matplotlib.pyplot as plt
+
+    captured: dict[str, object] = {}
+    real_subplots = plt.subplots
+
+    def _spy_subplots(*args, **kwargs):
+        fig, ax = real_subplots(*args, **kwargs)
+        captured["ax"] = ax
+        return fig, ax
+
+    monkeypatch.setattr(plt, "subplots", _spy_subplots)
+    render_dist(spec, tmp_path)
+    return captured["ax"]
+
+
+def test_render_dist_scale_question_colours_unchanged_by_palette(monkeypatch, tmp_path: Path) -> None:
+    """A scale question (top/neutral/bottom roles present) must keep using
+    _ROLE_COLOUR exactly as before -- the shared palette must not touch its
+    appearance at all."""
+    from surveytool.charts.renderer import _ROLE_COLOUR
+    import matplotlib.colors as mcolors
+
+    q = _agreement_question()
+    survey = _make_survey(10, q)
+    findings = build_findings_sheet(survey, banner=[])
+    dist_rows = [r for r in findings if r.breakdown_variable == "total" and r.qid == "Q1"]
+    spec = ChartSpec(
+        chart_type="dist",
+        survey_id="test-survey",
+        qid="Q1",
+        question_text=q.text,
+        breakdown_variable="total",
+        metric="pct",
+        rows=dist_rows,
+    )
+
+    ax = _captured_axes(monkeypatch, spec, tmp_path)
+
+    # bar_data order in render_dist is substantive-then-nonsubstantive, and
+    # y_positions place the first substantive code at the top -- but for this
+    # colour check we only need: every drawn bar's colour equals its role's
+    # _ROLE_COLOUR entry, never a shared-palette colour.
+    role_by_label = {sc.label: sc.role for sc in q.labels}
+    expected_colours = {
+        mcolors.to_hex(_ROLE_COLOUR[role]) for role in role_by_label.values()
+    }
+    actual_colours = {mcolors.to_hex(p.get_facecolor()) for p in ax.patches}
+    assert actual_colours <= expected_colours, (
+        f"Scale-question bar colours changed: expected subset of {expected_colours}, "
+        f"got {actual_colours}"
+    )
+
+
+def test_render_dist_plain_categorical_gets_distinct_palette_colours(monkeypatch, tmp_path: Path) -> None:
+    """A plain categorical question (every code's role is excluded, no
+    top/neutral/bottom at all) must use the shared palette so each response
+    option gets its own distinct colour, instead of every bar collapsing to
+    the same _NONSUBST grey."""
+    from surveytool.charts.palette import assign_series_colours
+    import matplotlib.colors as mcolors
+
+    labels = [f"Reason {i}" for i in range(7)]
+    cat_q = Question(
+        qid="Q8",
+        text="Why don't you own a car?",
+        qtype=QuestionType.multi_response,
+        labels=[
+            ScaleCode(code=i + 1, label=label, role=CodeRole.excluded)
+            for i, label in enumerate(labels)
+        ],
+    )
+    responses: list[Response] = []
+    for i in range(14):
+        rid = f"R{i+1:02d}"
+        code = (i % 7) + 1
+        responses.append(Response(respondent_id=rid, qid="Q8", raw_value=code, state=ResponseState.answered))
+    survey = Survey(id="cat-survey", n_raw=14, n_analysis=14, questions=[cat_q], responses=responses)
+    findings = build_findings_sheet(survey, banner=[])
+    dist_rows = [r for r in findings if r.breakdown_variable == "total" and r.qid == "Q8"]
+    spec = ChartSpec(
+        chart_type="dist",
+        survey_id="cat-survey",
+        qid="Q8",
+        question_text=cat_q.text,
+        breakdown_variable="total",
+        metric="pct",
+        rows=dist_rows,
+    )
+
+    ax = _captured_axes(monkeypatch, spec, tmp_path)
+
+    expected = assign_series_colours(labels)
+    actual_colours = {mcolors.to_hex(p.get_facecolor()) for p in ax.patches}
+    expected_colours = {c.lower() for c in expected.values()}
+    assert actual_colours == expected_colours, (
+        f"Plain-categorical bars did not use the shared palette: "
+        f"expected {expected_colours}, got {actual_colours}"
+    )
+    assert len(actual_colours) == 7, "Expected seven distinct colours, one per response option"

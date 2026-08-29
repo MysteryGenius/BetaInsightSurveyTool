@@ -939,3 +939,31 @@ def test_no_compute_path_orders_or_nets_by_numeric_value():
             f"{path} references numeric_value -- Round B requires rank for "
             f"ordering/netting/mean, never the vendor's numeric code."
         )
+
+
+@pytest.mark.skipif(not _MILIEU_PATH.exists(), reason="Milieu fixture not present")
+def test_milieu_q8_grouped_bar_renders_seven_distinct_colours():
+    from surveytool.ingest.milieu import load
+    from surveytool.charts.palette import assign_series_colours
+
+    survey = load(_MILIEU_PATH, "milieu_coe")
+    q8 = next(q for q in survey.questions if q.qid == "q8")
+    assert q8.qtype.value == "multi_response"
+    labels = [sc.label for sc in q8.labels if sc.role.value != "nonsubstantive"]
+    assert len(labels) == 7
+    colours = assign_series_colours(labels)
+    assert len(set(colours.values())) == 7
+
+
+@pytest.mark.skipif(not _MILIEU_PATH.exists(), reason="Milieu fixture not present")
+def test_milieu_q8_toggling_one_option_off_leaves_others_unchanged():
+    from surveytool.ingest.milieu import load
+    from surveytool.charts.palette import assign_series_colours
+
+    survey = load(_MILIEU_PATH, "milieu_coe")
+    q8 = next(q for q in survey.questions if q.qid == "q8")
+    labels = [sc.label for sc in q8.labels if sc.role.value != "nonsubstantive"]
+    full = assign_series_colours(labels)
+    reduced = assign_series_colours(labels[1:])
+    for label in labels[1:]:
+        assert reduced[label] == full[label]

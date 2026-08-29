@@ -11,6 +11,7 @@ from matplotlib.figure import Figure
 
 from surveytool.charts.errors import MissingFindingsRow
 from surveytool.charts.manifest import ManifestEntry, _row_key
+from surveytool.charts.palette import assign_series_colours
 from surveytool.charts.types import ChartSpec
 from surveytool.core.model import CodeRole
 from surveytool.findings.sheet import FindingsRow
@@ -149,6 +150,19 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
             findings_keys.append(_row_key(spec.qid, bvar, level, pr.metric))
             findings_keys.append(_row_key(spec.qid, bvar, level, n_metric))
 
+    # A plain categorical distribution (every bar's role is excluded/
+    # nonsubstantive, i.e. no top/neutral/bottom scale roles are present)
+    # gets one distinct colour per response option from the shared palette,
+    # instead of the role-colour map collapsing every bar to the same grey.
+    # A scale question (top/neutral/bottom present) keeps using
+    # _ROLE_COLOUR exactly as before -- colour_by_label stays empty for it.
+    roles_present = {role for _, _, _, role in bar_data}
+    is_plain_categorical = roles_present <= {CodeRole.excluded, CodeRole.nonsubstantive}
+    colour_by_label: dict[str, str] = {}
+    if is_plain_categorical:
+        substantive_labels = [label for label, _, _, role in bar_data if role is not CodeRole.nonsubstantive]
+        colour_by_label = assign_series_colours(substantive_labels)
+
     # Build y positions — substantive group, gap, nonsubstantive group.
     n_subst = len(substantive)
     n_ns = len(nonsubstantive)
@@ -167,7 +181,7 @@ def render_dist(spec: ChartSpec, out_dir: Path) -> ManifestEntry:
         y_positions.append(n_ns - 1 - i)
 
     for (label, pct, n, role), y in zip(bar_data, y_positions):
-        colour = _ROLE_COLOUR.get(role, _GREY)
+        colour = colour_by_label.get(label, _ROLE_COLOUR.get(role, _GREY))
         ax.barh(y, pct, height=height, color=colour, zorder=2)
         bar_label = f"{pct:.1f}%  (n={n:,})"
         ax.text(
