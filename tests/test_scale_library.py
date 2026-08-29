@@ -6,15 +6,14 @@ from surveytool.core.scale_library import classify_question_type
 
 
 def test_classify_full_scale_match_returns_scale():
-    """Round B task B1's mechanical scales.yaml conversion collapsed each
-    old family's three pattern buckets into a single 3-point variant whose
-    folded_label_set is the union of every synonym across all three
-    buckets — matching is now full-set-equality (identify_variant), so this
-    question's label set must include every one of agreement's declared
-    synonyms, not just one per role, to achieve a full match."""
+    """Round B task B2 replaced B1's intermediate mechanical shape with the
+    real 5-point agreement variant used by Rakuten/Milieu, whose neutral
+    point is a single literal "neutral" pattern (matching full-set-equality
+    exactly, unlike B1's placeholder which unioned every old bucket's
+    synonyms)."""
     labels = [
         "strongly agree", "agree",
-        "neutral", "neither agree nor disagree", "neither",
+        "neutral",
         "disagree", "strongly disagree",
     ]
     qtype, roles, family = classify_question_type(labels)
@@ -22,7 +21,7 @@ def test_classify_full_scale_match_returns_scale():
     assert family == "agreement"
     role, rank = roles["strongly agree"]
     assert role is CodeRole.top
-    assert rank == 3
+    assert rank == 5
 
 
 def test_classify_binary_match_returns_binary_no_roles():
@@ -78,19 +77,27 @@ def test_binary_pair_classifies_without_scales_yaml_entry():
     assert family is None
 
 
-def test_calendar_frequency_family():
-    """Full-set-equality (identify_variant) requires every synonym in the
-    variant's folded_label_set, not just one per role -- see the comment on
-    test_classify_full_scale_match_returns_scale."""
+def test_calendar_frequency_family_has_no_variants_yet():
+    """Round B task B2 deliberately leaves calendar_frequency with no
+    variants ('{}') -- no real vendor file has surfaced this family's exact
+    label set yet, so per the plan it fails to match loudly rather than
+    getting a placeholder variant invented for it."""
     labels = ["daily", "weekly", "monthly", "occasionally", "sometimes", "rarely", "never"]
     family = identify_family(labels)
-    assert family == "calendar_frequency"
+    assert family is None
 
 
-def test_intensity_family():
+def test_old_intensity_union_no_longer_matches_real_variants():
+    """B1's mechanical placeholder merged intensity's three old pattern
+    buckets (which included synonyms like "moderately" and "none" that no
+    real vendor file actually uses) into one variant this label set used to
+    match exactly. B2 replaced it with two real, distinct 4-point variants
+    (four_point_not_at_all, four_point_not_really), neither of which
+    contains "moderately" or "none" -- this old union set no longer equals
+    either variant's folded label set."""
     labels = ["a lot", "a great deal", "somewhat", "a little", "moderately", "not at all", "none", "not really"]
     family = identify_family(labels)
-    assert family == "intensity"
+    assert family is None
 
 
 def test_partial_intensity_match_returns_none_not_categorical():
@@ -289,3 +296,145 @@ families:
     # identify_family's own ambiguity path is exercised in Task B3's tests
     # once real multi-family data exists.
     assert len(families["fam_a"].variants) == 1
+
+
+# ── Round B task B2: real per-vendor variant population ──────────────────
+
+
+def test_agreement_five_point_variant_matches_rakuten_and_milieu_labels():
+    family = identify_family(["Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree"])
+    assert family == "agreement"
+    family2 = identify_family(["Strongly Disagree", "Disagree", "Neutral", "Agree", "Strongly Agree"])
+    assert family2 == "agreement"
+
+
+def test_importance_has_three_distinct_variants():
+    from surveytool.core.scale_library import _FAMILIES_BY_NAME
+    importance = _FAMILIES_BY_NAME["importance"]
+    assert len(importance.variants) == 3
+    variant_names = {v.name for v in importance.variants}
+    assert variant_names == {"five_point_gradated", "four_point_polar", "five_point_polar"}
+
+
+def test_purespectrum_q7_five_point_gradated_importance():
+    qtype, roles, family = classify_question_type(
+        ["Not important at all", "Slightly important", "Moderately important", "Very important", "Extremely important"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "importance"
+    assert roles["Not important at all"] == (CodeRole.bottom, 1)
+    assert roles["Extremely important"] == (CodeRole.top, 5)
+
+
+def test_toluna_five_point_polar_importance_distinct_from_gradated():
+    qtype, roles, family = classify_question_type(
+        ["Very Unimportant", "Unimportant", "Neutral / Neither Important nor Unimportant", "Important", "Very Important"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "importance"
+    assert roles["Very Unimportant"] == (CodeRole.bottom, 1)
+    assert roles["Neutral / Neither Important nor Unimportant"] == (CodeRole.neutral, 3)
+
+
+def test_toluna_likelihood_five_point_polar():
+    qtype, roles, family = classify_question_type(
+        ["Very Unlikely", "Unlikely", "Neutral / Neither Likely nor Unlikely", "Likely", "Very Likely"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "likelihood"
+    assert roles["Very Unlikely"] == (CodeRole.bottom, 1)
+    assert roles["Unlikely"] == (CodeRole.bottom, 2)
+    assert roles["Neutral / Neither Likely nor Unlikely"] == (CodeRole.neutral, 3)
+    assert roles["Likely"] == (CodeRole.top, 4)
+    assert roles["Very Likely"] == (CodeRole.top, 5)
+
+
+def test_intensity_has_two_distinct_four_point_variants():
+    from surveytool.core.scale_library import _FAMILIES_BY_NAME
+    intensity = _FAMILIES_BY_NAME["intensity"]
+    assert len(intensity.variants) == 2
+    variant_names = {v.name for v in intensity.variants}
+    assert variant_names == {"four_point_not_at_all", "four_point_not_really"}
+
+
+def test_purespectrum_q2_intensity_not_at_all_variant():
+    qtype, roles, family = classify_question_type(["Not at all", "A little", "Somewhat", "A lot"])
+    assert qtype is QuestionType.scale
+    assert family == "intensity"
+    assert roles["Not at all"] == (CodeRole.bottom, 1)
+    assert roles["A lot"] == (CodeRole.top, 4)
+
+
+def test_purespectrum_q5_intensity_not_really_variant():
+    qtype, roles, family = classify_question_type(["Not really", "A little", "Somewhat", "A great deal"])
+    assert qtype is QuestionType.scale
+    assert family == "intensity"
+    assert roles["Not really"] == (CodeRole.bottom, 1)
+    assert roles["A great deal"] == (CodeRole.top, 4)
+
+
+def test_fluency_matches_full_literal_suffixed_labels():
+    labels = [
+        "None — I don't really speak it, just recognize it",
+        "Basic — a few words or phrases",
+        "Conversational — can hold an everyday conversation",
+        "Fluent — comfortable in most situations",
+    ]
+    qtype, roles, family = classify_question_type(labels)
+    assert qtype is QuestionType.scale
+    assert family == "fluency"
+
+
+def test_relevance_five_point():
+    qtype, roles, family = classify_question_type(
+        ["Not relevant at all", "Not very relevant", "Neutral/don't know enough to say", "Relevant", "Extremely relevant"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "relevance"
+    assert roles["Neutral/don't know enough to say"] == (CodeRole.neutral, 3)
+
+
+def test_concern_four_point():
+    qtype, roles, family = classify_question_type(
+        ["Not concerned at all", "Not very concerned", "Somewhat concerned", "Very concerned"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "concern"
+    assert roles["Not concerned at all"] == (CodeRole.bottom, 1)
+    assert roles["Very concerned"] == (CodeRole.top, 4)
+
+
+def test_worry_four_point():
+    qtype, roles, family = classify_question_type(
+        ["Not worried at all", "Not very worried", "Somewhat worried", "Very worried"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "worry"
+    assert roles["Not worried at all"] == (CodeRole.bottom, 1)
+    assert roles["Very worried"] == (CodeRole.top, 4)
+
+
+def test_effectiveness_and_ability_five_point_polar():
+    qtype, roles, family = classify_question_type(
+        ["Very Ineffective", "Ineffective", "Neutral / Neither Effective nor Ineffective", "Effective", "Very Effective"]
+    )
+    assert qtype is QuestionType.scale
+    assert family == "effectiveness"
+
+    qtype2, roles2, family2 = classify_question_type(
+        ["Extremely unable to", "Somewhat unable to", "Neutral / Neither able nor unable to", "Somewhat able to", "Extremely able to"]
+    )
+    assert qtype2 is QuestionType.scale
+    assert family2 == "ability"
+
+
+def test_no_variant_anywhere_matches_two_others():
+    """Every real-file variant is distinguishable from every other one --
+    this is a coarse cross-check that Task B2's population didn't
+    accidentally introduce a duplicate (would have already raised at import
+    time, but this documents the intent explicitly)."""
+    from surveytool.core.scale_library import _ALL_VARIANTS
+    seen = set()
+    for v in _ALL_VARIANTS:
+        assert v.folded_label_set not in seen
+        seen.add(v.folded_label_set)

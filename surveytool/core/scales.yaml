@@ -1,170 +1,124 @@
 families:
   agreement:
     variants:
-      default:
+      five_point:
         points:
-          - patterns: ["strongly disagree", "disagree"]
-          - patterns: ["neutral", "neither agree nor disagree", "neither"]
-          - patterns: ["strongly agree", "agree"]
-
-  satisfaction:
-    variants:
-      default:
-        points:
-          - patterns: ["very dissatisfied", "strongly dissatisfied", "dissatisfied"]
-          - patterns: ["neither satisfied nor dissatisfied", "neutral", "neither"]
-          - patterns: ["very satisfied", "strongly satisfied", "satisfied"]
-
-  likelihood:
-    variants:
-      default:
-        points:
-          - patterns: ["very unlikely", "unlikely"]
-          - patterns: ["neutral", "neither likely nor unlikely", "neither"]
-          - patterns: ["very likely", "likely"]
+          - patterns: ["strongly disagree"]
+          - patterns: ["disagree"]
+          - patterns: ["neutral"]
+          - patterns: ["agree"]
+          - patterns: ["strongly agree"]
 
   importance:
     variants:
-      default:
+      five_point_gradated:
         points:
-          - patterns:
-              - "slightly important"
-              - "very unimportant"
-              - "unimportant"
-              - "not important"
-              - "not very important"
-              - "not at all important"
-              - "not important at all"
-          - patterns:
-              - "moderately important"
-              - "somewhat important"
-              - "neutral"
-              - "neither important nor unimportant"
-              - "neither"
-          - patterns:
-              - "extremely important"
-              - "very important"
-              - "important"
+          - patterns: ["not important at all"]
+          - patterns: ["slightly important"]
+          - patterns: ["moderately important"]
+          - patterns: ["very important"]
+          - patterns: ["extremely important"]
+      four_point_polar:
+        points:
+          - patterns: ["not at all important"]
+          - patterns: ["not very important"]
+          - patterns: ["somewhat important"]
+          - patterns: ["very important"]
+      five_point_polar:
+        points:
+          - patterns: ["very unimportant"]
+          - patterns: ["unimportant"]
+          - patterns: ["neutral / neither important nor unimportant"]
+          - patterns: ["important"]
+          - patterns: ["very important"]
+
+  likelihood:
+    variants:
+      five_point_polar:
+        points:
+          - patterns: ["very unlikely"]
+          - patterns: ["unlikely"]
+          - patterns: ["neutral / neither likely nor unlikely"]
+          - patterns: ["likely"]
+          - patterns: ["very likely"]
 
   effectiveness:
     variants:
-      default:
+      five_point_polar:
         points:
-          - patterns: ["very ineffective", "ineffective", "not effective", "not at all effective"]
-          - patterns: ["neutral", "neither effective nor ineffective", "neither"]
-          - patterns: ["very effective", "effective"]
+          - patterns: ["very ineffective"]
+          - patterns: ["ineffective"]
+          - patterns: ["neutral / neither effective nor ineffective"]
+          - patterns: ["effective"]
+          - patterns: ["very effective"]
 
   ability:
     variants:
-      default:
+      five_point_polar:
         points:
-          - patterns:
-              - "extremely unable to"
-              - "very unable"
-              - "somewhat unable to"
-              - "unable"
-              - "not able"
-              - "not capable"
-              - "not at all able"
-          - patterns: ["neutral", "neither able nor unable", "neither"]
-          - patterns:
-              - "extremely able to"
-              - "very able"
-              - "somewhat able to"
-              - "able"
-              - "very capable"
-              - "capable"
-
-  frequency:
-    variants:
-      default:
-        points:
-          - patterns: ["rarely", "never", "very rarely"]
-          - patterns: ["sometimes", "neutral"]
-          - patterns: ["always", "very often", "often"]
-
-  zero_to_ten:
-    variants:
-      default:
-        points:
-          - patterns: ["0", "1", "2"]
-          - patterns: ["5"]
-          - patterns: ["10", "9", "8"]
-
-  calendar_frequency:
-    variants:
-      default:
-        points:
-          - patterns: ["rarely", "never"]
-          - patterns: ["monthly", "occasionally", "sometimes"]
-          - patterns: ["daily", "weekly"]
+          - patterns: ["extremely unable to"]
+          - patterns: ["somewhat unable to"]
+          - patterns: ["neutral / neither able nor unable to"]
+          - patterns: ["somewhat able to"]
+          - patterns: ["extremely able to"]
 
   intensity:
     variants:
-      default:
+      four_point_not_at_all:
         points:
-          - patterns: ["not at all", "none", "not really"]
-          - patterns: ["somewhat", "a little", "moderately"]
-          - patterns: ["a lot", "a great deal"]
+          - patterns: ["not at all"]
+          - patterns: ["a little"]
+          - patterns: ["somewhat"]
+          - patterns: ["a lot"]
+      four_point_not_really:
+        points:
+          - patterns: ["not really"]
+          - patterns: ["a little"]
+          - patterns: ["somewhat"]
+          - patterns: ["a great deal"]
+
+  relevance:
+    variants:
+      five_point:
+        points:
+          - patterns: ["not relevant at all"]
+          - patterns: ["not very relevant"]
+          - patterns: ["neutral/don't know enough to say"]
+          - patterns: ["relevant"]
+          - patterns: ["extremely relevant"]
 
   concern:
     variants:
-      default:
+      four_point:
         points:
-          - patterns: ["not very concerned", "not concerned at all", "not at all concerned"]
-          - patterns: ["somewhat concerned", "moderately concerned"]
-          - patterns: ["very concerned", "extremely concerned"]
+          - patterns: ["not concerned at all"]
+          - patterns: ["not very concerned"]
+          - patterns: ["somewhat concerned"]
+          - patterns: ["very concerned"]
 
   worry:
     variants:
-      default:
+      four_point:
         points:
-          - patterns: ["not very worried", "not worried at all", "not at all worried"]
+          - patterns: ["not worried at all"]
+          - patterns: ["not very worried"]
           - patterns: ["somewhat worried"]
-          - patterns: ["very worried", "extremely worried"]
+          - patterns: ["very worried"]
 
-  # PureSpectrum's Q4 (relevance) codebook pairs the scale's midpoint with a
-  # don't-know option in a single label: "Neutral/don't know enough to say"
-  # (fold_label collapses the curly apostrophe and casefolds it to
-  # "neutral/don't know enough to say", confirmed directly against the
-  # fixture — this does NOT equal the bare "neutral" pattern, so it needs
-  # its own entry). Deliberate call: treat it as the neutral role, not as
-  # non-substantive/excluded. The respondent actively selected point 3 of 5
-  # on an ordered 1-5 scale — it is a self-chosen midpoint, not a refusal or
-  # a "prefer not to answer" — so it belongs in the ordered scale and
-  # participates in netting like any other neutral response, rather than
-  # being dropped from the base as a non-answer.
-  relevance:
-    variants:
-      default:
-        points:
-          - patterns:
-              - "not very relevant"
-              - "not relevant at all"
-              - "not at all relevant"
-              - "irrelevant"
-          - patterns:
-              - "neutral"
-              - "neutral/don't know enough to say"
-              - "moderately relevant"
-          - patterns: ["extremely relevant", "very relevant", "relevant"]
-
-  # PureSpectrum's D5 (fluency) labels carry a descriptive suffix after a
-  # dash, e.g. "Basic — a few words or phrases" (fold_label folds the em
-  # dash to ASCII "-" but does not strip the trailing text, confirmed
-  # directly against the fixture: it folds to
-  # "basic - a few words or phrases", not "basic"). Matching here is exact
-  # set membership, not substring or prefix matching, so the patterns below
-  # will NOT match D5's actual labels as they appear in this fixture. Added
-  # anyway per the brief's exact specification, in case a future vendor
-  # file uses these bare labels without the descriptive suffix. Deliberately
-  # not adding fuzzy prefix or dash-stripping logic to force a match on
-  # D5 — that is out of scope for this task (left for the resolver) and
-  # would risk over-matching elsewhere.
   fluency:
     variants:
-      default:
+      four_point_suffixed:
         points:
-          - patterns: ["none", "not at all"]
-          - patterns: ["basic"]
-          - patterns: ["fluent", "conversational"]
+          - patterns:
+              - "none - i don't really speak it, just recognize it"
+          - patterns:
+              - "basic - a few words or phrases"
+          - patterns:
+              - "conversational - can hold an everyday conversation"
+          - patterns:
+              - "fluent - comfortable in most situations"
+
+  satisfaction: {}
+  frequency: {}
+  zero_to_ten: {}
+  calendar_frequency: {}
