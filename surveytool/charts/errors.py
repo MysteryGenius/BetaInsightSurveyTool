@@ -31,6 +31,8 @@ class ErrorCode(str, Enum):
     SCALE_LIBRARY_CONFIG_INVALID = "SCALE_LIBRARY_CONFIG_INVALID"
     AMBIGUOUS_SCALE_MATCH = "AMBIGUOUS_SCALE_MATCH"
     PALETTE_EXHAUSTED = "PALETTE_EXHAUSTED"
+    SURVEY_ID_ALREADY_EXISTS = "SURVEY_ID_ALREADY_EXISTS"
+    RENAME_FAILED = "RENAME_FAILED"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -61,6 +63,8 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.SCALE_LIBRARY_CONFIG_INVALID: 500,
     ErrorCode.AMBIGUOUS_SCALE_MATCH: 400,
     ErrorCode.PALETTE_EXHAUSTED: 400,
+    ErrorCode.SURVEY_ID_ALREADY_EXISTS: 400,
+    ErrorCode.RENAME_FAILED: 500,
 }
 
 
@@ -526,4 +530,35 @@ class PaletteExhaustedError(SurveyToolError):
             f"without repeating a colour.",
             detail=detail,
             next_action="Combine or filter response options, or view this question as a table instead.",
+        )
+
+
+class SurveyIdAlreadyExistsError(SurveyToolError):
+    """Refuses a rename onto a survey_id that already has saved data
+    (overrides, settings, or display order) -- never merges the two,
+    since merging could silently combine two different surveys' saved
+    resolutions in a way neither analyst asked for."""
+
+    def __init__(self, new_survey_id: str) -> None:
+        self.new_survey_id = new_survey_id
+        super().__init__(
+            ErrorCode.SURVEY_ID_ALREADY_EXISTS,
+            f"'{new_survey_id}' is already used by another saved project.",
+            detail=f"A project with survey_id {new_survey_id!r} already has saved data.",
+            next_action="Choose a different name, or delete the existing project first if you meant to replace it.",
+        )
+
+
+class RenameFailedError(SurveyToolError):
+    """Raised if a rename's file migration cannot complete partway
+    through -- the caller must have already rolled back every file it
+    moved before raising this, so the old survey_id is left fully intact
+    with nothing under the new id."""
+
+    def __init__(self, old_survey_id: str, new_survey_id: str, reason: str) -> None:
+        super().__init__(
+            ErrorCode.RENAME_FAILED,
+            "This project could not be renamed.",
+            detail=f"Renaming {old_survey_id!r} to {new_survey_id!r} failed: {reason}",
+            next_action="Nothing was changed. Try again, or report this if it keeps happening.",
         )

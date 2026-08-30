@@ -26,6 +26,8 @@ from surveytool.charts.chart_data import build_chart_data
 from surveytool.charts.errors import (
     ErrorCode,
     NoSessionError,
+    RenameFailedError,
+    SurveyIdAlreadyExistsError,
     SurveyToolError,
     UnresolvedQuestionsError,
     WarningCode,
@@ -886,6 +888,52 @@ async def reset_display_order(survey_id: str, qid: str) -> dict:
     path = _project_display_order_path(survey_id)
     delete_display_order(path, qid)
     return {"reset": True}
+
+
+class RenamePayload(BaseModel):
+    new_survey_id: str
+
+
+@app.post("/api/projects/{survey_id}/rename")
+async def rename_survey(survey_id: str, payload: RenamePayload):
+    """Rename a survey_id, migrating every per-survey-keyed file
+    (overrides, settings, display order) to the new key in one operation.
+    Refuses onto an existing survey_id rather than merging. If migration
+    cannot complete, every file already moved is moved back before raising,
+    so the old survey_id is left fully intact.
+
+    _PER_SURVEY_DIRS is built fresh on every call (not a module-level
+    constant) so that test isolation which monkeypatches _OVERRIDES_DIR/
+    _DISPLAY_ORDER_DIR onto the app module (see tests/conftest.py) is
+    respected -- a constant captured once at import time would freeze in
+    the real, non-isolated directories.
+    """
+    _validate_survey_id(survey_id)
+    _validate_survey_id(payload.new_survey_id)  # raises 400 via the existing validator if malformed
+
+    new_id = payload.new_survey_id
+    per_survey_dirs: tuple[Path, ...] = (_OVERRIDES_DIR, _SETTINGS_DIR, _DISPLAY_ORDER_DIR)
+
+    existing_new_paths = [d / f"{new_id}.yaml" for d in per_survey_dirs if (d / f"{new_id}.yaml").exists()]
+    if existing_new_paths:
+        raise SurveyIdAlreadyExistsError(new_id)
+
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for base_dir in per_survey_dirs:
+            old_path = _resolve_under(base_dir, survey_id)
+            if not old_path.exists():
+                continue
+            new_path = _resolve_under(base_dir, new_id)
+            old_path.rename(new_path)
+            moved.append((old_path, new_path))
+    except OSError as exc:
+        for old_path, new_path in reversed(moved):
+            if new_path.exists():
+                new_path.rename(old_path)
+        raise RenameFailedError(survey_id, new_id, str(exc)) from exc
+
+    return {"old_survey_id": survey_id, "new_survey_id": new_id, "files_migrated": len(moved)}
 
 
 @app.get("/api/session/{session_id}/run-summary")
