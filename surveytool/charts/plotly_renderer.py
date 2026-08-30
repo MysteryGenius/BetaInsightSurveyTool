@@ -51,7 +51,23 @@ _SUPPRESSED_GREY = "#D0D0D0"
 # Single source of truth for every percentage-bar tooltip (Round C4): no
 # trace formats its own hover text independently, so a tooltip can never
 # disagree with the panel figure's DISPLAY_PRECISION-rounded value.
+#
+# This reads Plotly's %{y}, the raw plotted y-value. That's correct for
+# _stacked_bar_100_figure/_grouped_bar_figure/_net_bar_figure, whose traces'
+# y IS the true percentage. It is NOT correct for _diverging_stacked_bar_figure,
+# whose traces sign-flip and half-value y for layout purposes (see that
+# function's own hovertemplate constant below) -- that function must never
+# use this one.
 _HOVER_TEMPLATE = f"%{{y:.{DISPLAY_PRECISION}f}}%%<extra>%{{fullData.name}}</extra>"
+
+# _diverging_stacked_bar_figure-only hover template (Round C4 fix-wave
+# Finding 1): that function's traces plot y = -true_pct for negative-polarity
+# points and y = +-true_pct/2 for the neutral point's two half-traces, purely
+# for bar-layout purposes -- %{y} on those traces would show a sign-flipped
+# or halved number, which is a wrong value, not just a precision defect.
+# Each of that function's traces instead carries the TRUE (unflipped,
+# un-halved) percentage as `customdata`, and this template reads that.
+_DIVERGING_HOVER_TEMPLATE = f"%{{customdata:.{DISPLAY_PRECISION}f}}%%<extra>%{{fullData.name}}</extra>"
 
 
 def _header_text(
@@ -195,28 +211,39 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
             # showlegend suppressed on the second so it appears once.
             neg_half = []
             pos_half = []
+            true_pct = []
             for column in question_result.columns:
                 pct = 0.0 if column.percentages is None else column.percentages.get(code, 0.0)
                 neg_half.append(-pct / 2.0)
                 pos_half.append(pct / 2.0)
-            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, marker_color=colour_by_label[point.label], hovertemplate=_HOVER_TEMPLATE))
-            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, marker_color=colour_by_label[point.label], showlegend=False, hovertemplate=_HOVER_TEMPLATE))
+                true_pct.append(pct)
+            # Both half-traces carry the FULL (un-halved) true percentage as
+            # customdata: the tooltip must read the same true value on both
+            # sides of the straddled bar, not half of it (Round C4 fix-wave
+            # Finding 1).
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=neg_half, customdata=true_pct, marker_color=colour_by_label[point.label], hovertemplate=_DIVERGING_HOVER_TEMPLATE))
+            fig.add_trace(go.Bar(name=point.label, x=x_labels, y=pos_half, customdata=true_pct, marker_color=colour_by_label[point.label], showlegend=False, hovertemplate=_DIVERGING_HOVER_TEMPLATE))
             continue
 
         sign = -1.0 if point.polarity == "negative" else 1.0
         y_values = []
+        true_pct = []
         for column in question_result.columns:
             if column.percentages is None:
                 y_values.append(0.0)
+                true_pct.append(0.0)
             else:
-                y_values.append(sign * column.percentages.get(code, 0.0))
+                pct = column.percentages.get(code, 0.0)
+                y_values.append(sign * pct)
+                true_pct.append(pct)
         fig.add_trace(
             go.Bar(
                 name=point.label,
                 x=x_labels,
                 y=y_values,
+                customdata=true_pct,
                 marker_color=colour_by_label[point.label],
-                hovertemplate=_HOVER_TEMPLATE,
+                hovertemplate=_DIVERGING_HOVER_TEMPLATE,
             )
         )
 

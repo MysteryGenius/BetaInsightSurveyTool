@@ -8,6 +8,14 @@ display order (see breaks_compute.py's use of this module).
 Keyed by survey_id exactly like ProjectOverrides (surveytool/ingest/
 overrides.py) -- one YAML file per survey, so a survey rename (Round C5)
 must migrate this file alongside the overrides file.
+
+Scope note (Round C final review): manual display order is currently
+consumed only by the newer breaks/crosstab pipeline (the ``post_crosstab``/
+``post_breaks_export`` endpoints and ``plotly_renderer.py``). It is not
+read by the legacy ``dist``/``xbreak``/``means`` chart system
+(``surveytool/charts/renderer.py`` and ``surveytool/charts/chart_data.py``)
+-- that is a deliberate scope boundary, not an oversight, and wiring it
+through is out of scope for this fix wave.
 """
 from __future__ import annotations
 

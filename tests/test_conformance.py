@@ -1069,3 +1069,110 @@ def test_hover_template_uses_display_precision():
     from surveytool.charts.plotly_renderer import _HOVER_TEMPLATE
     from surveytool.core.precision import DISPLAY_PRECISION
     assert f".{DISPLAY_PRECISION}f" in _HOVER_TEMPLATE
+
+
+@pytest.mark.skipif(not _TOLUNA_PATH.exists(), reason="Toluna fixture not present")
+def test_diverging_stacked_bar_tooltip_shows_true_percentage_not_plotted_y():
+    """Final-review Finding 1 regression: _diverging_stacked_bar_figure
+    sign-flips negative-polarity points' y (so the bar extends left) and
+    halves the neutral point's y across two straddling half-traces. A
+    hovertemplate reading raw %{y} therefore shows a WRONG value -- a
+    negative-polarity option's true 23.4% would show as "-23.4%", and a
+    12.0% neutral option would show "-6.0%"/"6.0%" instead of "12.0%" on
+    both halves.
+
+    This test builds a real figure (via _diverging_stacked_bar_figure, using
+    a real Toluna scale question for authentic polarity/labels) with a
+    synthetic column of known percentages, then inspects the actual
+    rendered trace `customdata` -- not just the hovertemplate string
+    constant, which cannot catch a wrong-value bug like this one."""
+    from surveytool.compute.breaks_compute import (
+        ColumnResult,
+        QuestionResult,
+        _net_definitions,
+        _scale_points,
+    )
+    from surveytool.charts.plotly_renderer import _diverging_stacked_bar_figure
+    from surveytool.core.suppression import Band
+    from surveytool.ingest.toluna import load
+
+    survey = load(_TOLUNA_PATH, "toluna_misinfo")
+    q7 = next(q for q in survey.questions if q.qid == "7_local_mainstream_media")
+    scale_points = _scale_points(q7)
+
+    polarities = {p.polarity for p in scale_points}
+    assert "negative" in polarities, "fixture question must have a negative-polarity point"
+    assert "neutral" in polarities, "fixture question must have a neutral point to exercise the straddle path"
+
+    percentages = {}
+    for i, point in enumerate(scale_points):
+        # Distinct, identifiable true percentages per code so a sign-flip or
+        # halving bug can never coincidentally look correct.
+        percentages[str(point.code)] = 10.0 + i * 7.5
+
+    column = ColumnResult(
+        key=[["Total"]],
+        label_path=["Total"],
+        base_cell=1000,
+        base_valid=1000,
+        n_invalid=0,
+        band=Band.ok,
+        counts=None,
+        percentages=percentages,
+        nets=None,
+    )
+    result = QuestionResult(
+        question_id=q7.qid,
+        question_text=q7.text,
+        scale_id=q7.scale_family,
+        scale_variant=q7.scale_variant,
+        scale_points=scale_points,
+        nets=_net_definitions(q7),
+        base_total=1000,
+        base_filtered=1000,
+        columns=[column],
+    )
+
+    fig = _diverging_stacked_bar_figure(result)
+
+    neutral_traces = []
+    for point in scale_points:
+        true_pct = percentages[str(point.code)]
+        matching = [t for t in fig.data if t.name == point.label]
+        assert matching, f"expected a trace for {point.label!r}"
+
+        if point.polarity == "negative":
+            trace = matching[0]
+            # The plotted y is sign-flipped for layout -- must NOT equal the
+            # true percentage.
+            assert trace.y[0] == pytest.approx(-true_pct)
+            # customdata must carry the TRUE (unsigned) percentage, which is
+            # what the hovertemplate actually reads.
+            assert trace.customdata[0] == pytest.approx(true_pct)
+
+        elif point.polarity == "neutral":
+            assert len(matching) == 2, "neutral point must render as two half-traces"
+            neutral_traces = matching
+            for trace in matching:
+                # Plotted y is half-magnitude for the straddle layout...
+                assert abs(trace.y[0]) == pytest.approx(true_pct / 2.0)
+                # ...but customdata must carry the FULL true percentage on
+                # BOTH halves, not half of it.
+                assert trace.customdata[0] == pytest.approx(true_pct)
+
+        else:
+            trace = matching[0]
+            assert trace.y[0] == pytest.approx(true_pct)
+            assert trace.customdata[0] == pytest.approx(true_pct)
+
+    assert neutral_traces, "fixture question's neutral point must have been exercised"
+
+    # Every non-suppressed trace in this figure must use the diverging-
+    # specific customdata-based template, never the shared %{y}-based one
+    # (which would read the sign-flipped/halved value).
+    for trace in fig.data:
+        if trace.name == "Suppressed (base too small)":
+            continue
+        assert trace.hovertemplate is not None
+        assert "%{customdata" in trace.hovertemplate
+        assert "%{y" not in trace.hovertemplate
