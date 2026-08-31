@@ -12,3 +12,4 @@ packaging/build/
 packaging/Output/
 packaging/MicrosoftEdgeWebview2Setup.exe
 .worktrees/
+.superpowers/
