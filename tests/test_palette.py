@@ -46,3 +46,23 @@ def test_palette_exhausted_error_message_is_plain_english():
     except PaletteExhaustedError as exc:
         assert "colour" in exc.message.lower() or "color" in exc.message.lower()
         assert exc.next_action
+
+
+def test_assign_series_colours_accepts_explicit_palette():
+    custom_palette = ("#111111", "#222222", "#333333")
+    assignment = assign_series_colours(["A", "B"], palette=custom_palette)
+    assert set(assignment.values()) <= set(custom_palette)
+
+
+def test_assign_series_colours_default_palette_unchanged():
+    """Confirms the default-parameter form is byte-identical to calling
+    with no palette argument at all -- the existing call-site contract
+    (plotly_renderer.py's three bar builders, none of which pass palette)
+    must not change behaviour."""
+    identities = ["Option A", "Option B", "Option C"]
+    assert assign_series_colours(identities) == assign_series_colours(identities, palette=CATEGORICAL_PALETTE)
+
+
+def test_assign_series_colours_raises_when_exceeding_explicit_palette_size():
+    with pytest.raises(PaletteExhaustedError):
+        assign_series_colours(["A", "B", "C", "D"], palette=("#111111", "#222222", "#333333"))

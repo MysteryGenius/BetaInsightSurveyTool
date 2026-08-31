@@ -45,55 +45,60 @@ CATEGORICAL_PALETTE: tuple[str, ...] = (
 )
 
 
-def assign_series_colours(series_identities: list[str]) -> dict[str, str]:
+def assign_series_colours(
+    series_identities: list[str],
+    palette: tuple[str, ...] = CATEGORICAL_PALETTE,
+) -> dict[str, str]:
     """Assign one palette colour to each distinct series identity.
 
     Colour is a deterministic function of the identity string alone (a
-    stable hash of the identity mod the palette length), so:
+    stable hash of the identity mod len(palette)), so:
     - the same identity always gets the same colour regardless of what
       other identities are or aren't present in a given call (true
       cross-call stability, e.g. "toggle one series off and re-render"),
     - reordering the input list never changes any assignment (colour never
       depends on position),
     - a hash collision (two different identities landing on the same
-      palette slot) is possible in principle with only 12 slots and an
-      arbitrary number of identities, so this function still enforces the
-      "no two series share a colour within one chart" requirement
-      explicitly, re-picking a colliding identity's slot deterministically
-      (linear probing to the next free slot in palette order) rather than
-      silently allowing a same-chart collision.
+      palette slot) is possible in principle with a small number of slots
+      and an arbitrary number of identities, so this function still
+      enforces the "no two series share a colour within one chart"
+      requirement explicitly, re-picking a colliding identity's slot
+      deterministically (linear probing to the next free slot in palette
+      order) rather than silently allowing a same-chart collision.
+
+    `palette` defaults to the shared brand CATEGORICAL_PALETTE (Round C1)
+    for every existing call site that doesn't know about chart styles
+    (Round D). A caller applying a non-brand ChartStyle (surveytool.charts.
+    styles) passes that style's own palette instead, so colour assignment
+    for the same response-option set uses a different but equally
+    collision-checked 12-entry palette.
 
     Raises PaletteExhaustedError if there are more distinct identities than
-    the palette has entries — a repeated colour within one chart is never
-    produced silently.
+    the given palette has entries — a repeated colour within one chart is
+    never produced silently.
 
     Accepted edge case: because collision resolution depends on which
-    other identities are present in the same call (linear probing only
-    triggers when two identities in this specific call share a base slot),
-    removing an identity from the list can in principle change which slot
-    a *different*, colliding identity lands on. This does not affect the
-    common case (no collision), and is vanishingly unlikely with real
-    response-option label sets against 12 slots; a fully collision-immune,
+    other identities are present in the same call, removing an identity
+    from the list can in principle change which slot a *different*,
+    colliding identity lands on. This does not affect the common case (no
+    collision), and is vanishingly unlikely with real response-option
+    label sets against a 12-slot palette; a fully collision-immune,
     call-independent scheme is outside this task's scope.
     """
-    if len(series_identities) > len(CATEGORICAL_PALETTE):
-        raise PaletteExhaustedError(len(series_identities), len(CATEGORICAL_PALETTE))
+    if len(series_identities) > len(palette):
+        raise PaletteExhaustedError(len(series_identities), len(palette))
 
     def _base_slot(identity: str) -> int:
         digest = hashlib.sha256(identity.encode("utf-8")).digest()
-        return int.from_bytes(digest[:4], "big") % len(CATEGORICAL_PALETTE)
+        return int.from_bytes(digest[:4], "big") % len(palette)
 
     assignment: dict[str, str] = {}
     used_slots: set[int] = set()
-    # Deterministic processing order (sorted) so that when two identities
-    # collide on the same base slot, which one keeps the base slot and
-    # which one probes forward is itself deterministic and independent of
-    # input list order.
     for identity in sorted(set(series_identities)):
         slot = _base_slot(identity)
         while slot in used_slots:
-            slot = (slot + 1) % len(CATEGORICAL_PALETTE)
+            slot = (slot + 1) % len(palette)
         used_slots.add(slot)
-        assignment[identity] = CATEGORICAL_PALETTE[slot]
+        assignment[identity] = palette[slot]
 
     return assignment
