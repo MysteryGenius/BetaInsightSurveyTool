@@ -1097,7 +1097,20 @@ function renderBreaksChart(qr, chartArea, chartType) {
     margin: { l: 60, r: 20, t: 20, b: 100 },
     yaxis: { title: "%" },
   });
-  layout = applyChartStyleToLayout(layout, qr.chart_style || "brand");
+  // Only apply a chart-style override once the analyst has actually chosen
+  // a non-default style. qr.chart_style is null/undefined for every
+  // question until an analyst opts in (QuestionResult.chart_style defaults
+  // to None server-side and is never coerced to "brand"), so leaving this
+  // call unconditional would apply applyChartStyleToLayout's brand values
+  // (#F4F1EA background, #222222 font, 12-colour palette) on top of
+  // withChartTemplate's own, different pre-feature defaults (#ffffff
+  // background, CHART_COLORS.ink font, 2-colour colorway) for every chart
+  // an analyst never touches -- silently regressing the default on-screen
+  // appearance. Gating on a real (non-default) style preserves
+  // withChartTemplate's original values exactly when no style is chosen.
+  if (qr.chart_style) {
+    layout = applyChartStyleToLayout(layout, qr.chart_style);
+  }
 
   Plotly.newPlot(chartArea, traces, layout, { displaylogo: false, responsive: true });
 }
