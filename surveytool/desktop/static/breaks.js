@@ -889,7 +889,11 @@ function chartTypeLabel(chartType) {
 // chart without a server round trip. Keep in sync with styles.py if that
 // registry's values ever change.
 const CLIENT_CHART_STYLES = {
-  brand: { palette: null, background: "#F4F1EA", fontColor: "#222222" }, // null palette: reuse CHART_TEMPLATE_LAYOUT's default colorway verbatim
+  brand: {
+    palette: ["#1B667D", "#C4856A", "#5B8C3E", "#8C5B9E", "#D4A017", "#3E5C8C", "#A63E5A", "#4A9E8C", "#9E6B3E", "#6B6B6B", "#2E4A2E", "#B0578D"],
+    background: "#F4F1EA",
+    fontColor: "#222222",
+  },
   high_contrast: {
     palette: ["#000000", "#FFFFFF", "#07191B", "#0D3914", "#185222", "#3F601F", "#726B0E", "#DA2DE5", "#22C36F", "#65CE31", "#19EEFF", "#96EF5C"],
     background: "#FFFFFF",
@@ -917,7 +921,7 @@ function applyChartStyleToLayout(layout, styleName) {
     paper_bgcolor: style.background,
     plot_bgcolor: style.background,
     font: { ...layout.font, color: style.fontColor },
-    ...(style.palette ? { colorway: style.palette } : {}),
+    colorway: style.palette,
   };
 }
 
