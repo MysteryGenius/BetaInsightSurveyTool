@@ -33,6 +33,7 @@ class ErrorCode(str, Enum):
     PALETTE_EXHAUSTED = "PALETTE_EXHAUSTED"
     SURVEY_ID_ALREADY_EXISTS = "SURVEY_ID_ALREADY_EXISTS"
     RENAME_FAILED = "RENAME_FAILED"
+    UNKNOWN_CHART_STYLE = "UNKNOWN_CHART_STYLE"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -65,6 +66,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.PALETTE_EXHAUSTED: 400,
     ErrorCode.SURVEY_ID_ALREADY_EXISTS: 400,
     ErrorCode.RENAME_FAILED: 500,
+    ErrorCode.UNKNOWN_CHART_STYLE: 400,
 }
 
 
@@ -561,4 +563,24 @@ class RenameFailedError(SurveyToolError):
             "This project could not be renamed.",
             detail=f"Renaming {old_survey_id!r} to {new_survey_id!r} failed: {reason}",
             next_action="Nothing was changed. Try again, or report this if it keeps happening.",
+        )
+
+
+class UnknownChartStyleError(SurveyToolError):
+    """Raised when a chart-style choice is written with a style_name that
+    isn't in surveytool.charts.styles.STYLE_REGISTRY. A chart style choice
+    is never persisted unvalidated -- an unrecognised name at save time is
+    almost always a stale client (an old page that still offers a style
+    that was since removed), not something to silently coerce to brand and
+    save anyway."""
+
+    def __init__(self, style_name: str, known_names: list[str]) -> None:
+        self.style_name = style_name
+        self.known_names = known_names
+        detail = f"Requested style_name={style_name!r}; known styles: {', '.join(known_names)}."
+        super().__init__(
+            ErrorCode.UNKNOWN_CHART_STYLE,
+            f"'{style_name}' isn't a chart style this tool recognises.",
+            detail=detail,
+            next_action=f"Choose one of: {', '.join(known_names)}. Reloading the page may also help if this style was recently removed.",
         )
