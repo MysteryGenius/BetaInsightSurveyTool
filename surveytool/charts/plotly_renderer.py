@@ -44,7 +44,9 @@ from surveytool.core.text_hygiene import wrap_text
 # Brand palette, reused from renderer.py's conventions (module docstring
 # point 3: visual consistency is a judgment call, not a hard requirement --
 # these are close to but not required to exactly match _ROLE_COLOUR).
-_TEAL = "#1B667D"
+# _TEAL (formerly "#1B667D", hardcoded here) was retired in favour of
+# style.palette[0] in _table_figure -- brand's palette[0] is this same
+# value, so the default rendering is unchanged.
 _GREY = "#9AA5A8"
 _WARM = "#C4856A"
 _SUPPRESSED_GREY = "#D0D0D0"
@@ -323,10 +325,17 @@ def _net_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Fi
     """Bars showing net (t2b/b2b) values per column, one trace per net.
 
     net_bar is permitted only when the question has >= 1 net (chart_validity
-    rule); a suppressed column's nets are None and contributes a gap.
+    rule); a suppressed column's nets are None and contributes a gap. Each
+    net gets its own colour via assign_series_colours(style.palette), the
+    same per-series colour-assignment convention the other three bar
+    builders use, so a non-brand style's palette is visible here too.
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
+    colour_by_label = assign_series_colours(
+        [net_def.label for net_def in question_result.nets],
+        palette=style.palette,
+    )
 
     for net_def in question_result.nets:
         y_values = []
@@ -335,7 +344,15 @@ def _net_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Fi
                 y_values.append(0.0)
             else:
                 y_values.append(column.nets[net_def.net_id].percentage)
-        fig.add_trace(go.Bar(name=net_def.label, x=x_labels, y=y_values, hovertemplate=_HOVER_TEMPLATE))
+        fig.add_trace(
+            go.Bar(
+                name=net_def.label,
+                x=x_labels,
+                y=y_values,
+                marker_color=colour_by_label[net_def.label],
+                hovertemplate=_HOVER_TEMPLATE,
+            )
+        )
 
     gap_y = [
         100 if c.band is Band.suppressed else 0 for c in question_result.columns
@@ -360,6 +377,14 @@ def _table_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figu
     'count (pct%)'. Always buildable regardless of column count or scale
     polarity, matching table's "always permitted" status. Suppressed
     columns show a plain "suppressed" marker instead of fabricated figures.
+
+    The header fill uses style.palette[0] (brand's first palette entry is
+    "#1B667D", the same value this function hardcoded before the chart
+    style feature, so this is byte-identical to the pre-feature default)
+    and cells use style.background, so a
+    non-brand style's colours are visible here too, consistent with how the
+    three bar builders apply style to both background/font (via
+    _apply_header) and palette.
     """
     header = ["Scale point"] + [_column_display_label(c) for c in question_result.columns]
 
@@ -398,8 +423,8 @@ def _table_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figu
     fig = go.Figure(
         data=[
             go.Table(
-                header={"values": header, "fill_color": _TEAL, "font": {"color": "white"}},
-                cells={"values": columns_data, "fill_color": "#FFFFFF"},
+                header={"values": header, "fill_color": style.palette[0], "font": {"color": "white"}},
+                cells={"values": columns_data, "fill_color": style.background},
             )
         ]
     )
