@@ -1093,6 +1093,7 @@ def test_diverging_stacked_bar_tooltip_shows_true_percentage_not_plotted_y():
         _scale_points,
     )
     from surveytool.charts.plotly_renderer import _diverging_stacked_bar_figure
+    from surveytool.charts.styles import get_style
     from surveytool.core.suppression import Band
     from surveytool.ingest.toluna import load
 
@@ -1133,7 +1134,7 @@ def test_diverging_stacked_bar_tooltip_shows_true_percentage_not_plotted_y():
         columns=[column],
     )
 
-    fig = _diverging_stacked_bar_figure(result)
+    fig = _diverging_stacked_bar_figure(result, get_style(None))
 
     neutral_traces = []
     for point in scale_points:
@@ -1176,3 +1177,126 @@ def test_diverging_stacked_bar_tooltip_shows_true_percentage_not_plotted_y():
         assert trace.hovertemplate is not None
         assert "%{customdata" in trace.hovertemplate
         assert "%{y" not in trace.hovertemplate
+
+
+# ── Task 6: chart style selector wired into plotly_renderer ────────────────
+
+
+def _minimal_question_result(**overrides):
+    """Builds a minimal QuestionResult sufficient to exercise
+    plotly_renderer.build_figure directly, without going through the full
+    compute_breaks_crosstab pipeline."""
+    from surveytool.compute.breaks_compute import ColumnResult, QuestionResult, ScalePoint
+    from surveytool.core.suppression import Band
+
+    defaults = dict(
+        question_id="q_test",
+        question_text="Test question?",
+        scale_id="test_scale",
+        scale_variant=None,
+        scale_points=[
+            ScalePoint(code="1", label="Agree", order=0, polarity="positive", rank=1),
+            ScalePoint(code="2", label="Disagree", order=1, polarity="negative", rank=0),
+        ],
+        nets=[],
+        base_total=100,
+        base_filtered=100,
+        columns=[
+            ColumnResult(
+                key=[], label_path=[], base_cell=100, base_valid=100, n_invalid=0,
+                base_provenance=None, band=Band.ok,
+                counts={"1": 60, "2": 40}, percentages={"1": 60.0, "2": 40.0}, nets=None,
+            )
+        ],
+        permitted_charts=[],
+        chart_style=None,
+    )
+    defaults.update(overrides)
+    return QuestionResult(**defaults)
+
+
+def test_build_figure_with_no_chart_style_matches_pre_feature_brand_colours():
+    """The critical additive guarantee: chart_style=None must produce a
+    figure whose colours/background/font are identical to hardcoded brand
+    values plotly_renderer used before this feature existed."""
+    from surveytool.charts.plotly_renderer import _stacked_bar_100_figure, _apply_header
+    from surveytool.charts.styles import get_style
+    from surveytool.core.chart_validity import ChartType
+
+    result = _minimal_question_result(chart_style=None)
+    style = get_style(result.chart_style)
+    fig = _stacked_bar_100_figure(result, style)
+    _apply_header(fig, result, break_spec=None, filter_spec=None, chart_type=ChartType.stacked_bar_100, style=style)
+
+    assert fig.layout.paper_bgcolor == "#F4F1EA"
+    assert fig.layout.plot_bgcolor == "#F4F1EA"
+    assert fig.layout.font.color == "#222222"
+
+    from surveytool.charts.palette import assign_series_colours
+    expected_colours = assign_series_colours(["Agree", "Disagree"])
+    trace_colours = {trace.name: trace.marker.color for trace in fig.data if trace.name in ("Agree", "Disagree")}
+    assert trace_colours == expected_colours
+
+
+def test_build_figure_with_non_brand_style_applies_its_palette_background_and_font():
+    """A non-brand style's background/font/palette actually appear in the
+    built figure's layout and trace marker_color."""
+    from surveytool.charts.plotly_renderer import _stacked_bar_100_figure, _apply_header
+    from surveytool.charts.styles import STYLE_REGISTRY, get_style
+    from surveytool.charts.palette import assign_series_colours
+    from surveytool.core.chart_validity import ChartType
+
+    style = STYLE_REGISTRY["cool"]
+    result = _minimal_question_result(chart_style="cool")
+    resolved_style = get_style(result.chart_style)
+    fig = _stacked_bar_100_figure(result, resolved_style)
+    _apply_header(fig, result, break_spec=None, filter_spec=None, chart_type=ChartType.stacked_bar_100, style=resolved_style)
+
+    assert fig.layout.paper_bgcolor == style.background
+    assert fig.layout.plot_bgcolor == style.background
+    assert fig.layout.font.color == style.font_color
+
+    expected_colours = assign_series_colours(["Agree", "Disagree"], palette=style.palette)
+    trace_colours = {trace.name: trace.marker.color for trace in fig.data if trace.name in ("Agree", "Disagree")}
+    assert trace_colours == expected_colours
+
+
+def test_build_figure_unknown_chart_style_falls_back_to_brand():
+    """A stale/corrupted chart_style value on QuestionResult (e.g. a style
+    later removed from STYLE_REGISTRY) must never crash rendering --
+    get_style's silent fallback applies here exactly as it does anywhere
+    else get_style is called."""
+    from surveytool.charts.plotly_renderer import _apply_header, _stacked_bar_100_figure
+    from surveytool.charts.styles import get_style
+    from surveytool.core.chart_validity import ChartType
+
+    result = _minimal_question_result(chart_style="a_style_that_was_removed")
+    style = get_style(result.chart_style)
+    fig = _stacked_bar_100_figure(result, style)
+    _apply_header(fig, result, break_spec=None, filter_spec=None, chart_type=ChartType.stacked_bar_100, style=style)
+    assert fig.layout.paper_bgcolor == "#F4F1EA"
+
+
+def test_build_figure_end_to_end_resolves_style_once_from_question_result():
+    """build_figure's own public signature is unchanged; it reads style from
+    question_result.chart_style internally and applies the same resolved
+    ChartStyle to both the builder and the header (not a separate parameter)."""
+    from surveytool.charts.plotly_renderer import build_figure
+    from surveytool.charts.styles import STYLE_REGISTRY
+    from surveytool.charts.palette import assign_series_colours
+    from surveytool.core.chart_validity import ChartPermission, ChartType
+
+    style = STYLE_REGISTRY["cool"]
+    result = _minimal_question_result(
+        chart_style="cool",
+        permitted_charts=[ChartPermission(chart_type=ChartType.stacked_bar_100, permitted=True, reason=None)],
+    )
+    fig = build_figure(result, ChartType.stacked_bar_100)
+
+    assert fig.layout.paper_bgcolor == style.background
+    assert fig.layout.plot_bgcolor == style.background
+    assert fig.layout.font.color == style.font_color
+
+    expected_colours = assign_series_colours(["Agree", "Disagree"], palette=style.palette)
+    trace_colours = {trace.name: trace.marker.color for trace in fig.data if trace.name in ("Agree", "Disagree")}
+    assert trace_colours == expected_colours

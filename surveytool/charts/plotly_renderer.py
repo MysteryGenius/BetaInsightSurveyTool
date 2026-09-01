@@ -34,6 +34,7 @@ import plotly.graph_objects as go
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.charts.palette import assign_series_colours
+from surveytool.charts.styles import ChartStyle, get_style
 from surveytool.compute.breaks_compute import ColumnResult, QuestionResult
 from surveytool.core.chart_validity import ChartType
 from surveytool.core.precision import DISPLAY_PRECISION, format_percentage
@@ -114,6 +115,7 @@ def _apply_header(
     break_spec: list[str] | None,
     filter_spec: dict[str, list[str]] | None,
     chart_type: ChartType,
+    style: ChartStyle,
 ) -> None:
     fig.update_layout(
         title={
@@ -123,9 +125,9 @@ def _apply_header(
             "font": {"size": 13},
         },
         margin={"t": 140},
-        paper_bgcolor="#F4F1EA",
-        plot_bgcolor="#F4F1EA",
-        font={"color": "#222222"},
+        paper_bgcolor=style.background,
+        plot_bgcolor=style.background,
+        font={"color": style.font_color},
     )
 
 
@@ -136,7 +138,7 @@ def _column_display_label(column: ColumnResult) -> str:
     return label
 
 
-def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
+def _stacked_bar_100_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
     """One 100%-stacked bar per column; segments = scale points.
 
     Percentages come straight from each ColumnResult.percentages. A
@@ -146,7 +148,10 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
-    colour_by_label = assign_series_colours([point.label for point in question_result.scale_points])
+    colour_by_label = assign_series_colours(
+        [point.label for point in question_result.scale_points],
+        palette=style.palette,
+    )
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -186,7 +191,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult) -> go.Figure:
     return fig
 
 
-def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
+def _diverging_stacked_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
     """Bars diverging from 0: bottom-half points (by rank) extend left,
     top-half points extend right. An odd-length variant's exact-middle
     point (CodeRole.neutral) is rendered as its own centered segment
@@ -197,7 +202,10 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
-    colour_by_label = assign_series_colours([point.label for point in question_result.scale_points])
+    colour_by_label = assign_series_colours(
+        [point.label for point in question_result.scale_points],
+        palette=style.palette,
+    )
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -268,7 +276,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult) -> go.Figure:
     return fig
 
 
-def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
+def _grouped_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
     """Grouped bars: one group per column, one bar per scale point within
     the group. A suppressed column's group is emitted with zero-height bars
     plus an annotation, rather than omitted, so its x position still reads
@@ -276,7 +284,10 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
     """
     fig = go.Figure()
     x_labels = [_column_display_label(c) for c in question_result.columns]
-    colour_by_label = assign_series_colours([point.label for point in question_result.scale_points])
+    colour_by_label = assign_series_colours(
+        [point.label for point in question_result.scale_points],
+        palette=style.palette,
+    )
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -308,7 +319,7 @@ def _grouped_bar_figure(question_result: QuestionResult) -> go.Figure:
     return fig
 
 
-def _net_bar_figure(question_result: QuestionResult) -> go.Figure:
+def _net_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
     """Bars showing net (t2b/b2b) values per column, one trace per net.
 
     net_bar is permitted only when the question has >= 1 net (chart_validity
@@ -344,7 +355,7 @@ def _net_bar_figure(question_result: QuestionResult) -> go.Figure:
     return fig
 
 
-def _table_figure(question_result: QuestionResult) -> go.Figure:
+def _table_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
     """A Plotly table: rows = scale points, columns = cells, cell text =
     'count (pct%)'. Always buildable regardless of column count or scale
     polarity, matching table's "always permitted" status. Suppressed
@@ -441,8 +452,9 @@ def build_figure(
         )
 
     builder = _BUILDERS[chart_type]
-    fig = builder(question_result)
-    _apply_header(fig, question_result, break_spec, filter_spec, chart_type)
+    style = get_style(question_result.chart_style)
+    fig = builder(question_result, style)
+    _apply_header(fig, question_result, break_spec, filter_spec, chart_type, style)
     return fig
 
 
