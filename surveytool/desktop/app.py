@@ -967,10 +967,10 @@ class RenamePayload(BaseModel):
 @app.post("/api/projects/{survey_id}/rename")
 async def rename_survey(survey_id: str, payload: RenamePayload):
     """Rename a survey_id, migrating every per-survey-keyed file
-    (overrides, settings, display order) to the new key in one operation.
-    Refuses onto an existing survey_id rather than merging. If migration
-    cannot complete, every file already moved is moved back before raising,
-    so the old survey_id is left fully intact.
+    (overrides, settings, display order, chart style) to the new key in one
+    operation. Refuses onto an existing survey_id rather than merging. If
+    migration cannot complete, every file already moved is moved back before
+    raising, so the old survey_id is left fully intact.
 
     _PER_SURVEY_DIRS is built fresh on every call (not a module-level
     constant) so that test isolation which monkeypatches _OVERRIDES_DIR/
@@ -982,7 +982,7 @@ async def rename_survey(survey_id: str, payload: RenamePayload):
     _validate_survey_id(payload.new_survey_id)  # raises 400 via the existing validator if malformed
 
     new_id = payload.new_survey_id
-    per_survey_dirs: tuple[Path, ...] = (_OVERRIDES_DIR, _SETTINGS_DIR, _DISPLAY_ORDER_DIR)
+    per_survey_dirs: tuple[Path, ...] = (_OVERRIDES_DIR, _SETTINGS_DIR, _DISPLAY_ORDER_DIR, _CHART_STYLE_DIR)
 
     existing_new_paths = [d / f"{new_id}.yaml" for d in per_survey_dirs if (d / f"{new_id}.yaml").exists()]
     if existing_new_paths:

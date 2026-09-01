@@ -154,6 +154,32 @@ def test_rename_migrates_display_order(client, uploaded_session_with_overrides):
     assert orders.orders["Q1"].label_order == ["b", "a"]
 
 
+def test_rename_migrates_chart_style(client, uploaded_session_with_overrides):
+    """The chart-style selector feature's per-survey store
+    (_CHART_STYLE_DIR) must migrate too, not just overrides/settings/display
+    order -- exercised via the real HTTP chart-style endpoints (PUT under
+    the old id, then GET under the new id after rename), mirroring how
+    test_rename_migrates_overrides_and_reload_still_applies proves the
+    migration is functionally real rather than just a file moved on disk."""
+    put_response = client.put(
+        "/api/projects/old_id/chart-style/Q1", json={"style_name": "brand"}
+    )
+    assert put_response.status_code == 200, put_response.text
+
+    from surveytool.desktop.app import _project_chart_style_path
+
+    assert _project_chart_style_path("old_id").exists()
+
+    response = client.post("/api/projects/old_id/rename", json={"new_survey_id": "new_id"})
+    assert response.status_code == 200, response.text
+
+    assert not _project_chart_style_path("old_id").exists()
+
+    get_response = client.get("/api/projects/new_id/chart-style/Q1")
+    assert get_response.status_code == 200, get_response.text
+    assert get_response.json()["style_name"] == "brand"
+
+
 def test_rename_onto_existing_survey_id_is_refused(client, two_uploaded_sessions):
     response = client.post("/api/projects/id_a/rename", json={"new_survey_id": "id_b"})
     assert response.status_code == 400

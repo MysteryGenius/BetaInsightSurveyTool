@@ -21,6 +21,10 @@ same pattern to the rest of the suite.
 Round C3 adds `_DISPLAY_ORDER_DIR` (`Path.home()/.surveytool/display_order`)
 to this same redirect for the same reason -- it is a brand-new persistent
 per-survey_id store, written by the new display-order endpoints.
+
+Task 4 adds `_CHART_STYLE_DIR` (`Path.home()/.surveytool/chart_style`) to
+this same redirect for the same reason -- another brand-new persistent
+per-survey_id store, written by the new chart-style endpoints.
 """
 from __future__ import annotations
 
@@ -33,13 +37,14 @@ import pytest
 def _isolated_override_storage(tmp_path: Path, monkeypatch):
     """Redirect the desktop app's override storage directories into
     tmp_path for the duration of each test, so nothing in the suite ever
-    reads or writes the real ~/.surveytool/overrides/ or
-    ~/.surveytool/display_order/."""
+    reads or writes the real ~/.surveytool/overrides/,
+    ~/.surveytool/display_order/, or ~/.surveytool/chart_style/."""
     from surveytool.desktop import app as appmod
 
     monkeypatch.setattr(appmod, "_OVERRIDES_DIR", tmp_path / "overrides")
     monkeypatch.setattr(appmod, "_OLD_OVERRIDES_DIR", tmp_path / "old-overrides")
     monkeypatch.setattr(appmod, "_DISPLAY_ORDER_DIR", tmp_path / "display_order")
+    monkeypatch.setattr(appmod, "_CHART_STYLE_DIR", tmp_path / "chart_style")
     appmod._MIGRATION_NOTICES.clear()
     yield
     appmod._MIGRATION_NOTICES.clear()
