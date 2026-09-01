@@ -75,7 +75,7 @@ def test_put_unknown_style_name_is_refused(client):
     )
     assert response.status_code == 400, response.text
     body = response.json()
-    assert "chart style" in body["error"]["message"].lower() or "recognise" in body["error"]["message"].lower()
+    assert "isn't a chart style this tool recognises" in body["error"]["message"]
 
     get_response = client.get(f"/api/projects/{survey_id}/chart-style/{_QID}")
     assert get_response.json() is None

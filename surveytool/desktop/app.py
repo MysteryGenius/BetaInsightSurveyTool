@@ -332,8 +332,7 @@ def _project_chart_style_path(survey_id: str) -> Path:
     directory. No legacy-migration concern, same as display_order.py: this
     is a brand-new file kind with no prior tempdir location."""
     _validate_survey_id(survey_id)
-    new_path = _resolve_under(_CHART_STYLE_DIR, survey_id)
-    return new_path
+    return _resolve_under(_CHART_STYLE_DIR, survey_id)
 
 
 def _load_chart_styles_for_survey(survey_id: str) -> dict[str, str]:
