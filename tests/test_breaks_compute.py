@@ -249,6 +249,33 @@ def test_depth1_break_shape_is_sane(frame, survey, registry):
     assert sum(c.base_cell for c in result.columns) <= result.base_filtered
 
 
+def test_compute_breaks_crosstab_threads_chart_style_into_question_result(frame, survey, registry):
+    """chart_styles is a qid -> style_name map; the resolved value lands on
+    QuestionResult.chart_style unchanged, and a qid with no entry gets
+    None."""
+    results = compute_breaks_crosstab(
+        frame,
+        survey,
+        ["age_band"],
+        {},
+        ["Q1", "Q2"],
+        registry,
+        "rakuten",
+        ToolConfig(),
+        chart_styles={"Q1": "warm"},
+    )
+    q1_result = next(r for r in results if r.question_id == "Q1")
+    q2_result = next(r for r in results if r.question_id == "Q2")
+    assert q1_result.chart_style == "warm"
+    assert q2_result.chart_style is None
+
+
+def test_compute_breaks_crosstab_chart_style_defaults_to_none(frame, survey, registry):
+    results = _run(frame, survey, registry, ["Q1"])
+    result = results[0]
+    assert result.chart_style is None
+
+
 def test_inv6_assertion_fires_on_suppressed_cell():
     """The INV-6 assertion (0 <= base_valid <= base_cell) must run on the
     suppressed path too, before figures get nulled -- not just for populated

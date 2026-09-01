@@ -157,6 +157,11 @@ class QuestionResult(BaseModel):
     an analyst's saved manual DisplayOrder rather than the rank-order
     default. Never affects nets/mean -- those are always computed from
     rank regardless of this flag or of scale_points' order."""
+    chart_style: str | None = None
+    """Chart style selector feature: the analyst's saved chart-style name
+    for this question (e.g. "cool"), or None if no style was saved (the
+    renderer's get_style(None) then resolves to the brand default). Purely
+    a rendering hint -- never affects any computed figure, nets, or mean."""
 
 
 def _scale_points(question: Question, manual_label_order: list[str] | None = None) -> list[ScalePoint]:
@@ -353,6 +358,7 @@ def compute_breaks_crosstab(
     vendor: str,
     config: ToolConfig,
     display_orders: dict[str, list[str]] | None = None,
+    chart_styles: dict[str, str] | None = None,
 ) -> list[QuestionResult]:
     """Compute an N-dimensional cross-tab for each requested question.
 
@@ -371,6 +377,12 @@ def compute_breaks_crosstab(
     -- every count/percentage/net/mean in ``columns`` comes from
     ``compute_question_stats`` exactly as before and is completely
     unaffected by display order.
+
+    ``chart_styles`` (chart style selector feature): an optional qid ->
+    style_name map. Threaded onto ``QuestionResult.chart_style`` for the
+    matching question, None for any qid with no entry. Purely a rendering
+    hint consumed by plotly_renderer.build_figure -- never affects any
+    computed figure in this function.
     """
     filtered_ids = apply_filter(respondent_frame, filter_spec, registry, survey, vendor)
     cells = resolve_cells(
@@ -422,6 +434,7 @@ def compute_breaks_crosstab(
                 columns=columns,
                 demographic_notices=demographic_notices,
                 display_order_is_manual=bool(display_orders and question.qid in display_orders),
+                chart_style=(chart_styles or {}).get(question.qid),
             )
         )
 

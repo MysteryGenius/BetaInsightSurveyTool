@@ -109,7 +109,7 @@ def test_crosstab_picks_up_saved_chart_style(client):
 
     crosstab_response = client.post(
         f"/api/session/{session_id}/crosstab",
-        json={"break_spec": {"dimensions": []}, "filter_spec": {"selections": {}}, "question_ids": [_QID]},
+        json={"break_spec": {"dimensions": ["gender"]}, "filter_spec": {"selections": {}}, "question_ids": [_QID]},
     )
     assert crosstab_response.status_code == 200, crosstab_response.text
     result = crosstab_response.json()[0]
@@ -124,7 +124,7 @@ def test_crosstab_chart_style_is_none_when_nothing_saved(client):
 
     crosstab_response = client.post(
         f"/api/session/{session_id}/crosstab",
-        json={"break_spec": {"dimensions": []}, "filter_spec": {"selections": {}}, "question_ids": [_QID]},
+        json={"break_spec": {"dimensions": ["gender"]}, "filter_spec": {"selections": {}}, "question_ids": [_QID]},
     )
     assert crosstab_response.status_code == 200, crosstab_response.text
     result = crosstab_response.json()[0]
