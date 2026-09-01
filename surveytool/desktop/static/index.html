@@ -1114,6 +1114,7 @@
     flex-wrap: wrap;
     gap: var(--space-2);
   }
+  .chart-style-row { padding-left: var(--space-3); border-left: 1px solid var(--line-strong); }
   .axis-flip-btn { flex: 0 0 auto; }
   .chart-type-btn {
     appearance: none;
@@ -2022,7 +2023,7 @@ async function rerunCurrentSession() {
   document.getElementById("summary-respondents").textContent = `${body.n_raw} raw / ${body.n_analysis} analysis`;
   document.getElementById("summary-questions").textContent = body.question_count;
   await loadCharts(currentSessionId, chartsContainer);
-  await initBreaksView(currentSessionId);
+  await initBreaksView(currentSessionId, currentSurveyId);
   activateTab("charts-view");
 }
 
@@ -2503,7 +2504,7 @@ async function saveResolvedQuestions() {
   document.getElementById("summary-source").textContent =
     `${currentFileName} · ${formatLoadedAgo(currentLoadedAtMs)}`;
   await loadCharts(currentSessionId, chartsContainer);
-  await initBreaksView(currentSessionId);
+  await initBreaksView(currentSessionId, currentSurveyId);
   activateTab("charts-view");
 }
 
@@ -2676,7 +2677,7 @@ async function uploadFile(file) {
   renderWarnings(body.warnings);
 
   currentSessionId = body.session_id;
-  currentSurveyId = surveyId;
+  currentSurveyId = body.survey_id || surveyId;
 
   document.getElementById("summary-vendor").textContent = vendor;
   document.getElementById("summary-survey-id").textContent = surveyId;
@@ -2695,7 +2696,7 @@ async function uploadFile(file) {
   activateTab("charts-view");
   await loadCharts(currentSessionId, chartsContainer);
 
-  await initBreaksView(currentSessionId);
+  await initBreaksView(currentSessionId, currentSurveyId);
 }
 
 // Chart containers can change width from container layout (e.g. the

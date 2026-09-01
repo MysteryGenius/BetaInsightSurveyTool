@@ -17,6 +17,7 @@ let breaksSelectedQuestionId = null; // qid currently shown in the main chart ar
 let breakPills = []; // ordered list of dimension names in Break by
 let filterPills = {}; // dimension -> list of selected category values
 let breaksSessionId = null;
+let breaksSurveyId = null; // survey_id for this session, used to build per-project (survey_id-scoped) endpoint URLs like the chart-style PUT
 let breaksLatestResults = null; // list[QuestionResult] currently on screen (single element: the selected question)
 let breaksActiveChartType = {}; // question_id -> chart_type currently displayed
 let breaksPendingSpec = null; // spec the gate is currently confirming
@@ -29,6 +30,7 @@ function resetBreaksState() {
   breakPills = [];
   filterPills = {};
   breaksSessionId = null;
+  breaksSurveyId = null;
   breaksLatestResults = null;
   breaksActiveChartType = {};
   breaksPendingSpec = null;
@@ -59,8 +61,9 @@ function multiselectBreakRejectedMessage(label) {
     `one value here — the columns wouldn't add up to the total sample.`;
 }
 
-async function initBreaksView(sessionId) {
+async function initBreaksView(sessionId, surveyId) {
   breaksSessionId = sessionId;
+  breaksSurveyId = surveyId;
   const container = document.getElementById("breaks-result");
 
   let registryResponse;
@@ -714,6 +717,9 @@ function renderBreaksResults(questionResults) {
     const chartTypeRow = buildChartTypeRow(qr);
     controlsRow.appendChild(chartTypeRow);
 
+    const chartStyleRow = buildChartStyleRow(qr);
+    controlsRow.appendChild(chartStyleRow);
+
     const flipBtn = buildAxisFlipButton(qr);
     controlsRow.appendChild(flipBtn);
 
@@ -797,6 +803,74 @@ function buildChartTypeRow(qr) {
   return row;
 }
 
+// Style names must match surveytool.charts.styles.STYLE_REGISTRY's keys exactly.
+const CHART_STYLES = ["brand", "high_contrast", "cool", "warm"];
+
+function chartStyleLabel(styleName) {
+  const labels = {
+    brand: "Brand",
+    high_contrast: "High Contrast",
+    cool: "Cool",
+    warm: "Warm",
+  };
+  return labels[styleName] || styleName;
+}
+
+// renderChartArea (see below) draws the on-screen Plotly chart entirely
+// client-side from fields already present on `qr` -- it never fetches -- so
+// the optimistic update here mutates qr.chart_style and calls
+// renderChartArea directly (via applyChartStyleToLayout's client-side
+// mirror of STYLE_REGISTRY) rather than re-fetching a server-rendered spec.
+function buildChartStyleRow(qr) {
+  const row = document.createElement("div");
+  row.className = "chart-type-row chart-style-row";
+
+  const activeStyle = qr.chart_style || "brand";
+
+  CHART_STYLES.forEach((styleName) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chart-type-btn";
+    btn.textContent = chartStyleLabel(styleName);
+    if (activeStyle === styleName) {
+      btn.classList.add("active");
+    }
+    btn.addEventListener("click", () => {
+      // Optimistic local update: re-render immediately using data already
+      // present (palette/background are static per style, no server
+      // computation needed), then persist in the background. On the next
+      // full crosstab fetch (e.g. changing break/filter), the persisted
+      // choice is naturally picked up from the server via
+      // QuestionResult.chart_style -- this local mutation just keeps the
+      // in-memory qr consistent with what was just clicked in the
+      // meantime.
+      qr.chart_style = styleName;
+      row.querySelectorAll(".chart-type-btn").forEach((b) => { b.classList.remove("active"); });
+      btn.classList.add("active");
+
+      const block = row.closest(".breaks-question");
+      const chartArea = block.querySelector(".breaks-chart-area");
+      const chartType = breaksActiveChartType[qr.question_id];
+      renderChartArea(qr, chartArea, chartType);
+
+      // Background persist; failure is logged, not surfaced as a blocking
+      // error, since the on-screen chart already reflects the choice and
+      // the next crosstab/export round trip is what actually needs the
+      // saved value to be durable.
+      fetch(`/api/projects/${breaksSurveyId}/chart-style/${qr.question_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ style_name: styleName }),
+      }).catch((err) => {
+        console.error("Failed to save chart style choice", err);
+      });
+    });
+    row.appendChild(btn);
+  });
+
+  return row;
+}
+
 function chartTypeLabel(chartType) {
   const labels = {
     stacked_bar_100: "100% stacked bar",
@@ -806,6 +880,45 @@ function chartTypeLabel(chartType) {
     table: "Table",
   };
   return labels[chartType] || chartType;
+}
+
+// Client-side mirror of surveytool.charts.styles.STYLE_REGISTRY (Task 2).
+// A ChartStyle only ever varies palette/background/font_color -- chart type,
+// layout, and typography (family/weight) are untouched -- so this is the
+// minimal slice needed to reproduce a style choice in the on-screen Plotly
+// chart without a server round trip. Keep in sync with styles.py if that
+// registry's values ever change.
+const CLIENT_CHART_STYLES = {
+  brand: { palette: null, background: "#F4F1EA", fontColor: "#222222" }, // null palette: reuse CHART_TEMPLATE_LAYOUT's default colorway verbatim
+  high_contrast: {
+    palette: ["#000000", "#FFFFFF", "#07191B", "#0D3914", "#185222", "#3F601F", "#726B0E", "#DA2DE5", "#22C36F", "#65CE31", "#19EEFF", "#96EF5C"],
+    background: "#FFFFFF",
+    fontColor: "#000000",
+  },
+  cool: {
+    palette: ["#041A1D", "#371B3F", "#2E3D53", "#612ADC", "#0E71F0", "#3084E5", "#5E9BA1", "#2FC9D8", "#6ECFC1", "#88D1FF", "#99E2FF", "#99FCFF"],
+    background: "#F0F4F7",
+    fontColor: "#1A2733",
+  },
+  warm: {
+    palette: ["#1B1309", "#3E2013", "#533420", "#833838", "#9D4756", "#86820F", "#B67A62", "#F18734", "#F9A81D", "#D2CD72", "#F2DA86", "#F8FE68"],
+    background: "#FBF3EC",
+    fontColor: "#332118",
+  },
+};
+
+// Applies a chart_style's palette/background/font on top of withChartTemplate's
+// layout, matching the server's ChartStyle scope exactly (palette, background,
+// font colour only -- never layout/typography).
+function applyChartStyleToLayout(layout, styleName) {
+  const style = CLIENT_CHART_STYLES[styleName] || CLIENT_CHART_STYLES.brand;
+  return {
+    ...layout,
+    paper_bgcolor: style.background,
+    plot_bgcolor: style.background,
+    font: { ...layout.font, color: style.fontColor },
+    ...(style.palette ? { colorway: style.palette } : {}),
+  };
 }
 
 // Renders either the table fallback (Prompt 6/7) or a Plotly chart, purely
@@ -975,11 +1088,12 @@ function renderBreaksChart(qr, chartArea, chartType) {
   // past 100% — group them instead, same as grouped_bar. Unflipped behavior
   // (stack scale points per column) is unchanged.
   const stackWhenUnflipped = chartType === "stacked_bar_100" || chartType === "diverging_stacked_bar" || chartType === "net_bar";
-  const layout = withChartTemplate({
+  let layout = withChartTemplate({
     barmode: stackWhenUnflipped && !(flippable && breaksAxisFlipped) ? "stack" : "group",
     margin: { l: 60, r: 20, t: 20, b: 100 },
     yaxis: { title: "%" },
   });
+  layout = applyChartStyleToLayout(layout, qr.chart_style || "brand");
 
   Plotly.newPlot(chartArea, traces, layout, { displaylogo: false, responsive: true });
 }

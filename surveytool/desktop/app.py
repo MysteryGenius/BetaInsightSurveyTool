@@ -676,12 +676,14 @@ async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = For
         )
         body = exc.to_response()
         body["error"]["session_id"] = session_id
+        body["error"]["survey_id"] = survey_id
         return JSONResponse(status_code=exc.status_code, content=body)
 
     _SESSIONS[session_id] = session
 
     return {
         "session_id": session_id,
+        "survey_id": survey_id,
         "n_raw": session.survey.n_raw,
         "n_analysis": session.survey.n_analysis,
         "question_count": len(session.survey.questions),
