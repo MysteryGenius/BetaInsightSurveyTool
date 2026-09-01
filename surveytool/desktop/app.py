@@ -54,6 +54,12 @@ from surveytool.core.straightliner import detect_straightliners
 from surveytool.findings.sheet import build_findings_sheet
 from surveytool.ingest.column_inventory import build_column_classifications
 from surveytool.ingest.fingerprint import check_fingerprint
+from surveytool.ingest.chart_style import (
+    ChartStyleChoice,
+    delete_chart_style,
+    load_chart_styles,
+    write_chart_style,
+)
 from surveytool.ingest.display_order import (
     DisplayOrder,
     delete_display_order,
@@ -86,6 +92,7 @@ _OVERRIDES_DIR = _APP_DATA_DIR / "overrides"
 _OLD_OVERRIDES_DIR = Path(tempfile.gettempdir()) / "surveytool-overrides"
 _SETTINGS_DIR = Path(tempfile.gettempdir()) / "surveytool-settings"
 _DISPLAY_ORDER_DIR = _APP_DATA_DIR / "display_order"
+_CHART_STYLE_DIR = _APP_DATA_DIR / "chart_style"
 _logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -317,6 +324,22 @@ def _load_display_orders_for_survey(survey_id: str) -> dict[str, list[str]]:
     path = _project_display_order_path(survey_id)
     orders = load_display_orders(path)
     return {qid: entry.label_order for qid, entry in orders.orders.items()}
+
+
+def _project_chart_style_path(survey_id: str) -> Path:
+    """Per-survey_id chart-style store. Mirrors _project_display_order_path's
+    validation/layout exactly -- one YAML file per survey_id, in its own
+    directory. No legacy-migration concern, same as display_order.py: this
+    is a brand-new file kind with no prior tempdir location."""
+    _validate_survey_id(survey_id)
+    new_path = _resolve_under(_CHART_STYLE_DIR, survey_id)
+    return new_path
+
+
+def _load_chart_styles_for_survey(survey_id: str) -> dict[str, str]:
+    path = _project_chart_style_path(survey_id)
+    styles = load_chart_styles(path)
+    return {qid: entry.style_name for qid, entry in styles.styles.items()}
 
 
 def _read_fingerprint_signals(path: Path) -> tuple[frozenset[str], frozenset[str]]:
@@ -887,6 +910,53 @@ async def reset_display_order(survey_id: str, qid: str) -> dict:
     manual order entirely. A no-op if no manual order was saved."""
     path = _project_display_order_path(survey_id)
     delete_display_order(path, qid)
+    return {"reset": True}
+
+
+class ChartStylePayload(BaseModel):
+    style_name: str
+
+
+@app.get("/api/projects/{survey_id}/chart-style/{qid}")
+async def get_chart_style(survey_id: str, qid: str) -> ChartStylePayload | None:
+    """The analyst's saved chart style for one question, if any. Keyed by
+    survey_id directly (not session_id), same as display order -- editable
+    independent of any active upload session. Returns None when no style
+    has been saved, so the UI can distinguish 'default (brand) style' from
+    'a saved style'."""
+    path = _project_chart_style_path(survey_id)
+    styles = load_chart_styles(path)
+    entry = styles.styles.get(qid)
+    if entry is None:
+        return None
+    return ChartStylePayload(style_name=entry.style_name)
+
+
+@app.put("/api/projects/{survey_id}/chart-style/{qid}")
+async def put_chart_style(survey_id: str, qid: str, payload: ChartStylePayload) -> ChartStylePayload:
+    """Save a chart style choice for one question. Does not itself
+    recompute anything -- the next crosstab call for this survey_id picks
+    it up via _load_chart_styles_for_survey (post_crosstab/
+    post_breaks_export), exactly as a manual display order is picked up on
+    the next run. write_chart_style raises UnknownChartStyleError (mapped
+    to 400 by the app-level SurveyToolError handler) for a style_name not
+    in STYLE_REGISTRY."""
+    path = _project_chart_style_path(survey_id)
+    choice = ChartStyleChoice(
+        variable=qid,
+        style_name=payload.style_name,
+        saved_at=datetime.now(timezone.utc),
+    )
+    write_chart_style(path, choice)
+    return payload
+
+
+@app.delete("/api/projects/{survey_id}/chart-style/{qid}")
+async def reset_chart_style(survey_id: str, qid: str) -> dict:
+    """Reset one question back to the default (brand) style by deleting
+    its saved choice entirely. A no-op if no style was saved."""
+    path = _project_chart_style_path(survey_id)
+    delete_chart_style(path, qid)
     return {"reset": True}
 
 
