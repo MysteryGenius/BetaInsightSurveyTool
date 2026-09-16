@@ -1306,6 +1306,7 @@ async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[Quest
         config,
         display_orders=_load_display_orders_for_survey(session.survey_id),
         chart_styles=_load_chart_styles_for_survey(session.survey_id),
+        response_colours=_load_response_colours_for_survey(session.survey_id),
     )
     return attach_chart_permissions(results, config)
 
@@ -1356,6 +1357,7 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
         config,
         display_orders=_load_display_orders_for_survey(session.survey_id),
         chart_styles=_load_chart_styles_for_survey(session.survey_id),
+        response_colours=_load_response_colours_for_survey(session.survey_id),
     )
     results = attach_chart_permissions(results, config)
     question_result = results[0]

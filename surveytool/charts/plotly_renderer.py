@@ -193,6 +193,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult, style: ChartStyle) 
     colour_by_label = assign_series_colours(
         [point.label for point in question_result.scale_points],
         palette=style.palette,
+        overrides=question_result.response_colours,
     )
 
     for point in question_result.scale_points:
@@ -247,6 +248,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult, style: ChartS
     colour_by_label = assign_series_colours(
         [point.label for point in question_result.scale_points],
         palette=style.palette,
+        overrides=question_result.response_colours,
     )
 
     for point in question_result.scale_points:
@@ -329,6 +331,7 @@ def _grouped_bar_figure(question_result: QuestionResult, style: ChartStyle) -> g
     colour_by_label = assign_series_colours(
         [point.label for point in question_result.scale_points],
         palette=style.palette,
+        overrides=question_result.response_colours,
     )
 
     for point in question_result.scale_points:
@@ -375,6 +378,7 @@ def _net_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Fi
     colour_by_label = assign_series_colours(
         [net_def.label for net_def in question_result.nets],
         palette=style.palette,
+        overrides=question_result.response_colours,
     )
 
     for net_def in question_result.nets:

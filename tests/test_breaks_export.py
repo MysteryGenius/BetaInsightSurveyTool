@@ -132,6 +132,13 @@ def test_stacked_bar_100_figure_has_one_trace_per_scale_point(question_result):
         assert list(trace.x) == ["Male", "Female"]
 
 
+def test_stacked_bar_100_figure_applies_response_colour_override(question_result):
+    question_result.response_colours = {"Strongly agree": "#FF00FF"}
+    fig = build_figure(question_result, ChartType.stacked_bar_100)
+    agree_trace = next(t for t in fig.data if t.name == "Strongly agree")
+    assert agree_trace.marker.color == "#FF00FF"
+
+
 def test_diverging_stacked_bar_figure_signs_by_polarity(question_result):
     fig = build_figure(question_result, ChartType.diverging_stacked_bar)
     bar_traces = [t for t in fig.data if isinstance(t, go.Bar)]

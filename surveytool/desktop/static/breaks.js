@@ -742,13 +742,7 @@ function renderBreaksResults(questionResults) {
       surveyId: breaksSurveyId,
       labels: qr.scale_points.map((sp) => sp.label),
       order: qr.scale_points.map((sp) => sp.label), // qr.scale_points is already server-ordered per display_order_is_manual
-      // breaks.js does not yet fetch saved response_colours per question_id
-      // onto QuestionResult -- Task 10 threads that field through the
-      // crosstab endpoint/model; until then this legend's colour swatches
-      // start at the default grey rather than any saved override. The
-      // drag-to-reorder half above is already fully wired since order
-      // already flows through QuestionResult.scale_points.
-      colours: {},
+      colours: qr.response_colours || {},
       onChange: () => { /* re-fetch or re-render on next crosstab call */ },
     });
 

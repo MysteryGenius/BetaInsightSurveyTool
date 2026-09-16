@@ -116,6 +116,26 @@ def test_crosstab_picks_up_saved_chart_style(client):
     assert result["chart_style"] == "high_contrast"
 
 
+def test_crosstab_picks_up_saved_response_colours(client):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+    survey_id = "response-colours-crosstab"
+    session_id = _upload_toluna(client, survey_id)
+
+    client.put(
+        f"/api/projects/{survey_id}/chart-style/{_QID}",
+        json={"style_name": "high_contrast", "response_colours": {"Agree": "#1B667D"}},
+    )
+
+    crosstab_response = client.post(
+        f"/api/session/{session_id}/crosstab",
+        json={"break_spec": {"dimensions": ["gender"]}, "filter_spec": {"selections": {}}, "question_ids": [_QID]},
+    )
+    assert crosstab_response.status_code == 200, crosstab_response.text
+    result = crosstab_response.json()[0]
+    assert result["response_colours"] == {"Agree": "#1B667D"}
+
+
 def test_crosstab_chart_style_is_none_when_nothing_saved(client):
     if not TOLUNA_PATH.exists():
         pytest.skip(f"{TOLUNA_PATH.name} not found in project root")

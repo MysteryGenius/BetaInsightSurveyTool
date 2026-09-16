@@ -162,6 +162,11 @@ class QuestionResult(BaseModel):
     for this question (e.g. "cool"), or None if no style was saved (the
     renderer's get_style(None) then resolves to the brand default). Purely
     a rendering hint -- never affects any computed figure, nets, or mean."""
+    response_colours: dict[str, str] = {}
+    """Manual response colour override feature: the analyst's saved
+    label -> hex map for this question, or {} if none saved. Purely a
+    rendering hint threaded into plotly_renderer.build_figure's colour
+    assignment -- never affects any computed figure, nets, or mean."""
 
 
 def _scale_points(question: Question, manual_label_order: list[str] | None = None) -> list[ScalePoint]:
@@ -359,6 +364,7 @@ def compute_breaks_crosstab(
     config: ToolConfig,
     display_orders: dict[str, list[str]] | None = None,
     chart_styles: dict[str, str] | None = None,
+    response_colours: dict[str, dict[str, str]] | None = None,
 ) -> list[QuestionResult]:
     """Compute an N-dimensional cross-tab for each requested question.
 
@@ -383,6 +389,13 @@ def compute_breaks_crosstab(
     matching question, None for any qid with no entry. Purely a rendering
     hint consumed by plotly_renderer.build_figure -- never affects any
     computed figure in this function.
+
+    ``response_colours`` (manual response colour override feature): an
+    optional qid -> {label: hex} map. Threaded onto
+    ``QuestionResult.response_colours`` for the matching question, {} for
+    any qid with no entry. Purely a rendering hint consumed by
+    plotly_renderer.build_figure -- never affects any computed figure in
+    this function.
     """
     filtered_ids = apply_filter(respondent_frame, filter_spec, registry, survey, vendor)
     cells = resolve_cells(
@@ -435,6 +448,7 @@ def compute_breaks_crosstab(
                 demographic_notices=demographic_notices,
                 display_order_is_manual=bool(display_orders and question.qid in display_orders),
                 chart_style=(chart_styles or {}).get(question.qid),
+                response_colours=(response_colours or {}).get(question.qid, {}),
             )
         )
 
