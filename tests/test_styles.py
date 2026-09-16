@@ -4,7 +4,7 @@ from pathlib import Path
 from surveytool.charts.styles import ChartStyle, DEFAULT_STYLE, STYLE_REGISTRY, get_style
 from surveytool.charts.palette import CATEGORICAL_PALETTE
 
-_BREAKS_JS = Path(__file__).parent.parent / "surveytool" / "desktop" / "static" / "breaks.js"
+_CHART_LEGEND_JS = Path(__file__).parent.parent / "surveytool" / "desktop" / "static" / "chart_legend.js"
 
 
 def test_registry_has_exactly_four_presets():
@@ -66,7 +66,7 @@ def test_chart_style_is_frozen():
 
 
 def _parse_client_chart_styles(js_text: str) -> dict[str, dict]:
-    """Extracts breaks.js's CLIENT_CHART_STYLES object into a plain dict of
+    """Extracts chart_legend.js's CLIENT_CHART_STYLES object into a plain dict of
     {style_name: {"palette": [...], "background": "...", "fontColor": "..."}}.
 
     This is a minimal structural extraction (regex over the known,
@@ -79,7 +79,7 @@ def _parse_client_chart_styles(js_text: str) -> dict[str, dict]:
     match = re.search(
         r"const CLIENT_CHART_STYLES = \{(.*?)\n\};", js_text, re.DOTALL
     )
-    assert match is not None, "CLIENT_CHART_STYLES object not found in breaks.js"
+    assert match is not None, "CLIENT_CHART_STYLES object not found in chart_legend.js"
     body = match.group(1)
 
     styles: dict[str, dict] = {}
@@ -100,36 +100,40 @@ def _parse_client_chart_styles(js_text: str) -> dict[str, dict]:
 
 
 def test_client_chart_styles_js_matches_python_style_registry_exactly():
-    """Guards against surveytool/desktop/static/breaks.js's CLIENT_CHART_STYLES
-    (a hand-duplicated client-side mirror of STYLE_REGISTRY, needed so the
-    on-screen chart can apply a chosen style without a server round trip)
-    drifting away from surveytool/charts/styles.py's STYLE_REGISTRY. A prior
-    task-level review already caught one instance of this drift (brand's
-    palette was null in the JS when it should have matched
-    CATEGORICAL_PALETTE) -- this test fails loudly if a future edit updates
-    one registry without the other.
+    """Guards against surveytool/desktop/static/chart_legend.js's
+    CLIENT_CHART_STYLES (a hand-duplicated client-side mirror of
+    STYLE_REGISTRY, needed so the on-screen chart can apply a chosen style
+    without a server round trip) drifting away from
+    surveytool/charts/styles.py's STYLE_REGISTRY. A prior task-level review
+    already caught one instance of this drift (brand's palette was null in
+    the JS when it should have matched CATEGORICAL_PALETTE) -- this test
+    fails loudly if a future edit updates one registry without the other.
+
+    CLIENT_CHART_STYLES originally lived in breaks.js; it moved to the
+    shared chart_legend.js (loaded by both charts.js and breaks.js) so both
+    tabs' style pickers can reuse the same client-side mirror.
     """
-    js_text = _BREAKS_JS.read_text(encoding="utf-8")
+    js_text = _CHART_LEGEND_JS.read_text(encoding="utf-8")
     client_styles = _parse_client_chart_styles(js_text)
 
     assert set(client_styles) == set(STYLE_REGISTRY), (
-        "CLIENT_CHART_STYLES (breaks.js) and STYLE_REGISTRY (styles.py) "
+        "CLIENT_CHART_STYLES (chart_legend.js) and STYLE_REGISTRY (styles.py) "
         "must declare the exact same style names."
     )
 
     for name, python_style in STYLE_REGISTRY.items():
         js_style = client_styles[name]
         assert tuple(js_style["palette"]) == tuple(python_style.palette), (
-            f"{name}: breaks.js CLIENT_CHART_STYLES palette does not match "
+            f"{name}: chart_legend.js CLIENT_CHART_STYLES palette does not match "
             f"styles.py STYLE_REGISTRY palette.\n"
             f"  JS:     {js_style['palette']}\n"
             f"  Python: {python_style.palette}"
         )
         assert js_style["background"].upper() == python_style.background.upper(), (
-            f"{name}: breaks.js background {js_style['background']!r} != "
+            f"{name}: chart_legend.js background {js_style['background']!r} != "
             f"styles.py background {python_style.background!r}"
         )
         assert js_style["fontColor"].upper() == python_style.font_color.upper(), (
-            f"{name}: breaks.js fontColor {js_style['fontColor']!r} != "
+            f"{name}: chart_legend.js fontColor {js_style['fontColor']!r} != "
             f"styles.py font_color {python_style.font_color!r}"
         )

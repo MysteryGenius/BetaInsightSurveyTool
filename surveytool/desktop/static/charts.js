@@ -194,10 +194,25 @@ function renderCharts(charts, container, sessionId) {
     div.id = `chart-${i}`;
     wrapper.appendChild(div);
 
-    const styleRow = buildChartStyleRow(chart.qid, chartsStyleByQid[chart.qid], sessionSurveyId, () => {
-      renderCharts(charts, container, sessionId); // re-render all charts so the change is visible immediately
+    const styleRow = buildChartStyleRow(chart.qid, chartsStyleByQid[chart.qid], sessionSurveyId, (newStyleName) => {
+      chartsStyleByQid[chart.qid] = newStyleName;
+      renderCharts(charts, container, sessionId);
     });
     wrapper.appendChild(styleRow);
+
+    const legendContainer = document.createElement("div");
+    legendContainer.className = "chart-legend";
+    wrapper.appendChild(legendContainer);
+    if (chart.chart_type !== "xbreak") {  // xbreak bars are breakdown levels, not response options -- no colour override applies
+      renderLegend(legendContainer, {
+        qid: chart.qid,
+        surveyId: sessionSurveyId,
+        labels: chart.trace.labels,
+        order: chart.trace.labels,
+        colours: chartsResponseColoursByQid[chart.qid] || {},
+        onChange: () => loadCharts(sessionId, container, sessionSurveyId),
+      });
+    }
 
     const exportRow = document.createElement("div");
     exportRow.className = "chart-export-row";
