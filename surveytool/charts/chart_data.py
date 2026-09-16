@@ -21,7 +21,22 @@ class ChartData:
     trace: dict
 
 
-def _dist_trace(spec: ChartSpec) -> dict:
+def _apply_manual_order(labels: list[str], *parallel: list, manual_order: list[str] | None) -> tuple:
+    """Reorder `labels` (and every list in `parallel`, index-for-index) to
+    match `manual_order`. Labels not present in `manual_order` are appended
+    in their original relative order, so a stale manual order (referring to
+    a label no longer present) never drops a label silently."""
+    if not manual_order:
+        return (labels, *parallel)
+    order_index = {label: i for i, label in enumerate(manual_order)}
+    n = len(labels)
+    indices = sorted(range(n), key=lambda i: (order_index.get(labels[i], n), i))
+    reordered_labels = [labels[i] for i in indices]
+    reordered_parallel = tuple([lst[i] for i in indices] for lst in parallel)
+    return (reordered_labels, *reordered_parallel)
+
+
+def _dist_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict:
     rows = spec.rows
     idx = _index_rows(rows)
 
@@ -69,6 +84,8 @@ def _dist_trace(spec: ChartSpec) -> dict:
     mean_row = idx.get((level, bvar, "mean"))
     t2b_row = idx.get((level, bvar, "t2b"))
 
+    labels, values, n, roles = _apply_manual_order(labels, values, n, roles, manual_order=manual_order)
+
     return {
         "labels": labels,
         "values": values,
@@ -113,7 +130,7 @@ def _xbreak_trace(spec: ChartSpec) -> dict:
     }
 
 
-def _means_trace(spec: ChartSpec) -> dict:
+def _means_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict:
     rows = spec.rows
     bvar = spec.breakdown_variable
 
@@ -133,9 +150,14 @@ def _means_trace(spec: ChartSpec) -> dict:
         if mr.value is None:
             raise MissingFindingsRow(q, bvar, "Total", "mean")
 
+    labels = [mr.question_text for mr in mr_list]
+    values = [mr.value for mr in mr_list]
+
+    labels, values = _apply_manual_order(labels, values, manual_order=manual_order)
+
     return {
-        "labels": [mr.question_text for mr in mr_list],
-        "values": [mr.value for mr in mr_list],
+        "labels": labels,
+        "values": values,
         "cell_base": mr_list[0].cell_base,
     }
 
@@ -144,6 +166,7 @@ def build_chart_data(
     findings: list[FindingsRow],
     survey_id: str,
     questions: list[Question],
+    display_orders: dict[str, list[str]] | None = None,
 ) -> list[ChartData]:
     """Build Plotly-ready chart data from the findings sheet.
 
@@ -154,11 +177,11 @@ def build_chart_data(
     entries: list[ChartData] = []
     for spec in iter_chart_specs(findings, survey_id, questions):
         if spec.chart_type == "dist":
-            trace = _dist_trace(spec)
+            trace = _dist_trace(spec, manual_order=(display_orders or {}).get(spec.qid))
         elif spec.chart_type == "xbreak":
             trace = _xbreak_trace(spec)
         else:
-            trace = _means_trace(spec)
+            trace = _means_trace(spec, manual_order=(display_orders or {}).get(spec.qid))
 
         entries.append(ChartData(
             chart_type=spec.chart_type,

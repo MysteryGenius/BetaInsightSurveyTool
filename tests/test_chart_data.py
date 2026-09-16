@@ -163,3 +163,36 @@ def test_support_measures_q1_dist_chart_data_matches_golden_figures(support_meas
     assert dist.trace["t2b"] == pytest.approx(87.3, abs=0.05)
     assert dist.trace["mean"] == pytest.approx(4.27, abs=0.005)
     assert dist.trace["cell_base"] == 1000
+
+
+# ── Test 5: manual display order reorders labels and parallel lists ──────────
+
+def test_dist_trace_applies_manual_display_order():
+    rows = [
+        FindingsRow(survey_id="t", qid="Q1", question_text="Q1 text", breakdown_variable="total",
+                    breakdown_level="Total", breakdown_level_label="Total", metric="pct_1", convention="pct",
+                    value=10.0, cell_base=100, role=None),
+        FindingsRow(survey_id="t", qid="Q1", question_text="Q1 text", breakdown_variable="total",
+                    breakdown_level="Total", breakdown_level_label="Total", metric="n_1", convention="n",
+                    value=10, cell_base=100, role=None),
+        FindingsRow(survey_id="t", qid="Q1", question_text="Q1 text", breakdown_variable="total",
+                    breakdown_level="Total", breakdown_level_label="Total", metric="pct_2", convention="pct",
+                    value=20.0, cell_base=100, role=None),
+        FindingsRow(survey_id="t", qid="Q1", question_text="Q1 text", breakdown_variable="total",
+                    breakdown_level="Total", breakdown_level_label="Total", metric="n_2", convention="n",
+                    value=20, cell_base=100, role=None),
+    ]
+    question = Question(qid="Q1", text="Q1 text", qtype=QuestionType.single_choice,
+                         base_eligible=True)
+
+    # Without display order
+    default_data = build_chart_data(rows, "t", [question])
+    dist = next(c for c in default_data if c.chart_type == "dist")
+    assert dist.trace["labels"] == ["1", "2"]
+
+    # With display order specifying reversed order
+    reordered_data = build_chart_data(rows, "t", [question], display_orders={"Q1": ["2", "1"]})
+    dist_reordered = next(c for c in reordered_data if c.chart_type == "dist")
+    assert dist_reordered.trace["labels"] == ["2", "1"]
+    assert dist_reordered.trace["values"] == [20.0, 10.0]
+    assert dist_reordered.trace["n"] == [20, 10]
