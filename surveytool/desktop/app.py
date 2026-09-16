@@ -36,6 +36,7 @@ from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_cro
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
 from surveytool.core.break_filter import validate_request
 from surveytool.core.breaks_models import (
+    BulkExportRequest,
     CrosstabRequest,
     ExportRequest,
     ProjectionRequest,
@@ -1378,6 +1379,57 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
         filename=f"{question_result.question_id}-{request.chart_type.value}.png",
         background=BackgroundTask(out_path.unlink, missing_ok=True),
     )
+
+
+@app.post("/api/session/{session_id}/breaks-export-bulk")
+async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
+    """Export every question_id in `request.question_ids` as a PNG, for the
+    same break/filter/chart_type combination, into `request.out_dir` --
+    the Cross-tab equivalent of the legacy Charts tab's existing bulk
+    /export (Item D). No new rendering logic: loops build_figure/rasterize
+    per question_id, exactly what /breaks-export already does per-call.
+    """
+    session = _require_session(session_id)
+    config = _default_config()
+
+    validate_request(
+        request.break_spec, request.filter_spec, session.registry,
+        session.survey, session.vendor, session.respondent_frame,
+    )
+
+    results = compute_breaks_crosstab(
+        session.respondent_frame, session.survey, request.break_spec.dimensions,
+        request.filter_spec.selections, request.question_ids, session.registry,
+        session.vendor, config,
+        display_orders=_load_display_orders_for_survey(session.survey_id),
+        chart_styles=_load_chart_styles_for_survey(session.survey_id),
+        response_colours=_load_response_colours_for_survey(session.survey_id),
+    )
+    results = attach_chart_permissions(results, config)
+
+    out_dir = Path(request.out_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise SurveyToolError(
+            ErrorCode.INTERNAL,
+            "The export could not be saved to the chosen location.",
+            detail=str(exc),
+            next_action="Choose a different export location and try again.",
+        ) from exc
+
+    exported = []
+    for question_result in results:
+        fig = build_figure(
+            question_result, request.chart_type,
+            break_spec=request.break_spec.dimensions,
+            filter_spec=request.filter_spec.selections,
+        )
+        filename = f"{question_result.question_id}-{request.chart_type.value}.png"
+        rasterize(fig, out_dir / filename)
+        exported.append({"question_id": question_result.question_id, "filename": filename})
+
+    return {"exported": exported, "out_dir": request.out_dir}
 
 
 app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

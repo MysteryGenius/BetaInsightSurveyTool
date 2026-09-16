@@ -139,3 +139,16 @@ class ExportRequest(BaseModel):
     filter_spec: FilterSpec = Field(default_factory=FilterSpec)
     chart_type: ChartType
     question_id: str
+
+
+class BulkExportRequest(BaseModel):
+    """POST .../breaks-export-bulk body. Unlike ExportRequest (single
+    question_id, streamed FileResponse), this accepts a list and writes to
+    out_dir, returning a manifest -- matching the legacy Charts tab's
+    existing bulk /export response shape for UI consistency (Item D)."""
+
+    break_spec: BreakSpec
+    filter_spec: FilterSpec = Field(default_factory=FilterSpec)
+    chart_type: ChartType
+    question_ids: list[str]
+    out_dir: str

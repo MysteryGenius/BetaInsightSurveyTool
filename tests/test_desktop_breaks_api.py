@@ -623,6 +623,34 @@ def test_breaks_export_endpoint_rejects_unknown_chart_type(client):
     assert response.status_code == 422, response.text
 
 
+# --- POST .../breaks-export-bulk --------------------------------------------
+
+
+def test_breaks_export_bulk_writes_one_png_per_question_id(client, tmp_path):
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    session_id = _upload(client)
+    out_dir = tmp_path / "bulk"
+
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export-bulk",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "table",
+            "question_ids": ["Q1", "Q2"],
+            "out_dir": str(out_dir),
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert {e["question_id"] for e in body["exported"]} == {"Q1", "Q2"}
+    for entry in body["exported"]:
+        assert (out_dir / entry["filename"]).exists()
+        assert (out_dir / entry["filename"]).stat().st_size > 0
+
+
 # --- regression: pre-existing endpoints unchanged --------------------------
 
 
