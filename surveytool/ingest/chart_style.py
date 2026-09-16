@@ -15,12 +15,14 @@ after (get_style itself falls back for defense in depth on read, but this
 module refuses to ever write a name get_style would have to fall back
 from).
 
-Scope note, mirroring display_order.py: chart style is currently consumed
-only by the newer breaks/crosstab pipeline (the ``post_crosstab``/
-``post_breaks_export`` endpoints and ``plotly_renderer.py``). It is not
-read by the legacy ``dist``/``xbreak``/``means`` chart system
-(``surveytool/charts/renderer.py`` and ``surveytool/charts/chart_data.py``)
--- a deliberate scope boundary, not an oversight.
+Scope note, mirroring display_order.py: chart style is consumed by BOTH
+chart pipelines. The newer breaks/crosstab pipeline reads it via the
+``post_crosstab``/``post_breaks_export`` endpoints, and the legacy
+``dist``/``xbreak``/``means`` charts read it too (chart-parity work, Item
+B) via ``get_charts``/``export_charts`` -> ``build_legacy_figure``. Both
+now render through ``plotly_renderer.py``, the single chart-drawing engine;
+the separate matplotlib renderer that once made the legacy charts a scope
+boundary has been retired.
 """
 from __future__ import annotations
 

@@ -9,13 +9,14 @@ Keyed by survey_id exactly like ProjectOverrides (surveytool/ingest/
 overrides.py) -- one YAML file per survey, so a survey rename (Round C5)
 must migrate this file alongside the overrides file.
 
-Scope note (Round C final review): manual display order is currently
-consumed only by the newer breaks/crosstab pipeline (the ``post_crosstab``/
-``post_breaks_export`` endpoints and ``plotly_renderer.py``). It is not
-read by the legacy ``dist``/``xbreak``/``means`` chart system
-(``surveytool/charts/renderer.py`` and ``surveytool/charts/chart_data.py``)
--- that is a deliberate scope boundary, not an oversight, and wiring it
-through is out of scope for this fix wave.
+Scope note: manual display order is consumed by BOTH chart pipelines. The
+newer breaks/crosstab pipeline reads it via the ``post_crosstab``/
+``post_breaks_export`` endpoints, and the legacy ``dist``/``xbreak``/
+``means`` charts read it too (chart-parity work, Item B) via
+``get_charts``/``export_charts``, which pass it into ``build_chart_data``.
+Both now render through ``plotly_renderer.py``, the single chart-drawing
+engine; the separate matplotlib renderer that once made the legacy charts a
+scope boundary has been retired.
 """
 from __future__ import annotations
 

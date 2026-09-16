@@ -13,11 +13,13 @@ families are otherwise unrelated chart-type families that happen to share
 this module (for the single on-screen/export figure-building guarantee) and
 do not share builders, dispatch tables, or helpers beyond the
 ``wrap_axis_labels``/``compute_axis_margin``/``assign_series_colours``
-utilities both use. ``surveytool/charts/renderer.py``'s matplotlib rendering
-for the legacy chart types is untouched by this module.
+utilities both use. This module is now the only chart-drawing engine in the
+codebase: the separate matplotlib renderer that used to draw the legacy
+chart types has been retired, and ``build_legacy_figure`` below is what
+replaced it.
 
-Follows the same spec-builder/render separation ``chart_data.py`` /
-``renderer.py`` already establish for the legacy charts: one pure
+Follows the same spec-builder/render separation ``chart_data.py`` already
+establishes for the legacy charts: one pure
 figure-builder function per chart type (``_stacked_bar_100_figure`` etc.),
 each taking a ``QuestionResult`` and returning a ``plotly.graph_objects.Figure``
 with no file I/O. ``build_figure`` dispatches to the right builder and is the
@@ -49,7 +51,8 @@ from surveytool.core.precision import DISPLAY_PRECISION, format_percentage
 from surveytool.core.suppression import Band
 from surveytool.core.text_hygiene import wrap_text
 
-# Brand palette, reused from renderer.py's conventions (module docstring
+# Brand palette, carried over from the retired matplotlib renderer's
+# conventions (module docstring
 # point 3: visual consistency is a judgment call, not a hard requirement --
 # these are close to but not required to exactly match _ROLE_COLOUR).
 # _TEAL (formerly "#1B667D", hardcoded here) was retired in favour of
@@ -121,11 +124,10 @@ def _header_text(
 
 def wrap_axis_labels(labels: list[str], max_chars_per_line: int = 24) -> list[str]:
     """Wrap each category-axis label independently onto multiple lines via
-    Plotly's native <br> tick-label break syntax, mirroring what
-    renderer.py's _wrap_title/_compute_left_margin already do for the
-    matplotlib path -- ported here so the shared on-screen/export Plotly
-    layer gets the same treatment, rather than truncating or letting long
-    labels overlap."""
+    Plotly's native <br> tick-label break syntax, mirroring what the retired
+    matplotlib renderer's _wrap_title/_compute_left_margin used to do --
+    ported here so the shared on-screen/export Plotly layer gets the same
+    treatment, rather than truncating or letting long labels overlap."""
     return ["<br>".join(wrap_text(label, max_chars_per_line=max_chars_per_line)) for label in labels]
 
 
@@ -137,8 +139,8 @@ def compute_axis_margin(
 ) -> int:
     """Compute a margin (in pixels) sized to accommodate the widest/tallest
     wrapped label, so wrap_axis_labels' output is never clipped by a fixed
-    margin. Unlike renderer.py's _compute_left_margin (which measures an
-    actual rendered matplotlib text extent), this is a pure character-count
+    margin. Unlike the retired matplotlib renderer's _compute_left_margin
+    (which measured an actual rendered text extent), this is a character-count
     estimate: Plotly's figure is serialized before any client render pass
     exists for this module to measure against, so an estimate errs generous
     rather than exact -- consistent with this module's existing "figure

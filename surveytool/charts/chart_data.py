@@ -188,9 +188,10 @@ def build_chart_data(
 ) -> list[ChartData]:
     """Build Plotly-ready chart data from the findings sheet.
 
-    Mirrors render_charts()'s chart selection exactly (both consume
-    iter_chart_specs) and reads exclusively from `findings` — never recomputes.
-    Raises MissingFindingsRow if a required row is absent.
+    Chart selection comes from iter_chart_specs, the single source of truth
+    every chart-producing path consumes, and this reads exclusively from
+    `findings` — never recomputes. Raises MissingFindingsRow if a required
+    row is absent.
     """
     entries: list[ChartData] = []
     for spec in iter_chart_specs(findings, survey_id, questions):
@@ -224,13 +225,16 @@ def render_charts_plotly(
     response_colours: dict[str, dict[str, str]] | None = None,
     chart_filter=None,
 ) -> list["ManifestEntry"]:
-    """Plotly/kaleido equivalent of render_charts() (renderer.py's
-    matplotlib path). Builds the same set of charts (from the same
-    iter_chart_specs single source of truth) but through build_chart_data +
-    build_legacy_figure + rasterize -- the identical figure-building code
-    charts.js uses to draw the on-screen chart -- so the exported PNG can
-    never visually drift from what's shown on screen, closing the gap
-    render_charts()/charts.js's independent code paths left open.
+    """Render every legacy chart to a PNG via Plotly/kaleido.
+
+    Builds the charts from the iter_chart_specs single source of truth
+    through build_chart_data + build_legacy_figure + rasterize. That is the
+    identical figure-building code the on-screen chart draws from --
+    /api/session/{id}/charts serves build_legacy_figure's serialized output
+    and charts.js renders it verbatim -- so the exported PNG cannot visually
+    drift from what's shown on screen. This replaced the retired matplotlib
+    renderer, whose independent code path was exactly where that drift used
+    to come from.
     """
     from pathlib import Path as _Path
     from surveytool.charts.manifest import ManifestEntry, write_manifest

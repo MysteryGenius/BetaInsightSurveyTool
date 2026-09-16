@@ -1,10 +1,10 @@
 """Shared categorical palette (Round C1).
 
-One palette, defined here once, consumed identically by the on-screen
-Plotly renderer (plotly_renderer.py) and the branded matplotlib PNG export
-(renderer.py) — a colour assigned to a response option is the same hex
-value in both, so a chart never looks different on screen than in its
-exported PNG.
+One palette, defined here once, consumed by plotly_renderer.py — the
+single chart-drawing engine behind both the on-screen chart and its
+rasterized PNG export (they are the same Figure object) — so a colour
+assigned to a response option is the same hex value in both and a chart
+never looks different on screen than in its exported PNG.
 
 Colour assignment is by series identity (e.g. a response option's label),
 never by position in whatever list a caller happens to pass, and never by
