@@ -1,13 +1,20 @@
 """Plotly/kaleido renderer for the five breaks-and-filters chart types
-(build plan section 11).
+(build plan section 11), plus (Item A, chart parity) the legacy
+``dist``/``xbreak``/``means`` chart types from ``chart_data.py``.
 
-Scoped strictly to the five new chart types declared in
-``surveytool.core.chart_validity.ChartType``
+The five new chart types declared in ``surveytool.core.chart_validity.ChartType``
 (``stacked_bar_100``/``diverging_stacked_bar``/``grouped_bar``/``net_bar``/
-``table``). This module never touches ``surveytool/charts/renderer.py``'s
-matplotlib rendering for the legacy ``dist``/``xbreak``/``means`` chart
-types, and the two renderers are otherwise unrelated code paths that happen
-to coexist in the same app.
+``table``) are built by ``build_figure`` via the ``_BUILDERS`` dispatch table
+below; the three legacy chart types (``dist``/``xbreak``/``means``, driven by
+``chart_data.ChartData`` rather than ``QuestionResult``) are built by the
+separate, additive ``build_legacy_figure`` entry point and its own
+``_dist_figure``/``_xbreak_figure``/``_means_figure`` helpers. These two
+families are otherwise unrelated chart-type families that happen to share
+this module (for the single on-screen/export figure-building guarantee) and
+do not share builders, dispatch tables, or helpers beyond the
+``wrap_axis_labels``/``compute_axis_margin``/``assign_series_colours``
+utilities both use. ``surveytool/charts/renderer.py``'s matplotlib rendering
+for the legacy chart types is untouched by this module.
 
 Follows the same spec-builder/render separation ``chart_data.py`` /
 ``renderer.py`` already establish for the legacy charts: one pure
@@ -32,6 +39,7 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 
+from surveytool.charts.chart_data import ChartData
 from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.charts.palette import assign_series_colours
 from surveytool.charts.styles import ChartStyle, get_style
@@ -459,6 +467,100 @@ def _table_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figu
                 cells={"values": columns_data, "fill_color": style.background},
             )
         ]
+    )
+    return fig
+
+
+def _dist_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None) -> go.Figure:
+    t = chart.trace
+    colour_by_label = assign_series_colours(t["labels"], palette=style.palette, overrides=response_colours)
+    wrapped_labels = wrap_axis_labels(t["labels"])
+    fig = go.Figure(
+        data=[go.Bar(
+            orientation="h",
+            x=t["values"],
+            y=wrapped_labels,
+            marker_color=[colour_by_label[label] for label in t["labels"]],
+            customdata=t["n"],
+            hovertemplate="%{y}: %{x:.1f}%<br>n=%{customdata}<extra></extra>",
+        )],
+    )
+    fig.update_layout(
+        title={"text": chart.question_text, "x": 0.02, "xanchor": "left"},
+        xaxis_title="%",
+        margin={"l": compute_axis_margin(t["labels"], base_margin=160), "r": 20, "t": 60, "b": 40},
+    )
+    return fig
+
+
+def _xbreak_figure(chart: ChartData, style: ChartStyle) -> go.Figure:
+    t = chart.trace
+    wrapped_levels = wrap_axis_labels(t["levels"])
+    fig = go.Figure(
+        data=[go.Bar(
+            x=wrapped_levels,
+            y=t["values"],
+            marker_color=style.palette[0],
+            customdata=t["n"],
+            hovertemplate="%{x}: %{y:.1f}" + ("%" if t["is_pct"] else "") + "<br>n=%{customdata}<extra></extra>",
+        )],
+    )
+    fig.update_layout(
+        title={"text": f"{chart.question_text} by {chart.breakdown_variable}", "x": 0.02, "xanchor": "left"},
+        margin={"l": 60, "r": 20, "t": 60, "b": compute_axis_margin(t["levels"])},
+    )
+    return fig
+
+
+def _means_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None) -> go.Figure:
+    t = chart.trace
+    colour_by_label = assign_series_colours(t["labels"], palette=style.palette, overrides=response_colours)
+    wrapped_labels = wrap_axis_labels(t["labels"])
+    fig = go.Figure(
+        data=[go.Bar(
+            orientation="h",
+            x=t["values"],
+            y=wrapped_labels,
+            marker_color=[colour_by_label[label] for label in t["labels"]],
+            hovertemplate="%{y}: %{x:.2f}<extra></extra>",
+        )],
+    )
+    fig.update_layout(
+        title={"text": "Mean score comparison", "x": 0.02, "xanchor": "left"},
+        margin={"l": compute_axis_margin(t["labels"], base_margin=200), "r": 20, "t": 60, "b": 40},
+    )
+    return fig
+
+
+def build_legacy_figure(
+    chart: ChartData,
+    style: ChartStyle,
+    response_colours: dict[str, str] | None = None,
+) -> go.Figure:
+    """Build the on-screen/export figure for a legacy dist/xbreak/means chart
+    (chart_data.py's ChartData), the same shape build_figure already
+    provides for the newer breaks/crosstab chart types -- one Plotly figure,
+    shown on screen and rasterized for export via the same rasterize()
+    function, so this chart family gets the identical "on-screen and export
+    can't drift, they're one object" guarantee.
+
+    xbreak charts show breakdown levels (North/South), not response
+    options, so response_colours (a response-label -> hex map) does not
+    apply there -- only dist/means, whose bars are response options/questions
+    respectively, take a colour override.
+    """
+    fig = go.Figure()
+    if chart.chart_type == "dist":
+        fig = _dist_figure(chart, style, response_colours)
+    elif chart.chart_type == "xbreak":
+        fig = _xbreak_figure(chart, style)
+    else:
+        fig = _means_figure(chart, style, response_colours)
+
+    fig.update_layout(
+        paper_bgcolor=style.background,
+        plot_bgcolor=style.background,
+        font={"color": style.font_color},
     )
     return fig
 
