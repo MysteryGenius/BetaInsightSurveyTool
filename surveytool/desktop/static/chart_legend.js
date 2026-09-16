@@ -58,17 +58,29 @@ function applyChartStyleToLayout(layout, styleName) {
 }
 
 // `currentColours` is the question's saved response_colours map (label ->
-// hex). It MUST be sent back with the style choice: the chart-style record is
-// written as a whole-record replace server-side, and ChartStylePayload's
-// response_colours defaults to {}, so a PUT carrying only style_name would
-// silently wipe every manual colour saved for this question. This is the
-// mirror image of the colour swatch's own PUT, which likewise resends
-// style_name so that editing a colour can't wipe the saved style.
+// hex), OR a zero-arg getter function returning that map. It MUST be sent
+// back with the style choice: the chart-style record is written as a
+// whole-record replace server-side, and ChartStylePayload's response_colours
+// defaults to {}, so a PUT carrying only style_name would silently wipe every
+// manual colour saved for this question. This is the mirror image of the
+// colour swatch's own PUT, which likewise resends style_name so that editing
+// a colour can't wipe the saved style.
+//
+// Accepting a getter (rather than only a plain object captured once at
+// construction time) matters for callers whose style row is built once but
+// outlives later colour edits to the same question (breaks.js: the legend's
+// colour-swatch onChange only mutates its in-memory question object and
+// re-renders the chart, it does not rebuild this row). Calling the getter
+// fresh at click time -- right before the PUT body is built -- means the
+// style-preset PUT always carries the latest colours instead of a stale
+// snapshot from whenever the row was constructed. A plain object is still
+// accepted for callers that rebuild the row on every change anyway
+// (charts.js), so it's wrapped in a getter here for a uniform call path.
 function buildChartStyleRow(qid, currentStyleName, surveyId, onChange, currentColours) {
   const row = document.createElement("div");
   row.className = "chart-type-row chart-style-row";
   const activeStyle = currentStyleName || "brand";
-  const preservedColours = { ...(currentColours || {}) };
+  const getColours = typeof currentColours === "function" ? currentColours : () => currentColours || {};
 
   CHART_STYLES.forEach((styleName) => {
     const btn = document.createElement("button");
@@ -82,7 +94,7 @@ function buildChartStyleRow(qid, currentStyleName, surveyId, onChange, currentCo
       fetch(`/api/projects/${surveyId}/chart-style/${qid}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ style_name: styleName, response_colours: preservedColours }),
+        body: JSON.stringify({ style_name: styleName, response_colours: { ...(getColours() || {}) } }),
       })
         .then(() => onChange(styleName))
         .catch((err) => console.error("Failed to save chart style choice", err));

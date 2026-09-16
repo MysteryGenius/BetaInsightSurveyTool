@@ -726,9 +726,15 @@ function renderBreaksResults(questionResults) {
         const chartType = breaksActiveChartType[qr.question_id];
         renderChartArea(qr, block.querySelector(".breaks-chart-area"), chartType);
       },
-      // Resent so choosing a style can't wipe this question's saved manual
-      // colours (the chart-style record is a whole-record replace).
-      qr.response_colours || {},
+      // A getter, not a captured snapshot: this style row is built once per
+      // crosstab render, but the legend's colour-swatch onChange (below)
+      // only mutates qr.response_colours in memory and re-renders the chart
+      // -- it does not rebuild this row. Reading qr.response_colours fresh
+      // at click time (inside buildChartStyleRow) ensures a style-preset
+      // click after a colour edit resends the edited colours instead of a
+      // stale pre-edit snapshot (the chart-style record is a whole-record
+      // replace, so a stale snapshot would silently wipe the edit).
+      () => qr.response_colours || {},
     );
     controlsRow.appendChild(chartStyleRow);
 
