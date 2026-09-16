@@ -48,6 +48,7 @@ CATEGORICAL_PALETTE: tuple[str, ...] = (
 def assign_series_colours(
     series_identities: list[str],
     palette: tuple[str, ...] = CATEGORICAL_PALETTE,
+    overrides: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Assign one palette colour to each distinct series identity.
 
@@ -73,6 +74,15 @@ def assign_series_colours(
     for the same response-option set uses a different but equally
     collision-checked 12-entry palette.
 
+    `overrides` (manual response colour feature): an optional identity ->
+    hex-colour map. Any identity present here is assigned that colour
+    verbatim, bypassing the hash-based assignment entirely and never
+    consuming a palette slot. Every other identity is still assigned from
+    `palette` exactly as before, except palette entries that exactly match
+    an override colour are excluded from the pool available to hash-derived
+    identities in this same call, so an overridden colour is never also
+    handed to an unrelated identity in the same chart.
+
     Raises PaletteExhaustedError if there are more distinct identities than
     the given palette has entries — a repeated colour within one chart is
     never produced silently.
@@ -85,20 +95,29 @@ def assign_series_colours(
     label sets against a 12-slot palette; a fully collision-immune,
     call-independent scheme is outside this task's scope.
     """
-    if len(series_identities) > len(palette):
-        raise PaletteExhaustedError(len(series_identities), len(palette))
+    overrides = overrides or {}
+    remaining_identities = [i for i in series_identities if i not in overrides]
+    override_colours = set(overrides.values())
+    remaining_palette = tuple(c for c in palette if c not in override_colours) or palette
+
+    if len(remaining_identities) > len(remaining_palette):
+        raise PaletteExhaustedError(len(remaining_identities), len(remaining_palette))
 
     def _base_slot(identity: str) -> int:
         digest = hashlib.sha256(identity.encode("utf-8")).digest()
-        return int.from_bytes(digest[:4], "big") % len(palette)
+        return int.from_bytes(digest[:4], "big") % len(remaining_palette)
 
     assignment: dict[str, str] = {}
     used_slots: set[int] = set()
-    for identity in sorted(set(series_identities)):
+    for identity in sorted(set(remaining_identities)):
         slot = _base_slot(identity)
         while slot in used_slots:
-            slot = (slot + 1) % len(palette)
+            slot = (slot + 1) % len(remaining_palette)
         used_slots.add(slot)
-        assignment[identity] = palette[slot]
+        assignment[identity] = remaining_palette[slot]
+
+    for identity, colour in overrides.items():
+        if identity in series_identities:
+            assignment[identity] = colour
 
     return assignment

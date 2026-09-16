@@ -66,3 +66,30 @@ def test_assign_series_colours_default_palette_unchanged():
 def test_assign_series_colours_raises_when_exceeding_explicit_palette_size():
     with pytest.raises(PaletteExhaustedError):
         assign_series_colours(["A", "B", "C", "D"], palette=("#111111", "#222222", "#333333"))
+
+
+def test_assign_series_colours_overrides_take_precedence():
+    identities = ["A", "B", "C"]
+    result = assign_series_colours(identities, overrides={"B": "#FF00FF"})
+    assert result["B"] == "#FF00FF"
+
+
+def test_assign_series_colours_unset_labels_still_get_hash_derived_colour():
+    identities = ["A", "B", "C"]
+    with_override = assign_series_colours(identities, overrides={"B": "#FF00FF"})
+    without_override = assign_series_colours(identities)
+    assert with_override["A"] == without_override["A"]
+    assert with_override["C"] == without_override["C"]
+
+
+def test_assign_series_colours_override_colour_not_reused_for_other_identity():
+    custom_palette = ("#111111", "#222222")
+    result = assign_series_colours(["A", "B"], palette=custom_palette, overrides={"A": "#111111"})
+    assert result["A"] == "#111111"
+    assert result["B"] != "#111111"
+
+
+def test_assign_series_colours_no_overrides_is_unchanged():
+    identities = ["Option A", "Option B", "Option C"]
+    assert assign_series_colours(identities) == assign_series_colours(identities, overrides=None)
+    assert assign_series_colours(identities) == assign_series_colours(identities, overrides={})
