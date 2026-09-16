@@ -1028,23 +1028,6 @@ def test_purespectrum_datamap_header_cell_newline_does_not_glue_question_text():
     assert "citizens. By" in q1.text
 
 
-@pytest.mark.skipif(not _RAKUTEN_CHN_CLANS_PATH.exists(), reason="Rakuten chn_clans fixture not present")
-def test_rakuten_chn_clans_long_labels_do_not_crop_in_matplotlib_render():
-    """Direct regression for the exact chart Leonard photographed."""
-    from surveytool.charts.renderer import _compute_left_margin
-    import matplotlib.pyplot as plt
-
-    long_labels = [
-        "A very long response option label that would previously be cropped at the left margin",
-        "Short",
-    ]
-    fig, ax = plt.subplots(figsize=(9, 4))
-    display_labels, margin_fraction = _compute_left_margin(fig, ax, long_labels)
-    assert margin_fraction > 0.12  # wider than the old effective default for genuinely long labels
-    assert margin_fraction <= 0.45
-    plt.close(fig)
-
-
 def test_title_wrapping_produces_multiple_lines_for_long_title():
     from surveytool.core.text_hygiene import wrap_text
     long_title = "This is a very long chart title that should wrap across more than one line when rendered " * 3

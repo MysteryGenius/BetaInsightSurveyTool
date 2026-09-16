@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterator
+from typing import TYPE_CHECKING, Iterator
 
 from surveytool.charts.types import ChartSpec
 from surveytool.core.model import QuestionType
 
 if TYPE_CHECKING:
-    from surveytool.charts.manifest import ManifestEntry
     from surveytool.core.model import Question
     from surveytool.findings.sheet import FindingsRow
 
-__all__ = ["render_charts", "iter_chart_specs"]
+__all__ = ["iter_chart_specs"]
 
 _SCALE_TYPES = frozenset({QuestionType.scale, QuestionType.single_choice})
 
@@ -30,8 +28,9 @@ def iter_chart_specs(
     - One means chart per survey (all scale questions, total, mean metric).
 
     This is the single source of truth for "what charts exist" — both PNG
-    rendering (render_charts) and interactive chart data (chart_data.build_chart_data)
-    consume it, so neither can drift from the other's selection rules.
+    rendering (chart_data.render_charts_plotly) and interactive chart data
+    (chart_data.build_chart_data) consume it, so neither can drift from the
+    other's selection rules.
     """
     q_by_id: dict[str, Question] = {q.qid: q for q in questions}
 
@@ -99,46 +98,6 @@ def iter_chart_specs(
             rows=means_rows,
             _override_filename=f"{survey_id}__all__means__total.png",
         )
-
-
-def render_charts(
-    findings: list["FindingsRow"],
-    out_dir: Path,
-    survey_id: str,
-    questions: list["Question"],
-    write_manifest_file: bool = True,
-    chart_filter: Callable[[ChartSpec], bool] | None = None,
-) -> list["ManifestEntry"]:
-    """Render chart PNGs from the findings sheet.
-
-    Never recomputes — reads exclusively from `findings`.
-    Raises MissingFindingsRow if a required row is absent.
-
-    `chart_filter`, if given, restricts rendering to the specs it accepts
-    (e.g. a single chart for a per-chart export) without changing what
-    counts as a chart — `iter_chart_specs` stays the sole source of truth.
-    """
-    from surveytool.charts.manifest import write_manifest
-    from surveytool.charts.renderer import render_dist, render_means, render_xbreak
-
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    entries: list["ManifestEntry"] = []
-    for spec in iter_chart_specs(findings, survey_id, questions):
-        if chart_filter is not None and not chart_filter(spec):
-            continue
-        if spec.chart_type == "dist":
-            entries.append(render_dist(spec, out_dir))
-        elif spec.chart_type == "xbreak":
-            entries.append(render_xbreak(spec, out_dir))
-        else:
-            entries.append(render_means(spec, out_dir))
-
-    if write_manifest_file:
-        write_manifest(entries, out_dir / "manifest.json")
-
-    return entries
 
 
 class _MeansSpec(ChartSpec):

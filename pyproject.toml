@@ -9,7 +9,6 @@ requires-python = ">=3.11"
 dependencies = [
     "pandas>=2.0",
     "openpyxl>=3.1",
-    "matplotlib>=3.7",
     "scipy>=1.11",
     "statsmodels>=0.14",
     "pydantic>=2.0",

@@ -106,7 +106,7 @@ def _cmd_findings(args: argparse.Namespace) -> int:
 
 
 def _cmd_charts(args: argparse.Namespace) -> int:
-    from surveytool.charts import render_charts
+    from surveytool.charts.chart_data import render_charts_plotly
     from surveytool.findings.sheet import build_findings_sheet
     file = Path(args.file)
     survey = _load_survey(file, args.survey_id, args.vendor)
@@ -120,7 +120,7 @@ def _cmd_charts(args: argparse.Namespace) -> int:
         )
 
     out_dir = Path(args.out_dir)
-    render_charts(findings, out_dir, args.survey_id, survey.questions)
+    render_charts_plotly(findings, out_dir, args.survey_id, survey.questions)
     manifest_path = out_dir / "manifest.json"
     print(str(manifest_path))
 

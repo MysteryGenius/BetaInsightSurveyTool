@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from surveytool.charts.errors import MissingFindingsRow
-from surveytool.charts.renderer import _index_rows, _require_row
 from surveytool.charts.types import ChartSpec
 from surveytool.charts import iter_chart_specs
 from surveytool.core.model import CodeRole, Question
@@ -19,6 +18,25 @@ class ChartData:
     breakdown_variable: str
     metric: str
     trace: dict
+
+
+def _index_rows(rows: list[FindingsRow]) -> dict[tuple[str, str, str], FindingsRow]:
+    """Key: (breakdown_level, breakdown_variable, metric) → row."""
+    return {(r.breakdown_level, r.breakdown_variable, r.metric): r for r in rows}
+
+
+def _require_row(
+    idx: dict,
+    breakdown_level: str,
+    breakdown_variable: str,
+    metric: str,
+    qid: str,
+) -> FindingsRow:
+    key = (breakdown_level, breakdown_variable, metric)
+    row = idx.get(key)
+    if row is None:
+        raise MissingFindingsRow(qid, breakdown_variable, breakdown_level, metric)
+    return row
 
 
 def _apply_manual_order(labels: list[str], *parallel: list, manual_order: list[str] | None) -> tuple:
