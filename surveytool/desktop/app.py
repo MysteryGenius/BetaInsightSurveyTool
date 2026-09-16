@@ -31,7 +31,8 @@ from surveytool.charts.errors import (
     UnresolvedQuestionsError,
     WarningCode,
 )
-from surveytool.charts.plotly_renderer import build_figure, rasterize
+from surveytool.charts.plotly_renderer import build_figure, build_legacy_figure, rasterize
+from surveytool.charts.styles import get_style
 from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_crosstab
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
 from surveytool.core.break_filter import validate_request
@@ -1064,14 +1065,37 @@ async def get_run_summary(session_id: str):
 async def get_charts(session_id: str):
     session = _require_session(session_id)
     display_orders = _load_display_orders_for_survey(session.survey_id)
+    chart_styles = _load_chart_styles_for_survey(session.survey_id)
+    response_colours = _load_response_colours_for_survey(session.survey_id)
     chart_data = build_chart_data(
         session.findings, session.survey.id, session.survey.questions,
         display_orders=display_orders,
     )
+
+    # Item A (render parity): each chart carries the SERIALIZED Plotly figure
+    # built by the very same build_legacy_figure call the PNG export path
+    # (render_charts_plotly) makes for this chart, resolved from the same
+    # style/colour overrides. charts.js renders this verbatim rather than
+    # re-deriving its own trace/layout, so the on-screen chart and its
+    # exported PNG are one figure and structurally cannot drift apart --
+    # the guarantee the Cross-tab pipeline already had. The raw `trace`
+    # field stays alongside it: the legend component still reads
+    # `trace.labels` for its (unwrapped) response-option rows.
+    charts = []
+    for chart in chart_data:
+        figure = build_legacy_figure(
+            chart,
+            get_style(chart_styles.get(chart.qid)),
+            response_colours=response_colours.get(chart.qid),
+        )
+        entry = asdict(chart)
+        entry["figure"] = figure.to_plotly_json()
+        charts.append(entry)
+
     return {
-        "charts": [asdict(c) for c in chart_data],
-        "chart_styles": _load_chart_styles_for_survey(session.survey_id),
-        "response_colours": _load_response_colours_for_survey(session.survey_id),
+        "charts": charts,
+        "chart_styles": chart_styles,
+        "response_colours": response_colours,
         "display_orders": display_orders,
     }
 
@@ -1327,8 +1351,9 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
     the layer that owns it (see plotly_renderer.build_figure's docstring).
 
     Routed at /breaks-export rather than /export because POST
-    /api/session/{id}/export is already taken by the pre-existing
-    matplotlib chart export, which must keep working unchanged.
+    /api/session/{id}/export is already taken by the legacy Charts tab's
+    own export (now Plotly-based, like this one), which must keep working
+    unchanged.
 
     Returns the rendered PNG directly (FileResponse), rather than a
     manifest/out_dir pair like the legacy /export endpoint: ExportRequest
@@ -1419,7 +1444,30 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
         ) from exc
 
     exported = []
+    skipped = []
     for question_result in results:
+        # Not every question can render as every chart type, and "Export all"
+        # sends the whole survey at whichever chart type is currently on
+        # screen -- so a mixed batch is the normal case, not an error.
+        # build_figure raises for a non-permitted combination, which would
+        # abort the entire batch and export nothing; check the same
+        # permitted_charts list it checks internally (populated above by
+        # attach_chart_permissions) so an unsupported question is recorded as
+        # a skip and the rest of the batch still completes.
+        permission = next(
+            (p for p in question_result.permitted_charts if p.chart_type is request.chart_type),
+            None,
+        )
+        if permission is None or not permission.permitted:
+            skipped.append({
+                "question_id": question_result.question_id,
+                "reason": (
+                    permission.reason if permission is not None and permission.reason
+                    else "This question can't be shown as this chart type."
+                ),
+            })
+            continue
+
         fig = build_figure(
             question_result, request.chart_type,
             break_spec=request.break_spec.dimensions,
@@ -1429,7 +1477,7 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
         rasterize(fig, out_dir / filename)
         exported.append({"question_id": question_result.question_id, "filename": filename})
 
-    return {"exported": exported, "out_dir": request.out_dir}
+    return {"exported": exported, "skipped": skipped, "out_dir": request.out_dir}
 
 
 app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

@@ -313,3 +313,102 @@ def test_export_endpoint_single_chart_no_match_is_structured_error(client, tmp_p
     body = response.json()
     assert "error" in body
     assert "Traceback" not in body["error"]["message"]
+
+
+# ── Item A render parity: /charts serves the SAME figure the export rasterizes ──
+
+
+def test_charts_endpoint_serves_serialized_plotly_figure_per_chart(client):
+    """Every chart in /charts carries a serialized `figure` (data + layout).
+
+    This is the on-screen half of Item A's guarantee: charts.js renders this
+    figure verbatim rather than hand-building its own trace/layout, so the
+    on-screen chart and its exported PNG are the same Plotly figure object
+    and structurally cannot drift apart.
+    """
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    session_id = _upload(client)
+    response = client.get(f"/api/session/{session_id}/charts")
+    assert response.status_code == 200, response.text
+
+    charts = response.json()["charts"]
+    assert charts, "expected at least one chart"
+    for chart in charts:
+        assert "figure" in chart, f"chart {chart['qid']} has no serialized figure"
+        assert chart["figure"]["data"], "figure carries no traces"
+        assert "layout" in chart["figure"]
+
+
+def test_charts_figure_is_identical_to_the_figure_the_export_rasterizes(client):
+    """The served figure must equal build_legacy_figure's output exactly --
+    same colours, same wrapped tick labels, same computed margins -- for the
+    same style/colour overrides the export path resolves."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    import json
+
+    from surveytool.charts.chart_data import build_chart_data
+    from surveytool.charts.plotly_renderer import build_legacy_figure
+    from surveytool.charts.styles import get_style
+    from surveytool.desktop.app import (
+        _load_chart_styles_for_survey,
+        _load_display_orders_for_survey,
+        _load_response_colours_for_survey,
+        get_session,
+    )
+
+    session_id = _upload(client)
+    session = get_session(session_id)
+    survey_id = session.survey.id
+
+    # Opt Q1 into a non-default style plus a manual colour override, so the
+    # comparison exercises the styled path, not just the default.
+    put = client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "cool", "response_colours": {"Strongly agree": "#1B667D"}},
+    )
+    assert put.status_code == 200, put.text
+
+    charts = client.get(f"/api/session/{session_id}/charts").json()["charts"]
+
+    chart_data = build_chart_data(
+        session.findings, survey_id, session.survey.questions,
+        display_orders=_load_display_orders_for_survey(session.survey_id),
+    )
+    styles = _load_chart_styles_for_survey(session.survey_id)
+    colours = _load_response_colours_for_survey(session.survey_id)
+
+    by_filename = {c["filename"]: c for c in charts}
+    assert by_filename
+    for chart in chart_data:
+        expected = build_legacy_figure(
+            chart, get_style(styles.get(chart.qid)),
+            response_colours=colours.get(chart.qid),
+        ).to_plotly_json()
+        served = by_filename[chart.filename]["figure"]
+        assert served == json.loads(json.dumps(expected, default=str)), (
+            f"served figure for {chart.filename} differs from the exported figure"
+        )
+
+
+def test_charts_figure_wraps_long_axis_labels_and_sizes_margin(client):
+    """Item C on the on-screen half: the served figure's category labels are
+    wrapped with Plotly <br> breaks and the margin is computed, not fixed --
+    the two things charts.js's old hand-rolled layout never did."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    session_id = _upload(client)
+    charts = client.get(f"/api/session/{session_id}/charts").json()["charts"]
+
+    dist = next(c for c in charts if c["chart_type"] == "dist")
+    figure = dist["figure"]
+    tick_labels = figure["data"][0]["y"]
+    longest = max(tick_labels, key=len)
+    if len(longest.replace("<br>", "")) > 24:
+        assert "<br>" in longest, "a long category label was not wrapped"
+    # Margin is computed from the labels, never the old hardcoded 160.
+    assert figure["layout"]["margin"]["l"] >= 160

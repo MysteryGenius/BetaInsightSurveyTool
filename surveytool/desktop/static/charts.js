@@ -66,6 +66,12 @@ function renderInlineError(container, errorObj) {
 // Shared visual tokens, mirroring the CSS custom properties in index.html
 // (Plotly renders to canvas/SVG and can't read CSS vars, so values are
 // duplicated here — keep in sync with the :root block in index.html).
+//
+// CHART_COLORS/CHART_TEMPLATE_LAYOUT/withChartTemplate are no longer used by
+// this file's own charts (those now render the server-built figure verbatim,
+// see chartFigure) but remain defined here because breaks.js — loaded after
+// this file, per index.html's script order — still builds its Cross-tab
+// layouts from them. Do not remove.
 const CHART_COLORS = {
   ink: "#14181f",
   inkSoft: "#5b6270",
@@ -96,85 +102,49 @@ function withChartTemplate(layout) {
 }
 
 // Populated once per loadCharts() call from the /charts response's sibling
-// fields, keyed by qid — chartTraceAndLayout reads these instead of always
-// using CHART_COLORS.accent, so a saved style/colour reaches the legacy
-// Charts tab exactly like breaks.js's applyChartStyleToLayout already does
-// for Cross-tab.
+// fields, keyed by qid — used for the style-preset row's active state and
+// the legend's swatch values. The CHART ITSELF is no longer built from
+// these: see chartFigure below.
 let chartsStyleByQid = {};
 let chartsResponseColoursByQid = {};
 
-function chartTraceAndLayout(chart) {
-  const t = chart.trace;
-  const styleName = chartsStyleByQid[chart.qid] || "brand";
-  const style = CLIENT_CHART_STYLES[styleName] || CLIENT_CHART_STYLES.brand;
-  const overrides = chartsResponseColoursByQid[chart.qid] || {};
-
-  function colourFor(label, fallbackIndex) {
-    if (overrides[label]) return overrides[label];
-    return style.palette[fallbackIndex % style.palette.length];
-  }
-
-  if (chart.chart_type === "dist") {
-    return {
-      data: [{
-        type: "bar",
-        orientation: "h",
-        x: t.values,
-        y: t.labels,
-        marker: { color: t.labels.map((label, i) => colourFor(label, i)) },
-        customdata: t.n,
-        hovertemplate: "%{y}: %{x:.1f}%<br>n=%{customdata}<extra></extra>",
-      }],
-      layout: withChartTemplate({
-        title: chart.question_text,
-        margin: { l: 160, r: 20, t: 40, b: 40 },
-        xaxis: { title: "%" },
-        paper_bgcolor: style.background,
-        plot_bgcolor: style.background,
-        font: { color: style.fontColor },
-      }),
-    };
-  }
-
-  if (chart.chart_type === "xbreak") {
-    return {
-      data: [{
-        type: "bar",
-        x: t.levels,
-        y: t.values,
-        marker: { color: style.palette[0] },
-        customdata: t.n,
-        hovertemplate: "%{x}: %{y:.1f}" + (t.is_pct ? "%" : "") + "<br>n=%{customdata}<extra></extra>",
-      }],
-      layout: withChartTemplate({
-        title: `${chart.question_text} by ${chart.breakdown_variable}`,
-        margin: { l: 60, r: 20, t: 40, b: 60 },
-        paper_bgcolor: style.background,
-        plot_bgcolor: style.background,
-        font: { color: style.fontColor },
-      }),
-    };
-  }
-
-  // means
-  const n = t.labels.map(() => t.cell_base);
+// Item A (render parity). This used to hand-build a Plotly trace/layout from
+// chart.trace, which is exactly how the on-screen chart drifted from its own
+// exported PNG: the server assigns each response label a colour by hashing
+// the label (assign_series_colours), while this file assigned them
+// positionally (palette[i % len]) — so the same question's bars were
+// different colours on screen than in the PNG. It also never wrapped long
+// axis labels and used hardcoded margins where the server computes them.
+//
+// There is now exactly ONE figure-building code path: the server's
+// build_legacy_figure. /charts serves its serialized output per chart
+// (chart.figure), built by the same call the PNG export makes, and this
+// renders it verbatim. Colours, wrapped tick labels, computed margins,
+// background and font all arrive already resolved — including the
+// brand-default styling for a question nobody has styled, which is the
+// server's get_style(None) -> DEFAULT_STYLE, the same default the export
+// has always used. Nothing here may re-derive any of that, or the two can
+// drift again.
+//
+// On the default (unstyled) appearance: an unstyled chart now draws on
+// brand's #F4F1EA, where this file used to draw #3d5a85 bars on #ffffff.
+// That is the intended convergence, not a regression. Before Item A the
+// Charts tab had TWO different appearances for the same chart — the
+// on-screen one above, and the exported PNG, which the retired matplotlib
+// renderer.py always drew on _CREAM = "#F4F1EA". Item A makes on-screen and
+// export one figure, so one of the two had to move; the PNG is the artifact
+// clients actually receive, so the on-screen chart is what converged onto
+// it. Cross-tab's unstyled charts are a separate case and keep their own
+// pre-existing defaults (see the gate in breaks.js's renderBreaksChart) —
+// they were never in scope for Item A's parity guarantee.
+function chartFigure(chart) {
   return {
-    data: [{
-      type: "bar",
-      orientation: "h",
-      x: t.values,
-      y: t.labels,
-      marker: { color: t.labels.map((label, i) => colourFor(label, i)) },
-      customdata: n,
-      hovertemplate: "%{y}: %{x:.2f}<br>n=%{customdata}<extra></extra>",
-    }],
-    layout: withChartTemplate({
-      title: "Mean score comparison",
-      margin: { l: 200, r: 20, t: 40, b: 40 },
-      paper_bgcolor: style.background,
-      plot_bgcolor: style.background,
-      font: { color: style.fontColor },
-    }),
+    data: chart.figure.data,
+    // Plotly's own legend would duplicate the custom colour-editable legend
+    // rendered directly beneath every non-xbreak chart, so it is suppressed
+    // wherever that legend is present. The server figure is otherwise used
+    // untouched.
+    layout: { ...chart.figure.layout, showlegend: chart.chart_type !== "xbreak" ? false : chart.figure.layout.showlegend },
   };
 }
 
@@ -194,10 +164,20 @@ function renderCharts(charts, container, sessionId) {
     div.id = `chart-${i}`;
     wrapper.appendChild(div);
 
-    const styleRow = buildChartStyleRow(chart.qid, chartsStyleByQid[chart.qid], sessionSurveyId, (newStyleName) => {
-      chartsStyleByQid[chart.qid] = newStyleName;
-      renderCharts(charts, container, sessionId);
-    });
+    // The figure is now built server-side, so a style change must re-fetch to
+    // get the restyled figure — re-rendering the cached `charts` array here
+    // would redraw the OLD style's figure. The colour-swatch onChange below
+    // already re-fetches for the same reason.
+    const styleRow = buildChartStyleRow(
+      chart.qid,
+      chartsStyleByQid[chart.qid],
+      sessionSurveyId,
+      (newStyleName) => {
+        chartsStyleByQid[chart.qid] = newStyleName;
+        loadCharts(sessionId, container, sessionSurveyId);
+      },
+      chartsResponseColoursByQid[chart.qid] || {},
+    );
     wrapper.appendChild(styleRow);
 
     const legendContainer = document.createElement("div");
@@ -230,7 +210,7 @@ function renderCharts(charts, container, sessionId) {
 
     container.appendChild(wrapper);
 
-    const { data, layout } = chartTraceAndLayout(chart);
+    const { data, layout } = chartFigure(chart);
     Plotly.newPlot(div, data, layout, { displaylogo: false, responsive: true });
   });
 }

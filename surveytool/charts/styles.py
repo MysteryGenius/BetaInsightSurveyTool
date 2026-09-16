@@ -11,6 +11,15 @@ always hardcoded, so choosing no style is byte-for-byte identical to
 pre-this-feature behaviour (the same "additive, nothing changes unless
 opted in" guarantee Round C1/C3 both maintained).
 
+Note on the #F4F1EA background specifically: this is the same cream the
+retired matplotlib renderer.py always exported the legacy Charts tab on
+(its `_CREAM`), so an unstyled legacy chart's EXPORT is unchanged by the
+chart-parity work. The legacy tab's ON-SCREEN chart did differ before
+parity (charts.js drew #3d5a85 bars on #ffffff); making on-screen and
+export one figure necessarily converged the two, and converging onto the
+exported PNG's appearance is the intended direction, since that is the
+artifact clients receive.
+
 Each non-brand preset has its own independently validated 12-entry
 palette (not a recolouring of CATEGORICAL_PALETTE). Validation is per-pair
 pairwise distinguishability: every pairwise greyscale luminance difference
