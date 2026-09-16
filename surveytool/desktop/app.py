@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl.utils.exceptions import InvalidFileException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from surveytool.charts import render_charts
@@ -339,6 +339,16 @@ def _load_chart_styles_for_survey(survey_id: str) -> dict[str, str]:
     path = _project_chart_style_path(survey_id)
     styles = load_chart_styles(path)
     return {qid: entry.style_name for qid, entry in styles.styles.items()}
+
+
+def _load_response_colours_for_survey(survey_id: str) -> dict[str, dict[str, str]]:
+    path = _project_chart_style_path(survey_id)
+    styles = load_chart_styles(path)
+    return {
+        qid: entry.response_colours
+        for qid, entry in styles.styles.items()
+        if entry.response_colours
+    }
 
 
 def _read_fingerprint_signals(path: Path) -> tuple[frozenset[str], frozenset[str]]:
@@ -916,6 +926,7 @@ async def reset_display_order(survey_id: str, qid: str) -> dict:
 
 class ChartStylePayload(BaseModel):
     style_name: str
+    response_colours: dict[str, str] = Field(default_factory=dict)
 
 
 @app.get("/api/projects/{survey_id}/chart-style/{qid}")
@@ -930,7 +941,7 @@ async def get_chart_style(survey_id: str, qid: str) -> ChartStylePayload | None:
     entry = styles.styles.get(qid)
     if entry is None:
         return None
-    return ChartStylePayload(style_name=entry.style_name)
+    return ChartStylePayload(style_name=entry.style_name, response_colours=entry.response_colours)
 
 
 @app.put("/api/projects/{survey_id}/chart-style/{qid}")
@@ -941,11 +952,13 @@ async def put_chart_style(survey_id: str, qid: str, payload: ChartStylePayload) 
     post_breaks_export), exactly as a manual display order is picked up on
     the next run. write_chart_style raises UnknownChartStyleError (mapped
     to 400 by the app-level SurveyToolError handler) for a style_name not
-    in STYLE_REGISTRY."""
+    in STYLE_REGISTRY, and InvalidResponseColourError (same 400 mapping)
+    for a response_colours value that isn't a well-formed hex colour."""
     path = _project_chart_style_path(survey_id)
     choice = ChartStyleChoice(
         variable=qid,
         style_name=payload.style_name,
+        response_colours=payload.response_colours,
         saved_at=datetime.now(timezone.utc),
     )
     write_chart_style(path, choice)

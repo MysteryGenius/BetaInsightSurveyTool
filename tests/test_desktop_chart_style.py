@@ -131,6 +131,38 @@ def test_crosstab_chart_style_is_none_when_nothing_saved(client):
     assert result["chart_style"] is None
 
 
+def test_put_then_get_chart_style_round_trips_response_colours(client):
+    survey_id = "t-response-colours"
+    response = client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "brand", "response_colours": {"Agree": "#1B667D"}},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["response_colours"] == {"Agree": "#1B667D"}
+
+    response = client.get(f"/api/projects/{survey_id}/chart-style/Q1")
+    assert response.status_code == 200
+    assert response.json()["response_colours"] == {"Agree": "#1B667D"}
+
+
+def test_put_malformed_response_colour_is_refused(client):
+    survey_id = "t-response-colours-bad"
+    response = client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "brand", "response_colours": {"Agree": "not-a-colour"}},
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["code"] == "INVALID_RESPONSE_COLOUR"
+
+
+def test_get_chart_style_response_colours_defaults_to_empty_dict(client):
+    survey_id = "t-response-colours-default"
+    client.put(f"/api/projects/{survey_id}/chart-style/Q1", json={"style_name": "brand"})
+    response = client.get(f"/api/projects/{survey_id}/chart-style/Q1")
+    assert response.json()["response_colours"] == {}
+
+
 def test_breaks_export_uses_saved_chart_style(client):
     """End-to-end: PUT a style, then reproduce post_breaks_export's exact
     internal pipeline (validate_request -> compute_breaks_crosstab ->
