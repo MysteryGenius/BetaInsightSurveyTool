@@ -2022,7 +2022,7 @@ async function rerunCurrentSession() {
   renderWarnings(body.warnings);
   document.getElementById("summary-respondents").textContent = `${body.n_raw} raw / ${body.n_analysis} analysis`;
   document.getElementById("summary-questions").textContent = body.question_count;
-  await loadCharts(currentSessionId, chartsContainer);
+  await loadCharts(currentSessionId, chartsContainer, currentSurveyId);
   await initBreaksView(currentSessionId, currentSurveyId);
   activateTab("charts-view");
 }
@@ -2503,7 +2503,7 @@ async function saveResolvedQuestions() {
   currentLoadedAtMs = Date.now();
   document.getElementById("summary-source").textContent =
     `${currentFileName} · ${formatLoadedAgo(currentLoadedAtMs)}`;
-  await loadCharts(currentSessionId, chartsContainer);
+  await loadCharts(currentSessionId, chartsContainer, currentSurveyId);
   await initBreaksView(currentSessionId, currentSurveyId);
   activateTab("charts-view");
 }
@@ -2694,7 +2694,7 @@ async function uploadFile(file) {
   exportBox.className = "status-box";
   exportBody.textContent = "";
   activateTab("charts-view");
-  await loadCharts(currentSessionId, chartsContainer);
+  await loadCharts(currentSessionId, chartsContainer, currentSurveyId);
 
   await initBreaksView(currentSessionId, currentSurveyId);
 }

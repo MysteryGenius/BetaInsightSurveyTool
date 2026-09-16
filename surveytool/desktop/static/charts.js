@@ -95,8 +95,24 @@ function withChartTemplate(layout) {
   };
 }
 
+// Populated once per loadCharts() call from the /charts response's sibling
+// fields, keyed by qid — chartTraceAndLayout reads these instead of always
+// using CHART_COLORS.accent, so a saved style/colour reaches the legacy
+// Charts tab exactly like breaks.js's applyChartStyleToLayout already does
+// for Cross-tab.
+let chartsStyleByQid = {};
+let chartsResponseColoursByQid = {};
+
 function chartTraceAndLayout(chart) {
   const t = chart.trace;
+  const styleName = chartsStyleByQid[chart.qid] || "brand";
+  const style = CLIENT_CHART_STYLES[styleName] || CLIENT_CHART_STYLES.brand;
+  const overrides = chartsResponseColoursByQid[chart.qid] || {};
+
+  function colourFor(label, fallbackIndex) {
+    if (overrides[label]) return overrides[label];
+    return style.palette[fallbackIndex % style.palette.length];
+  }
 
   if (chart.chart_type === "dist") {
     return {
@@ -105,7 +121,7 @@ function chartTraceAndLayout(chart) {
         orientation: "h",
         x: t.values,
         y: t.labels,
-        marker: { color: CHART_COLORS.accent },
+        marker: { color: t.labels.map((label, i) => colourFor(label, i)) },
         customdata: t.n,
         hovertemplate: "%{y}: %{x:.1f}%<br>n=%{customdata}<extra></extra>",
       }],
@@ -113,6 +129,9 @@ function chartTraceAndLayout(chart) {
         title: chart.question_text,
         margin: { l: 160, r: 20, t: 40, b: 40 },
         xaxis: { title: "%" },
+        paper_bgcolor: style.background,
+        plot_bgcolor: style.background,
+        font: { color: style.fontColor },
       }),
     };
   }
@@ -123,13 +142,16 @@ function chartTraceAndLayout(chart) {
         type: "bar",
         x: t.levels,
         y: t.values,
-        marker: { color: CHART_COLORS.accent },
+        marker: { color: style.palette[0] },
         customdata: t.n,
         hovertemplate: "%{x}: %{y:.1f}" + (t.is_pct ? "%" : "") + "<br>n=%{customdata}<extra></extra>",
       }],
       layout: withChartTemplate({
         title: `${chart.question_text} by ${chart.breakdown_variable}`,
         margin: { l: 60, r: 20, t: 40, b: 60 },
+        paper_bgcolor: style.background,
+        plot_bgcolor: style.background,
+        font: { color: style.fontColor },
       }),
     };
   }
@@ -142,16 +164,25 @@ function chartTraceAndLayout(chart) {
       orientation: "h",
       x: t.values,
       y: t.labels,
-      marker: { color: CHART_COLORS.accent },
+      marker: { color: t.labels.map((label, i) => colourFor(label, i)) },
       customdata: n,
       hovertemplate: "%{y}: %{x:.2f}<br>n=%{customdata}<extra></extra>",
     }],
     layout: withChartTemplate({
       title: "Mean score comparison",
       margin: { l: 200, r: 20, t: 40, b: 40 },
+      paper_bgcolor: style.background,
+      plot_bgcolor: style.background,
+      font: { color: style.fontColor },
     }),
   };
 }
+
+// survey_id for the currently loaded session, used to build per-project
+// (survey_id-scoped) endpoint URLs like the chart-style PUT — mirrors
+// breaks.js's breaksSurveyId, set alongside sessionId wherever loadCharts is
+// invoked from index.html's view-switch logic.
+let sessionSurveyId = null;
 
 function renderCharts(charts, container, sessionId) {
   container.innerHTML = "";
@@ -162,6 +193,11 @@ function renderCharts(charts, container, sessionId) {
     const div = document.createElement("div");
     div.id = `chart-${i}`;
     wrapper.appendChild(div);
+
+    const styleRow = buildChartStyleRow(chart.qid, chartsStyleByQid[chart.qid], sessionSurveyId, () => {
+      renderCharts(charts, container, sessionId); // re-render all charts so the change is visible immediately
+    });
+    wrapper.appendChild(styleRow);
 
     const exportRow = document.createElement("div");
     exportRow.className = "chart-export-row";
@@ -183,7 +219,8 @@ function renderCharts(charts, container, sessionId) {
   });
 }
 
-async function loadCharts(sessionId, container) {
+async function loadCharts(sessionId, container, surveyId) {
+  sessionSurveyId = surveyId;
   container.innerHTML = "Loading charts…";
   let response;
   try {
@@ -203,6 +240,8 @@ async function loadCharts(sessionId, container) {
     return;
   }
 
+  chartsStyleByQid = body.chart_styles || {};
+  chartsResponseColoursByQid = body.response_colours || {};
   renderCharts(body.charts, container, sessionId);
 }
 

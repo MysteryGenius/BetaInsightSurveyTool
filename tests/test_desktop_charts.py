@@ -151,6 +151,27 @@ def test_charts_endpoint_unknown_session_is_404(client):
     assert "Traceback" not in body["error"]["message"]
 
 
+def test_charts_endpoint_returns_saved_chart_style_and_response_colours(client):
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    session_id = _upload(client)
+    from surveytool.desktop.app import get_session
+    session = get_session(session_id)
+    survey_id = session.survey.id
+
+    client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "cool", "response_colours": {"Strongly agree": "#1B667D"}},
+    )
+
+    response = client.get(f"/api/session/{session_id}/charts")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["chart_styles"]["Q1"] == "cool"
+    assert body["response_colours"]["Q1"] == {"Strongly agree": "#1B667D"}
+
+
 def test_export_endpoint_matches_direct_render_charts_output(client, tmp_path):
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")

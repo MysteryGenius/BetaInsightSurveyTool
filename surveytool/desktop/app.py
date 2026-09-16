@@ -1062,8 +1062,17 @@ async def get_run_summary(session_id: str):
 @app.get("/api/session/{session_id}/charts")
 async def get_charts(session_id: str):
     session = _require_session(session_id)
-    chart_data = build_chart_data(session.findings, session.survey.id, session.survey.questions)
-    return {"charts": [asdict(c) for c in chart_data]}
+    display_orders = _load_display_orders_for_survey(session.survey_id)
+    chart_data = build_chart_data(
+        session.findings, session.survey.id, session.survey.questions,
+        display_orders=display_orders,
+    )
+    return {
+        "charts": [asdict(c) for c in chart_data],
+        "chart_styles": _load_chart_styles_for_survey(session.survey_id),
+        "response_colours": _load_response_colours_for_survey(session.survey_id),
+        "display_orders": display_orders,
+    }
 
 
 @app.post("/api/session/{session_id}/export")
