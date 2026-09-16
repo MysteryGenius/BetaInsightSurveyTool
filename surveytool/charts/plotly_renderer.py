@@ -111,6 +111,37 @@ def _header_text(
     return "<br>".join(wrapped_lines)
 
 
+def wrap_axis_labels(labels: list[str], max_chars_per_line: int = 24) -> list[str]:
+    """Wrap each category-axis label independently onto multiple lines via
+    Plotly's native <br> tick-label break syntax, mirroring what
+    renderer.py's _wrap_title/_compute_left_margin already do for the
+    matplotlib path -- ported here so the shared on-screen/export Plotly
+    layer gets the same treatment, rather than truncating or letting long
+    labels overlap."""
+    return ["<br>".join(wrap_text(label, max_chars_per_line=max_chars_per_line)) for label in labels]
+
+
+def compute_axis_margin(
+    labels: list[str],
+    base_margin: int = 60,
+    px_per_char: int = 7,
+    px_per_line: int = 14,
+) -> int:
+    """Compute a margin (in pixels) sized to accommodate the widest/tallest
+    wrapped label, so wrap_axis_labels' output is never clipped by a fixed
+    margin. Unlike renderer.py's _compute_left_margin (which measures an
+    actual rendered matplotlib text extent), this is a pure character-count
+    estimate: Plotly's figure is serialized before any client render pass
+    exists for this module to measure against, so an estimate errs generous
+    rather than exact -- consistent with this module's existing "figure
+    building has no file I/O, no rendering side effects" contract."""
+    wrapped = wrap_axis_labels(labels)
+    max_lines = max((w.count("<br>") + 1 for w in wrapped), default=1)
+    max_line_chars = max((len(line) for w in wrapped for line in w.split("<br>")), default=0)
+    estimated = int(max_line_chars * px_per_char * 0.3 + max_lines * px_per_line) + base_margin // 2
+    return max(base_margin, estimated)
+
+
 def _apply_header(
     fig: go.Figure,
     question_result: QuestionResult,
@@ -118,6 +149,7 @@ def _apply_header(
     filter_spec: dict[str, list[str]] | None,
     chart_type: ChartType,
     style: ChartStyle,
+    axis_labels: list[str] | None = None,
 ) -> None:
     fig.update_layout(
         title={
@@ -126,7 +158,7 @@ def _apply_header(
             "xanchor": "left",
             "font": {"size": 13},
         },
-        margin={"t": 140},
+        margin={"t": 140, "b": compute_axis_margin(axis_labels or [])},
         paper_bgcolor=style.background,
         plot_bgcolor=style.background,
         font={"color": style.font_color},
@@ -149,7 +181,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult, style: ChartStyle) 
     docstring's suppression handling.
     """
     fig = go.Figure()
-    x_labels = [_column_display_label(c) for c in question_result.columns]
+    x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
     colour_by_label = assign_series_colours(
         [point.label for point in question_result.scale_points],
         palette=style.palette,
@@ -203,7 +235,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult, style: ChartS
     midpoint with no straddling segment needed.
     """
     fig = go.Figure()
-    x_labels = [_column_display_label(c) for c in question_result.columns]
+    x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
     colour_by_label = assign_series_colours(
         [point.label for point in question_result.scale_points],
         palette=style.palette,
@@ -285,7 +317,7 @@ def _grouped_bar_figure(question_result: QuestionResult, style: ChartStyle) -> g
     as a labelled gap.
     """
     fig = go.Figure()
-    x_labels = [_column_display_label(c) for c in question_result.columns]
+    x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
     colour_by_label = assign_series_colours(
         [point.label for point in question_result.scale_points],
         palette=style.palette,
@@ -331,7 +363,7 @@ def _net_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Fi
     builders use, so a non-brand style's palette is visible here too.
     """
     fig = go.Figure()
-    x_labels = [_column_display_label(c) for c in question_result.columns]
+    x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
     colour_by_label = assign_series_colours(
         [net_def.label for net_def in question_result.nets],
         palette=style.palette,
@@ -479,7 +511,8 @@ def build_figure(
     builder = _BUILDERS[chart_type]
     style = get_style(question_result.chart_style)
     fig = builder(question_result, style)
-    _apply_header(fig, question_result, break_spec, filter_spec, chart_type, style)
+    axis_labels = [_column_display_label(c) for c in question_result.columns]
+    _apply_header(fig, question_result, break_spec, filter_spec, chart_type, style, axis_labels=axis_labels)
     return fig
 
 

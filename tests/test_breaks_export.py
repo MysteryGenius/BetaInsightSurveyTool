@@ -264,6 +264,37 @@ def test_suppressed_cell_is_labelled_gap_in_net_bar(question_result_with_suppres
     assert gap_trace.y[1] == 100
 
 
+# --- axis label wrapping ------------------------------------------------------
+
+
+def test_wrap_axis_labels_short_label_unchanged():
+    from surveytool.charts.plotly_renderer import wrap_axis_labels
+    assert wrap_axis_labels(["Agree"]) == ["Agree"]
+
+
+def test_wrap_axis_labels_long_label_gets_br_break():
+    from surveytool.charts.plotly_renderer import wrap_axis_labels
+    long_label = "This is a very long response option label that should wrap onto multiple lines"
+    wrapped = wrap_axis_labels([long_label], max_chars_per_line=24)[0]
+    assert "<br>" in wrapped
+    for line in wrapped.split("<br>"):
+        assert len(line) <= 24
+
+
+def test_compute_axis_margin_grows_with_wrapped_line_count():
+    from surveytool.charts.plotly_renderer import compute_axis_margin
+    short_margin = compute_axis_margin(["Agree", "Disagree"])
+    long_margin = compute_axis_margin([
+        "This is a very long response option label that needs several wrapped lines to fit"
+    ])
+    assert long_margin > short_margin
+
+
+def test_compute_axis_margin_never_below_base():
+    from surveytool.charts.plotly_renderer import compute_axis_margin
+    assert compute_axis_margin(["A"], base_margin=60) >= 60
+
+
 # --- chart-type-permission enforcement (build_figure owns this check) -------
 
 
