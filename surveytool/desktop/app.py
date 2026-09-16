@@ -21,8 +21,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from surveytool.charts import render_charts
-from surveytool.charts.chart_data import build_chart_data
+from surveytool.charts.chart_data import build_chart_data, render_charts_plotly
 from surveytool.charts.errors import (
     ErrorCode,
     NoSessionError,
@@ -1086,11 +1085,14 @@ async def export_charts(
         )
 
     try:
-        entries = render_charts(
+        entries = render_charts_plotly(
             session.findings,
             Path(out_dir),
             session.survey.id,
             session.survey.questions,
+            display_orders=_load_display_orders_for_survey(session.survey_id),
+            chart_styles=_load_chart_styles_for_survey(session.survey_id),
+            response_colours=_load_response_colours_for_survey(session.survey_id),
             chart_filter=chart_filter,
         )
     except OSError as exc:

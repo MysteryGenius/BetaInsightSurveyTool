@@ -165,13 +165,19 @@ def test_export_endpoint_matches_direct_render_charts_output(client, tmp_path):
     assert response.status_code == 200, response.text
     exported = set(response.json()["exported"])
 
-    from surveytool.charts import render_charts
+    from surveytool.charts.chart_data import render_charts_plotly
     from surveytool.desktop.app import get_session
 
     session = get_session(session_id)
     direct_dir = tmp_path / "direct"
-    direct_entries = render_charts(
-        session.findings, direct_dir, session.survey.id, session.survey.questions
+    direct_entries = render_charts_plotly(
+        session.findings,
+        direct_dir,
+        session.survey.id,
+        session.survey.questions,
+        display_orders={},
+        chart_styles={},
+        response_colours={},
     )
     direct_filenames = {e.filename for e in direct_entries}
 
@@ -180,7 +186,7 @@ def test_export_endpoint_matches_direct_render_charts_output(client, tmp_path):
     for filename in direct_filenames:
         endpoint_bytes = (endpoint_dir / filename).read_bytes()
         direct_bytes = (direct_dir / filename).read_bytes()
-        assert endpoint_bytes == direct_bytes, f"{filename} differs between export endpoint and direct render_charts()"
+        assert endpoint_bytes == direct_bytes, f"{filename} differs between export endpoint and direct render_charts_plotly()"
 
 
 def test_export_endpoint_unknown_session_is_404(client, tmp_path):
@@ -200,7 +206,8 @@ def test_export_endpoint_single_chart_matches_direct_render(client, tmp_path):
 
     session_id = _upload(client)
 
-    from surveytool.charts import iter_chart_specs, render_charts
+    from surveytool.charts import iter_chart_specs
+    from surveytool.charts.chart_data import render_charts_plotly
     from surveytool.desktop.app import get_session
 
     session = get_session(session_id)
@@ -221,11 +228,14 @@ def test_export_endpoint_single_chart_matches_direct_render(client, tmp_path):
     assert exported == [spec.filename]
 
     direct_dir = tmp_path / "direct"
-    direct_entries = render_charts(
+    direct_entries = render_charts_plotly(
         session.findings,
         direct_dir,
         session.survey.id,
         session.survey.questions,
+        display_orders={},
+        chart_styles={},
+        response_colours={},
         chart_filter=lambda s: (
             s.qid == spec.qid
             and s.chart_type == spec.chart_type
@@ -237,6 +247,30 @@ def test_export_endpoint_single_chart_matches_direct_render(client, tmp_path):
     endpoint_bytes = (endpoint_dir / spec.filename).read_bytes()
     direct_bytes = (direct_dir / spec.filename).read_bytes()
     assert endpoint_bytes == direct_bytes
+
+
+def test_export_endpoint_produces_same_charts_as_charts_endpoint(client):
+    """The exported PNG set must be exactly the charts /charts (JSON, now
+    Plotly-backed same as export) reports -- the core parity guarantee of
+    Item A: on-screen and export are the same figure-building code."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    session_id = _upload(client)
+    charts_response = client.get(f"/api/session/{session_id}/charts")
+    expected_filenames = {c["filename"] for c in charts_response.json()["charts"]}
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as out_dir:
+        response = client.post(f"/api/session/{session_id}/export", data={"out_dir": out_dir})
+        assert response.status_code == 200, response.text
+        assert set(response.json()["exported"]) == expected_filenames
+
+        from pathlib import Path
+        for filename in expected_filenames:
+            png_path = Path(out_dir) / filename
+            assert png_path.exists()
+            assert png_path.stat().st_size > 0
 
 
 def test_export_endpoint_single_chart_no_match_is_structured_error(client, tmp_path):

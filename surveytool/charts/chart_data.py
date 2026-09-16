@@ -194,3 +194,52 @@ def build_chart_data(
         ))
 
     return entries
+
+
+def render_charts_plotly(
+    findings: list[FindingsRow],
+    out_dir: Path,
+    survey_id: str,
+    questions: list[Question],
+    display_orders: dict[str, list[str]] | None = None,
+    chart_styles: dict[str, str] | None = None,
+    response_colours: dict[str, dict[str, str]] | None = None,
+    chart_filter=None,
+) -> list["ManifestEntry"]:
+    """Plotly/kaleido equivalent of render_charts() (renderer.py's
+    matplotlib path). Builds the same set of charts (from the same
+    iter_chart_specs single source of truth) but through build_chart_data +
+    build_legacy_figure + rasterize -- the identical figure-building code
+    charts.js uses to draw the on-screen chart -- so the exported PNG can
+    never visually drift from what's shown on screen, closing the gap
+    render_charts()/charts.js's independent code paths left open.
+    """
+    from pathlib import Path as _Path
+    from surveytool.charts.manifest import ManifestEntry, write_manifest
+    from surveytool.charts.plotly_renderer import build_legacy_figure, rasterize
+    from surveytool.charts.styles import get_style
+
+    out_dir = _Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    chart_data_entries = build_chart_data(findings, survey_id, questions, display_orders=display_orders)
+    entries: list[ManifestEntry] = []
+    for chart in chart_data_entries:
+        if chart_filter is not None:
+            # chart_filter is written against ChartSpec (qid/chart_type/breakdown_variable);
+            # ChartData carries the same three fields, so the same predicate applies unchanged.
+            if not chart_filter(chart):
+                continue
+        style = get_style((chart_styles or {}).get(chart.qid))
+        colours = (response_colours or {}).get(chart.qid)
+        fig = build_legacy_figure(chart, style, response_colours=colours)
+        out_path = out_dir / chart.filename
+        rasterize(fig, out_path)
+        entries.append(ManifestEntry(
+            filename=chart.filename, qid=chart.qid, question_text=chart.question_text,
+            breakdown_variable=chart.breakdown_variable, metric=chart.metric,
+            findings_row_keys=[],  # Plotly path renders from ChartData, not FindingsRow directly; row provenance is not tracked per-entry here, matching build_chart_data's own contract of not re-deriving row keys.
+        ))
+
+    write_manifest(entries, out_dir / "manifest.json")
+    return entries
