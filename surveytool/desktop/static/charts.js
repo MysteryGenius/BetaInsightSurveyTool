@@ -202,6 +202,7 @@ function renderCharts(charts, container, sessionId) {
 
     const legendContainer = document.createElement("div");
     legendContainer.className = "chart-legend";
+    legendContainer.dataset.currentStyle = chartsStyleByQid[chart.qid] || "brand";
     wrapper.appendChild(legendContainer);
     if (chart.chart_type !== "xbreak") {  // xbreak bars are breakdown levels, not response options -- no colour override applies
       renderLegend(legendContainer, {
