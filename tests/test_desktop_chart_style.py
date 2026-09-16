@@ -183,6 +183,48 @@ def test_get_chart_style_response_colours_defaults_to_empty_dict(client):
     assert response.json()["response_colours"] == {}
 
 
+def test_put_is_a_whole_record_replace_so_omitting_colours_clears_them(client):
+    """Pins the semantics the UI has to work with: this PUT replaces the whole
+    record, so a body carrying only `style_name` clears any saved
+    response_colours. Both callers (the style-preset row and the colour
+    swatch) therefore resend the other field — see buildChartStyleRow's
+    `currentColours` parameter in chart_legend.js. If this ever becomes a
+    partial/merge update, that resending can be revisited."""
+    survey_id = "t-whole-record-replace"
+    client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "cool", "response_colours": {"Agree": "#1B667D"}},
+    )
+
+    client.put(f"/api/projects/{survey_id}/chart-style/Q1", json={"style_name": "warm"})
+
+    response = client.get(f"/api/projects/{survey_id}/chart-style/Q1")
+    assert response.json()["style_name"] == "warm"
+    assert response.json()["response_colours"] == {}
+
+
+def test_style_change_that_resends_colours_preserves_them(client):
+    """The shape every style-preset click now sends: style_name plus the
+    question's existing response_colours, so choosing a style never wipes
+    manual colours."""
+    survey_id = "t-style-change-preserves-colours"
+    colours = {"Agree": "#1B667D", "Disagree": "#C4856A"}
+    client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "cool", "response_colours": colours},
+    )
+
+    response = client.put(
+        f"/api/projects/{survey_id}/chart-style/Q1",
+        json={"style_name": "warm", "response_colours": colours},
+    )
+    assert response.status_code == 200, response.text
+
+    saved = client.get(f"/api/projects/{survey_id}/chart-style/Q1").json()
+    assert saved["style_name"] == "warm"
+    assert saved["response_colours"] == colours
+
+
 def test_breaks_export_uses_saved_chart_style(client):
     """End-to-end: PUT a style, then reproduce post_breaks_export's exact
     internal pipeline (validate_request -> compute_breaks_crosstab ->

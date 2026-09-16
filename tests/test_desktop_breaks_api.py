@@ -646,9 +646,86 @@ def test_breaks_export_bulk_writes_one_png_per_question_id(client, tmp_path):
     assert response.status_code == 200, response.text
     body = response.json()
     assert {e["question_id"] for e in body["exported"]} == {"Q1", "Q2"}
+    assert body["skipped"] == []
     for entry in body["exported"]:
         assert (out_dir / entry["filename"]).exists()
         assert (out_dir / entry["filename"]).stat().st_size > 0
+
+
+@pytest.mark.parametrize(
+    "fixture_path, uploader",
+    [
+        (RAKUTEN_PATH, _upload),
+        (MILIEU_PATH, _upload_milieu),
+        (TOLUNA_PATH, _upload_toluna),
+    ],
+    ids=["rakuten", "milieu", "toluna"],
+)
+def test_breaks_export_bulk_skips_questions_that_do_not_support_the_chart_type(
+    client, tmp_path, fixture_path, uploader
+):
+    """A chart type only some questions support must not abort the batch.
+
+    The "Export all" button sends every base-eligible question at whatever
+    chart type is currently on screen, so a survey nearly always contains
+    some question that can't render as that type. Those are reported as
+    `skipped`; every question that CAN render still gets its PNG.
+
+    Run across every onboarded vendor's real data because the original defect
+    (a 500 that exported nothing) reproduced on Milieu/Toluna for
+    net_bar/diverging_stacked_bar while the only existing bulk test used
+    `table`, which every question always permits — which is precisely what
+    masked it.
+    """
+    if not fixture_path.exists():
+        pytest.skip(f"{fixture_path.name} not found in project root")
+
+    session_id = uploader(client)
+
+    crosstab = client.post(
+        f"/api/session/{session_id}/crosstab",
+        json={"break_spec": {"dimensions": ["gender"]}, "filter_spec": {"selections": {}}},
+    )
+    assert crosstab.status_code == 200, crosstab.text
+    results = crosstab.json()
+
+    # Find a chart type that at least one question permits and at least one
+    # refuses, so the batch genuinely mixes both outcomes.
+    def permitted_types(qr):
+        return {p["chart_type"] for p in qr["permitted_charts"] if p["permitted"]}
+
+    mixed_type = None
+    for candidate in ("net_bar", "diverging_stacked_bar", "grouped_bar", "stacked_bar_100"):
+        allows = [qr["question_id"] for qr in results if candidate in permitted_types(qr)]
+        refuses = [qr["question_id"] for qr in results if candidate not in permitted_types(qr)]
+        if allows and refuses:
+            mixed_type = (candidate, allows, refuses)
+            break
+    if mixed_type is None:
+        pytest.skip("no chart type in this fixture is permitted for some questions and not others")
+
+    chart_type, allows, refuses = mixed_type
+    out_dir = tmp_path / "bulk-mixed"
+
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export-bulk",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": chart_type,
+            "question_ids": allows + refuses,
+            "out_dir": str(out_dir),
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert {e["question_id"] for e in body["exported"]} == set(allows)
+    assert {s["question_id"] for s in body["skipped"]} == set(refuses)
+    for entry in body["exported"]:
+        assert (out_dir / entry["filename"]).stat().st_size > 0
+    for skip in body["skipped"]:
+        assert skip["reason"], "a skipped question must carry a reason"
 
 
 # --- regression: pre-existing endpoints unchanged --------------------------
@@ -673,8 +750,9 @@ def test_legacy_demographics_and_cross_tab_still_work(client):
 
 
 def test_legacy_chart_export_endpoint_still_reachable(client, tmp_path):
-    """POST .../export is the pre-existing matplotlib export; the new breaks
-    export deliberately took a different path so as not to shadow it."""
+    """POST .../export is the legacy Charts tab's own export (now Plotly-based,
+    like the breaks export); the breaks export deliberately took a different
+    path so as not to shadow it."""
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
 

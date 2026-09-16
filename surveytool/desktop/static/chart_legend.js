@@ -57,10 +57,18 @@ function applyChartStyleToLayout(layout, styleName) {
   };
 }
 
-function buildChartStyleRow(qid, currentStyleName, surveyId, onChange) {
+// `currentColours` is the question's saved response_colours map (label ->
+// hex). It MUST be sent back with the style choice: the chart-style record is
+// written as a whole-record replace server-side, and ChartStylePayload's
+// response_colours defaults to {}, so a PUT carrying only style_name would
+// silently wipe every manual colour saved for this question. This is the
+// mirror image of the colour swatch's own PUT, which likewise resends
+// style_name so that editing a colour can't wipe the saved style.
+function buildChartStyleRow(qid, currentStyleName, surveyId, onChange, currentColours) {
   const row = document.createElement("div");
   row.className = "chart-type-row chart-style-row";
   const activeStyle = currentStyleName || "brand";
+  const preservedColours = { ...(currentColours || {}) };
 
   CHART_STYLES.forEach((styleName) => {
     const btn = document.createElement("button");
@@ -74,7 +82,7 @@ function buildChartStyleRow(qid, currentStyleName, surveyId, onChange) {
       fetch(`/api/projects/${surveyId}/chart-style/${qid}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ style_name: styleName }),
+        body: JSON.stringify({ style_name: styleName, response_colours: preservedColours }),
       })
         .then(() => onChange(styleName))
         .catch((err) => console.error("Failed to save chart style choice", err));
@@ -92,6 +100,12 @@ function buildChartStyleRow(qid, currentStyleName, surveyId, onChange) {
 // override. Persists immediately per interaction (drag-drop reorder, or
 // colour picker change) — no separate save step, matching the existing
 // style-preset picker's immediate-save behaviour.
+//
+// `onChange` is called after a successful save with the new state as
+// `{ order, colours }`, so a caller holding its own in-memory copy of the
+// question can update it and redraw without a server round trip. Callers
+// that instead re-fetch from the server (charts.js, whose figure is built
+// server-side) can ignore the argument.
 function renderLegend(container, { qid, surveyId, labels, order, colours, onChange }) {
   container.innerHTML = "";
   const effectiveOrder = order && order.length ? order : labels;
@@ -125,7 +139,7 @@ function renderLegend(container, { qid, surveyId, labels, order, colours, onChan
           response_colours: currentColours,
         }),
       })
-        .then(() => onChange())
+        .then(() => onChange({ order: currentOrder, colours: { ...currentColours } }))
         .catch((err) => console.error("Failed to save response colour", err));
     });
     row.appendChild(swatch);
@@ -148,7 +162,7 @@ function renderLegend(container, { qid, surveyId, labels, order, colours, onChan
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label_order: currentOrder }),
       })
-        .then(() => onChange())
+        .then(() => onChange({ order: [...currentOrder], colours: { ...currentColours } }))
         .catch((err) => console.error("Failed to save display order", err));
       renderLegend(container, { qid, surveyId, labels, order: currentOrder, colours: currentColours, onChange });
     });

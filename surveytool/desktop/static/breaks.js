@@ -717,11 +717,19 @@ function renderBreaksResults(questionResults) {
     const chartTypeRow = buildChartTypeRow(qr);
     controlsRow.appendChild(chartTypeRow);
 
-    const chartStyleRow = buildChartStyleRow(qr.question_id, qr.chart_style, breaksSurveyId, (newStyleName) => {
-      qr.chart_style = newStyleName;
-      const chartType = breaksActiveChartType[qr.question_id];
-      renderChartArea(qr, block.querySelector(".breaks-chart-area"), chartType);
-    });
+    const chartStyleRow = buildChartStyleRow(
+      qr.question_id,
+      qr.chart_style,
+      breaksSurveyId,
+      (newStyleName) => {
+        qr.chart_style = newStyleName;
+        const chartType = breaksActiveChartType[qr.question_id];
+        renderChartArea(qr, block.querySelector(".breaks-chart-area"), chartType);
+      },
+      // Resent so choosing a style can't wipe this question's saved manual
+      // colours (the chart-style record is a whole-record replace).
+      qr.response_colours || {},
+    );
     controlsRow.appendChild(chartStyleRow);
 
     const flipBtn = buildAxisFlipButton(qr);
@@ -743,7 +751,20 @@ function renderBreaksResults(questionResults) {
       labels: qr.scale_points.map((sp) => sp.label),
       order: qr.scale_points.map((sp) => sp.label), // qr.scale_points is already server-ordered per display_order_is_manual
       colours: qr.response_colours || {},
-      onChange: () => { /* re-fetch or re-render on next crosstab call */ },
+      // A colour or order edit must be visible immediately, the same way the
+      // style-preset row above re-renders on change. renderLegend has already
+      // persisted the edit by the time this fires, but the in-memory qr the
+      // chart draws from is this page's own copy, so update it before
+      // re-rendering rather than waiting for the next crosstab round trip.
+      onChange: (updated) => {
+        if (updated && updated.colours) qr.response_colours = updated.colours;
+        if (updated && updated.order) {
+          const byLabel = new Map(qr.scale_points.map((sp) => [sp.label, sp]));
+          const reordered = updated.order.map((label) => byLabel.get(label)).filter(Boolean);
+          if (reordered.length === qr.scale_points.length) qr.scale_points = reordered;
+        }
+        renderChartArea(qr, block.querySelector(".breaks-chart-area"), breaksActiveChartType[qr.question_id]);
+      },
     });
 
     container.appendChild(block);
@@ -983,14 +1004,28 @@ function renderBreaksChart(qr, chartArea, chartType) {
   } else {
     // stacked_bar_100 / diverging_stacked_bar / grouped_bar: one trace per
     // scale point, using percentages already computed by the core.
-    traces = qr.scale_points.map((sp) => ({
-      type: "bar",
-      x: labels,
-      y: qr.columns.map((c) =>
-        c.band === "suppressed" || !c.percentages ? null : (c.percentages[String(sp.code)] ?? null)
-      ),
-      name: sp.label,
-    }));
+    //
+    // A manual colour override is keyed by the scale point's LABEL, exactly
+    // how the server's assign_series_colours(..., overrides=response_colours)
+    // keys it when building the exported PNG. Only overridden labels get an
+    // explicit marker colour; the rest are left without one so they keep
+    // falling back to the layout's colorway, so a partial override never
+    // disturbs the remaining series' colours.
+    const responseColours = qr.response_colours || {};
+    traces = qr.scale_points.map((sp) => {
+      const trace = {
+        type: "bar",
+        x: labels,
+        y: qr.columns.map((c) =>
+          c.band === "suppressed" || !c.percentages ? null : (c.percentages[String(sp.code)] ?? null)
+        ),
+        name: sp.label,
+      };
+      if (responseColours[sp.label]) {
+        trace.marker = { color: responseColours[sp.label] };
+      }
+      return trace;
+    });
   }
 
   // Flipped: each trace is now a break column, not a scale point, so
@@ -998,10 +1033,21 @@ function renderBreaksChart(qr, chartArea, chartType) {
   // past 100% — group them instead, same as grouped_bar. Unflipped behavior
   // (stack scale points per column) is unchanged.
   const stackWhenUnflipped = chartType === "stacked_bar_100" || chartType === "diverging_stacked_bar" || chartType === "net_bar";
+
+  // The custom colour-editable legend below the chart lists this question's
+  // SCALE POINTS, so it stands in for Plotly's own legend exactly when the
+  // traces are the scale points — showing both would be two legends for the
+  // same series. When the axes are flipped each trace is a break column
+  // instead, and when the chart is a net_bar there is a single net trace;
+  // neither is what the custom legend describes, so Plotly's legend stays on
+  // for those.
+  const tracesAreScalePoints = chartType !== "net_bar" && !(flippable && breaksAxisFlipped);
+
   let layout = withChartTemplate({
     barmode: stackWhenUnflipped && !(flippable && breaksAxisFlipped) ? "stack" : "group",
     margin: { l: 60, r: 20, t: 20, b: 100 },
     yaxis: { title: "%" },
+    showlegend: !tracesAreScalePoints,
   });
   // Only apply a chart-style override once the analyst has actually chosen
   // a non-default style. qr.chart_style is null/undefined for every
@@ -1131,6 +1177,16 @@ document.getElementById("breaks-export-bulk-btn").addEventListener("click", asyn
     return;
   }
 
+  // Some questions can't be drawn as the chart type currently on screen, and
+  // "Export all" sends the whole survey — so a partly-skipped batch is a
+  // normal outcome, not a failure. Say so plainly, with what to do about it,
+  // instead of reporting only the count that happened to succeed.
+  const skipped = body.skipped || [];
   statusEl.className = "status-body success";
-  statusEl.textContent = `Exported ${body.exported.length} PNG(s) to ${body.out_dir}`;
+  let message = `Exported ${body.exported.length} PNG(s) to ${body.out_dir}`;
+  if (skipped.length) {
+    message += `. ${skipped.length} question(s) don't support this chart type — `
+      + "switch to a different chart type and export again to include them.";
+  }
+  statusEl.textContent = message;
 });
