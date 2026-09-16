@@ -93,3 +93,15 @@ def test_assign_series_colours_no_overrides_is_unchanged():
     identities = ["Option A", "Option B", "Option C"]
     assert assign_series_colours(identities) == assign_series_colours(identities, overrides=None)
     assert assign_series_colours(identities) == assign_series_colours(identities, overrides={})
+
+
+def test_assign_series_colours_raises_when_overrides_exhaust_the_palette():
+    """When override colours claim the entire palette and one additional identity
+    remains unoverridden, PaletteExhaustedError should be raised (not silently
+    reusing the override colours for the unoverridden identity)."""
+    with pytest.raises(PaletteExhaustedError):
+        assign_series_colours(
+            ["A", "B", "C"],
+            palette=("#111111", "#222222"),
+            overrides={"A": "#111111", "B": "#222222"}
+        )

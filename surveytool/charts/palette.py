@@ -98,7 +98,7 @@ def assign_series_colours(
     overrides = overrides or {}
     remaining_identities = [i for i in series_identities if i not in overrides]
     override_colours = set(overrides.values())
-    remaining_palette = tuple(c for c in palette if c not in override_colours) or palette
+    remaining_palette = tuple(c for c in palette if c not in override_colours)
 
     if len(remaining_identities) > len(remaining_palette):
         raise PaletteExhaustedError(len(remaining_identities), len(remaining_palette))
