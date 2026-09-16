@@ -302,6 +302,22 @@ def test_compute_axis_margin_never_below_base():
     assert compute_axis_margin(["A"], base_margin=60) >= 60
 
 
+def test_compute_axis_margin_long_labels_do_not_crop():
+    """Plotly-path regression for the concern the deleted matplotlib
+    _compute_left_margin test covered: a genuinely long axis label must
+    get a wider margin than the base default, so it isn't visually
+    cropped. Same synthetic label scenario as the original matplotlib-era
+    test (never loaded real vendor fixture data -- the deleted test's
+    docstring notwithstanding, its body was entirely synthetic)."""
+    from surveytool.charts.plotly_renderer import compute_axis_margin
+    long_labels = [
+        "A very long response option label that would previously be cropped at the left margin",
+        "Short",
+    ]
+    margin = compute_axis_margin(long_labels, base_margin=60)
+    assert margin > 60  # wider than the base default for genuinely long labels
+
+
 # --- chart-type-permission enforcement (build_figure owns this check) -------
 
 
