@@ -1068,3 +1068,69 @@ document.getElementById("breaks-export-btn").addEventListener("click", async () 
   statusEl.className = "status-body success";
   statusEl.textContent = `Exported ${blob.size} bytes for ${qr.question_id}-${chartType}.png`;
 });
+
+document.getElementById("breaks-export-bulk-btn").addEventListener("click", async () => {
+  if (!breaksLatestResults || breaksLatestResults.length === 0) return;
+  const statusEl = document.getElementById("breaks-export-status");
+  const outDir = await ensureExportDir();
+  if (!outDir) {
+    statusEl.className = "status-body error";
+    statusEl.textContent = "Choose an export folder first.";
+    return;
+  }
+
+  const chartType = breaksActiveChartType[breaksLatestResults[0].question_id];
+
+  statusEl.className = "status-body";
+  statusEl.textContent = "Exporting…";
+
+  // "Export all" = every base-eligible, non-demographic question in the
+  // survey (matching the legacy Charts tab's bulk export, which exports
+  // every chart currently computed for the session, not just the one
+  // question on screen) -- not breaksLatestResults, which today holds only
+  // the single currently-selected question. All are exported at the
+  // currently-selected chart type and break/filter combination.
+  let response;
+  try {
+    response = await fetch(`/api/session/${breaksSessionId}/demographics`);
+  } catch {
+    statusEl.className = "status-body error";
+    statusEl.textContent = "Could not reach the local server.";
+    return;
+  }
+  const demographicsBody = await parseJsonResponse(response);
+  if (!response.ok) {
+    statusEl.className = "status-body error";
+    statusEl.textContent = errorFromBody(demographicsBody).message;
+    return;
+  }
+  const questionIds = demographicsBody.questions.map((q) => q.qid);
+
+  try {
+    response = await fetch(`/api/session/${breaksSessionId}/breaks-export-bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        break_spec: currentBreakSpec(),
+        filter_spec: currentFilterSpec(),
+        chart_type: chartType,
+        question_ids: questionIds,
+        out_dir: outDir,
+      }),
+    });
+  } catch {
+    statusEl.className = "status-body error";
+    statusEl.textContent = "Could not reach the local server.";
+    return;
+  }
+
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    statusEl.className = "status-body error";
+    statusEl.textContent = errorFromBody(body).message;
+    return;
+  }
+
+  statusEl.className = "status-body success";
+  statusEl.textContent = `Exported ${body.exported.length} PNG(s) to ${body.out_dir}`;
+});
