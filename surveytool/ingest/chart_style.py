@@ -24,20 +24,30 @@ read by the legacy ``dist``/``xbreak``/``means`` chart system
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from surveytool.charts.errors import ErrorCode, SurveyToolError, UnknownChartStyleError
+from surveytool.charts.errors import (
+    ErrorCode,
+    InvalidResponseColourError,
+    SurveyToolError,
+    UnknownChartStyleError,
+)
 from surveytool.charts.styles import STYLE_REGISTRY
+
+
+_HEX_COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 class ChartStyleChoice(BaseModel):
     variable: str
     style_name: str
     saved_at: datetime
+    response_colours: dict[str, str] = Field(default_factory=dict)
 
 
 class ProjectChartStyles(BaseModel):
@@ -79,6 +89,9 @@ def load_chart_styles(path: Path) -> ProjectChartStyles:
 def write_chart_style(path: Path, choice: ChartStyleChoice) -> None:
     if choice.style_name not in STYLE_REGISTRY:
         raise UnknownChartStyleError(choice.style_name, sorted(STYLE_REGISTRY))
+    for label, value in choice.response_colours.items():
+        if not _HEX_COLOUR.match(value):
+            raise InvalidResponseColourError(label, value)
     existing = load_chart_styles(path) if path.exists() else ProjectChartStyles()
     existing.styles[choice.variable] = choice
     path.write_text(yaml.dump(existing.model_dump(mode="json")), encoding="utf-8")

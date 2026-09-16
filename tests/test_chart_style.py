@@ -11,7 +11,7 @@ from surveytool.ingest.chart_style import (
     delete_chart_style,
     CorruptedChartStyleFileError,
 )
-from surveytool.charts.errors import UnknownChartStyleError
+from surveytool.charts.errors import UnknownChartStyleError, InvalidResponseColourError
 
 
 def test_load_chart_styles_returns_empty_for_missing_file(tmp_path):
@@ -64,3 +64,33 @@ def test_corrupted_file_raises_rather_than_silently_resetting(tmp_path):
     path.write_text("not: [valid, yaml: structure for this model", encoding="utf-8")
     with pytest.raises(CorruptedChartStyleFileError):
         load_chart_styles(path)
+
+
+def test_write_then_load_round_trips_response_colours(tmp_path):
+    path = tmp_path / "styles.yaml"
+    choice = ChartStyleChoice(
+        variable="Q1", style_name="brand", saved_at=datetime.now(timezone.utc),
+        response_colours={"Strongly agree": "#1B667D", "Disagree": "#C4856A"},
+    )
+    write_chart_style(path, choice)
+    loaded = load_chart_styles(path)
+    assert loaded.styles["Q1"].response_colours == {"Strongly agree": "#1B667D", "Disagree": "#C4856A"}
+
+
+def test_write_defaults_response_colours_to_empty_dict(tmp_path):
+    path = tmp_path / "styles.yaml"
+    choice = ChartStyleChoice(variable="Q1", style_name="brand", saved_at=datetime.now(timezone.utc))
+    write_chart_style(path, choice)
+    loaded = load_chart_styles(path)
+    assert loaded.styles["Q1"].response_colours == {}
+
+
+def test_write_rejects_malformed_hex_colour(tmp_path):
+    path = tmp_path / "styles.yaml"
+    choice = ChartStyleChoice(
+        variable="Q1", style_name="brand", saved_at=datetime.now(timezone.utc),
+        response_colours={"Strongly agree": "not-a-colour"},
+    )
+    with pytest.raises(InvalidResponseColourError):
+        write_chart_style(path, choice)
+    assert not path.exists()

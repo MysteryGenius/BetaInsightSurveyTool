@@ -34,6 +34,7 @@ class ErrorCode(str, Enum):
     SURVEY_ID_ALREADY_EXISTS = "SURVEY_ID_ALREADY_EXISTS"
     RENAME_FAILED = "RENAME_FAILED"
     UNKNOWN_CHART_STYLE = "UNKNOWN_CHART_STYLE"
+    INVALID_RESPONSE_COLOUR = "INVALID_RESPONSE_COLOUR"
 
 
 # Codes that are the user's fault (bad input, missing selection) get a 400.
@@ -67,6 +68,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.SURVEY_ID_ALREADY_EXISTS: 400,
     ErrorCode.RENAME_FAILED: 500,
     ErrorCode.UNKNOWN_CHART_STYLE: 400,
+    ErrorCode.INVALID_RESPONSE_COLOUR: 400,
 }
 
 
@@ -583,4 +585,23 @@ class UnknownChartStyleError(SurveyToolError):
             f"'{style_name}' isn't a chart style this tool recognises.",
             detail=detail,
             next_action=f"Choose one of: {', '.join(known_names)}. Reloading the page may also help if this style was recently removed.",
+        )
+
+
+class InvalidResponseColourError(SurveyToolError):
+    """Raised when a manual response-colour override is written with a
+    value that isn't a well-formed 6-digit hex colour. Never persisted
+    unvalidated -- a malformed value would either fail confusingly deep in
+    a later Plotly render, or (worse) get silently accepted by some
+    renderers and not others."""
+
+    def __init__(self, label: str, value: str) -> None:
+        self.label = label
+        self.value = value
+        detail = f"Response colour for {label!r} is {value!r}, not a valid 6-digit hex colour (e.g. #1B667D)."
+        super().__init__(
+            ErrorCode.INVALID_RESPONSE_COLOUR,
+            f"'{value}' isn't a valid colour for '{label}'.",
+            detail=detail,
+            next_action="Pick a colour from the colour picker rather than typing a value directly.",
         )
