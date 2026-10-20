@@ -511,9 +511,10 @@ def test_crosstab_endpoint_computes_for_toluna(client):
 # --- POST .../breaks-export ------------------------------------------------
 
 
-def test_breaks_export_endpoint_renders_a_png(client):
-    """The Plotly/kaleido renderer (build plan section 11) replaced the
-    former stub; this now actually rasterizes and returns a chart image."""
+def test_breaks_export_endpoint_saves_png_into_out_dir(client, tmp_path):
+    """"Export current chart" must actually save the PNG into the chosen
+    export folder -- returning it as a response body left the analyst with
+    a success message and no file."""
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
 
@@ -525,28 +526,36 @@ def test_breaks_export_endpoint_renders_a_png(client):
             "filter_spec": {"selections": {}},
             "chart_type": "table",
             "question_id": "Q1",
+            "out_dir": str(tmp_path),
         },
     )
     assert response.status_code == 200, response.text
-    assert response.headers["content-type"] == "image/png"
-    assert len(response.content) > 0
+    body = response.json()
+    assert body == {"filename": "Q1-table.png", "out_dir": str(tmp_path)}
+    saved = tmp_path / body["filename"]
+    assert saved.exists() and saved.stat().st_size > 0
 
 
-def test_breaks_export_endpoint_deletes_temp_file_after_response(client):
-    """The endpoint rasterizes to a uuid-named temp file
-    (breaks-export-<uuid>.png in the system temp dir) before streaming it
-    back; nothing else ever cleans that file up, so an analyst iterating on
-    chart types in a long-lived session would silently fill their temp
-    directory. The BackgroundTask wired onto the FileResponse must delete it
-    once the response has been sent. TestClient runs BackgroundTasks
-    synchronously as part of the request/response cycle, so the file must
-    already be gone by the time client.post() returns."""
+def test_breaks_export_swapped_writes_swapped_filename(client, tmp_path):
+    if not MILIEU_PATH.exists():
+        pytest.skip(f"{MILIEU_PATH.name} not found in project root")
+
+    session_id = _upload_milieu(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={**_q8_figure_body(), "out_dir": str(tmp_path)},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["filename"] == "q8-grouped_bar-swapped.png"
+    assert (tmp_path / "q8-grouped_bar-swapped.png").stat().st_size > 0
+
+
+def test_breaks_export_unwritable_folder_is_plain_error(client, tmp_path):
     if not RAKUTEN_PATH.exists():
         pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
 
-    tmp_dir = Path(tempfile.gettempdir())
-    before = set(tmp_dir.glob("breaks-export-*.png"))
-
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
     session_id = _upload(client)
     response = client.post(
         f"/api/session/{session_id}/breaks-export",
@@ -555,18 +564,13 @@ def test_breaks_export_endpoint_deletes_temp_file_after_response(client):
             "filter_spec": {"selections": {}},
             "chart_type": "table",
             "question_id": "Q1",
+            "out_dir": str(blocker / "sub"),
         },
     )
-    assert response.status_code == 200, response.text
-
-    after = set(tmp_dir.glob("breaks-export-*.png"))
-    new_files = after - before
-    # The temp file must not still be sitting in the temp dir once the
-    # response has completed -- it should have been deleted by the
-    # BackgroundTask attached to the FileResponse.
-    assert new_files == set(), (
-        f"breaks-export temp file(s) leaked and were not cleaned up: {new_files}"
-    )
+    assert response.status_code == 500, response.text
+    error = response.json()["error"]
+    assert error["code"] == "INTERNAL"
+    assert error["message"] == "The export could not be saved to the chosen location."
 
 
 def test_breaks_export_endpoint_unknown_session_is_404(client):
@@ -577,6 +581,7 @@ def test_breaks_export_endpoint_unknown_session_is_404(client):
             "filter_spec": {"selections": {}},
             "chart_type": "table",
             "question_id": "Q1",
+            "out_dir": tempfile.gettempdir(),
         },
     )
     assert response.status_code == 404
@@ -598,6 +603,7 @@ def test_breaks_export_endpoint_rejects_unpermitted_chart_type(client):
             "filter_spec": {"selections": {}},
             "chart_type": "diverging_stacked_bar",
             "question_id": "5",
+            "out_dir": tempfile.gettempdir(),
         },
     )
     assert response.status_code >= 400, response.text
@@ -618,6 +624,7 @@ def test_breaks_export_endpoint_rejects_unknown_chart_type(client):
             "filter_spec": {"selections": {}},
             "chart_type": "pie",
             "question_id": "Q1",
+            "out_dir": tempfile.gettempdir(),
         },
     )
     assert response.status_code == 422, response.text

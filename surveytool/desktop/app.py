@@ -15,11 +15,10 @@ import openpyxl
 import pandas as pd
 import yaml
 from fastapi import FastAPI, Request, UploadFile, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, Field
-from starlette.background import BackgroundTask
 
 from surveytool.charts.chart_data import build_chart_data, render_charts_plotly
 from surveytool.charts.errors import (
@@ -31,7 +30,12 @@ from surveytool.charts.errors import (
     UnresolvedQuestionsError,
     WarningCode,
 )
-from surveytool.charts.plotly_renderer import build_figure, build_legacy_figure, rasterize
+from surveytool.charts.plotly_renderer import (
+    SWAPPABLE_CHART_TYPES,
+    build_figure,
+    build_legacy_figure,
+    rasterize,
+)
 from surveytool.charts.styles import get_style
 from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_crosstab
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
@@ -49,6 +53,7 @@ from surveytool.core.breaks_models import (
     RegistryPayload,
 )
 from surveytool.core.breaks_payload import attach_chart_permissions
+from surveytool.core.chart_validity import ChartType
 from surveytool.core.config import ToolConfig, load_config
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
 from surveytool.core.model import CodeRole, QuestionType, Survey
@@ -1372,28 +1377,19 @@ async def post_breaks_figure(session_id: str, request: BreaksFigureRequest) -> d
 
 
 @app.post("/api/session/{session_id}/breaks-export")
-async def post_breaks_export(session_id: str, request: ExportRequest):
-    """Render one break/filter chart to a PNG via the Plotly/kaleido renderer
-    (build plan section 11) and return the image file.
+async def post_breaks_export(session_id: str, request: ExportRequest) -> dict:
+    """Render the Cross-tab chart currently on screen to a PNG in
+    `request.out_dir` via the Plotly/kaleido renderer (build plan section 11).
 
-    Follows the same pipeline post_crosstab already uses (validate_request ->
-    compute_breaks_crosstab -> attach_chart_permissions), scoped to the
-    single requested question_id, then hands the resulting QuestionResult to
-    plotly_renderer.build_figure. build_figure itself refuses (raising
-    SurveyToolError/INTERNAL, mapped to a 500 by the app-level handler) a
-    chart_type that isn't `permitted=True` in that result's permitted_charts
-    -- this endpoint does not duplicate that check, since plotly_renderer is
-    the layer that owns it (see plotly_renderer.build_figure's docstring).
+    Follows the same _compute_breaks_results -> build_figure path as
+    /breaks-figure, including `swap_axes`, so the saved file is the figure
+    the analyst is looking at. build_figure itself refuses a chart_type that
+    isn't `permitted=True` (SurveyToolError/INTERNAL); this endpoint does not
+    duplicate that check.
 
     Routed at /breaks-export rather than /export because POST
     /api/session/{id}/export is already taken by the legacy Charts tab's
-    own export (now Plotly-based, like this one), which must keep working
-    unchanged.
-
-    Returns the rendered PNG directly (FileResponse), rather than a
-    manifest/out_dir pair like the legacy /export endpoint: ExportRequest
-    carries no out_dir for this endpoint to write into, and a single chart
-    is a single file, so there is no manifest to build.
+    own export, which must keep working unchanged.
     """
     session = _require_session(session_id)
     question_result = _compute_breaks_results(
@@ -1408,15 +1404,33 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
         swap_axes=request.swap_axes,
     )
 
-    out_path = Path(tempfile.gettempdir()) / f"breaks-export-{uuid.uuid4()}.png"
-    rasterize(fig, out_path)
+    out_dir = _ensure_out_dir(request.out_dir)
+    filename = _breaks_export_filename(question_result.question_id, request.chart_type, request.swap_axes)
+    rasterize(fig, out_dir / filename)
+    return {"filename": filename, "out_dir": request.out_dir}
 
-    return FileResponse(
-        out_path,
-        media_type="image/png",
-        filename=f"{question_result.question_id}-{request.chart_type.value}.png",
-        background=BackgroundTask(out_path.unlink, missing_ok=True),
-    )
+
+def _ensure_out_dir(out_dir: str) -> Path:
+    """Create the chosen export folder if needed, turning a failure into the
+    plain-English error both Cross-tab export routes share."""
+    path = Path(out_dir)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise SurveyToolError(
+            ErrorCode.INTERNAL,
+            "The export could not be saved to the chosen location.",
+            detail=str(exc),
+            next_action="Choose a different export location and try again.",
+        ) from exc
+    return path
+
+
+def _breaks_export_filename(question_id: str, chart_type: ChartType, swap_axes: bool) -> str:
+    """`<qid>-<chart_type>.png`, with `-swapped` when the axes really were
+    swapped, so a swapped and an unswapped export of one chart can coexist."""
+    suffix = "-swapped" if swap_axes and chart_type in SWAPPABLE_CHART_TYPES else ""
+    return f"{question_id}-{chart_type.value}{suffix}.png"
 
 
 @app.post("/api/session/{session_id}/breaks-export-bulk")
@@ -1432,16 +1446,7 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
         session, request.break_spec, request.filter_spec, request.question_ids
     )
 
-    out_dir = Path(request.out_dir)
-    try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise SurveyToolError(
-            ErrorCode.INTERNAL,
-            "The export could not be saved to the chosen location.",
-            detail=str(exc),
-            next_action="Choose a different export location and try again.",
-        ) from exc
+    out_dir = _ensure_out_dir(request.out_dir)
 
     exported = []
     skipped = []
@@ -1474,7 +1479,9 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
             filter_spec=request.filter_spec.selections,
             swap_axes=request.swap_axes,
         )
-        filename = f"{question_result.question_id}-{request.chart_type.value}.png"
+        filename = _breaks_export_filename(
+            question_result.question_id, request.chart_type, request.swap_axes
+        )
         rasterize(fig, out_dir / filename)
         exported.append({"question_id": question_result.question_id, "filename": filename})
 

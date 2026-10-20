@@ -145,7 +145,10 @@ class BreaksFigureRequest(BaseModel):
 
 class ExportRequest(BreaksFigureRequest):
     """POST .../breaks-export body (build plan section 12): the same chart
-    the screen shows, so the export can match it exactly."""
+    the screen shows, so the export can match it exactly, saved into
+    `out_dir` (the analyst's chosen export folder)."""
+
+    out_dir: str
 
 
 class BulkExportRequest(BaseModel):
