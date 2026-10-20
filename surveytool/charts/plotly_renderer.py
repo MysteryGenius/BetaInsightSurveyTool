@@ -179,7 +179,40 @@ def _column_display_label(column: ColumnResult) -> str:
     label = " / ".join(column.label_path) if column.label_path else "Total"
     if column.band is Band.suppressed:
         return f"{label} (suppressed, n={column.base_cell})"
+    if column.band is Band.low_base:
+        return f"{label} (low base, n={column.base_cell})"
     return label
+
+
+def _swapped_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
+    """Swapped axes: answer options on X, one grouped-bar series per column.
+
+    Each column gets its own colour from the style palette, keyed by its
+    display label (so two columns whose display labels collide would share a
+    colour). A suppressed column keeps its legend entry -- grey, patterned,
+    named "(suppressed, n=...)" -- but contributes zero-height bars, never a
+    fabricated value.
+    """
+    fig = go.Figure()
+    x_labels = wrap_axis_labels([point.label for point in question_result.scale_points])
+    column_labels = [_column_display_label(c) for c in question_result.columns]
+    colour_by_label = assign_series_colours(column_labels, palette=style.palette)
+
+    for column, label in zip(question_result.columns, column_labels):
+        y_values = [
+            0.0 if column.percentages is None else column.percentages.get(str(point.code), 0.0)
+            for point in question_result.scale_points
+        ]
+        if column.band is Band.suppressed:
+            marker = {"color": _SUPPRESSED_GREY, "pattern": {"shape": "x"}}
+        else:
+            marker = {"color": colour_by_label[label]}
+        fig.add_trace(
+            go.Bar(name=label, x=x_labels, y=y_values, marker=marker, hovertemplate=_HOVER_TEMPLATE)
+        )
+
+    fig.update_layout(barmode="group", yaxis_title="%")
+    return fig
 
 
 def _stacked_bar_100_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
@@ -571,6 +604,10 @@ def build_legacy_figure(
     return fig
 
 
+SWAPPABLE_CHART_TYPES = frozenset(
+    {ChartType.stacked_bar_100, ChartType.diverging_stacked_bar, ChartType.grouped_bar}
+)
+
 _BUILDERS = {
     ChartType.stacked_bar_100: _stacked_bar_100_figure,
     ChartType.diverging_stacked_bar: _diverging_stacked_bar_figure,
@@ -586,8 +623,14 @@ def build_figure(
     *,
     break_spec: list[str] | None = None,
     filter_spec: dict[str, list[str]] | None = None,
+    swap_axes: bool = False,
 ) -> go.Figure:
     """Build the requested chart type's figure for a computed result.
+
+    `swap_axes` puts answer options on X with one series per column, for
+    the chart types in SWAPPABLE_CHART_TYPES only; it is ignored for the
+    rest (net_bar collapses to one value per column, table is already a
+    full matrix).
 
     Enforces chart-type permission itself: raises SurveyToolError if
     `chart_type` is not `permitted=True` in `question_result.permitted_charts`
@@ -616,10 +659,13 @@ def build_figure(
             next_action="Choose a different chart type, or adjust Break by / Filter by.",
         )
 
-    builder = _BUILDERS[chart_type]
     style = get_style(question_result.chart_style)
-    fig = builder(question_result, style)
-    axis_labels = [_column_display_label(c) for c in question_result.columns]
+    if swap_axes and chart_type in SWAPPABLE_CHART_TYPES:
+        fig = _swapped_bar_figure(question_result, style)
+        axis_labels = [point.label for point in question_result.scale_points]
+    else:
+        fig = _BUILDERS[chart_type](question_result, style)
+        axis_labels = [_column_display_label(c) for c in question_result.columns]
     _apply_header(fig, question_result, break_spec, filter_spec, chart_type, style, axis_labels=axis_labels)
     return fig
 

@@ -74,6 +74,12 @@ def _suppressed_column(key: str, label: str, base: int = 5) -> ColumnResult:
     )
 
 
+def _low_base_column(key: str, label: str, base: int = 40) -> ColumnResult:
+    column = _ok_column(key, label, base=base)
+    column.band = Band.low_base
+    return column
+
+
 def _permitted_all() -> list[ChartPermission]:
     return [
         ChartPermission(chart_type=ct, permitted=True) for ct in ChartType
@@ -369,3 +375,51 @@ def test_rasterize_stacked_bar_100_round_trip(question_result, tmp_path):
     rasterize(fig, out_path)
     assert out_path.exists()
     assert out_path.stat().st_size > 0
+
+
+# --- swap_axes: answer options on X, one series per break column -----------
+
+
+def test_swapped_figure_has_one_trace_per_column_with_distinct_colours(question_result):
+    fig = build_figure(question_result, ChartType.stacked_bar_100, swap_axes=True)
+    assert [t.name for t in fig.data] == ["Male", "Female"]
+    assert len({t.marker.color for t in fig.data}) == 2
+    assert fig.layout.barmode == "group"
+
+
+def test_swapped_figure_x_axis_is_wrapped_answer_labels():
+    qr = _question_result([_ok_column("male", "Male")])
+    qr.scale_points[0].label = "I prefer other modes of transport (e.g. cycling, ride-hailing)"
+    fig = build_figure(qr, ChartType.grouped_bar, swap_axes=True)
+    assert "<br>" in fig.data[0].x[0]
+    assert fig.layout.margin.b > 100
+
+
+@pytest.mark.parametrize(
+    "chart_type",
+    [ChartType.stacked_bar_100, ChartType.diverging_stacked_bar, ChartType.grouped_bar],
+)
+def test_every_flippable_type_swaps(question_result, chart_type):
+    fig = build_figure(question_result, chart_type, swap_axes=True)
+    assert [t.name for t in fig.data] == ["Male", "Female"]
+
+
+@pytest.mark.parametrize("chart_type", [ChartType.net_bar, ChartType.table])
+def test_swap_axes_ignored_for_non_flippable_types(question_result, chart_type):
+    swapped = build_figure(question_result, chart_type, swap_axes=True)
+    unswapped = build_figure(question_result, chart_type)
+    assert swapped.to_plotly_json() == unswapped.to_plotly_json()
+
+
+def test_swapped_suppressed_column_is_grey_named_and_valueless(question_result_with_suppressed_cell):
+    fig = build_figure(question_result_with_suppressed_cell, ChartType.grouped_bar, swap_axes=True)
+    suppressed = fig.data[1]
+    assert suppressed.name == "Female (suppressed, n=5)"
+    assert suppressed.marker.color == "#D0D0D0"
+    assert all(v == 0 for v in suppressed.y)
+
+
+def test_low_base_column_label_is_marked():
+    qr = _question_result([_ok_column("male", "Male"), _low_base_column("female", "Female", base=40)])
+    fig = build_figure(qr, ChartType.stacked_bar_100)
+    assert "Female (low base, n=40)" in fig.data[0].x
