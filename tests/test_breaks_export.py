@@ -423,3 +423,47 @@ def test_low_base_column_label_is_marked():
     qr = _question_result([_ok_column("male", "Male"), _low_base_column("female", "Female", base=40)])
     fig = build_figure(qr, ChartType.stacked_bar_100)
     assert "Female (low base, n=40)" in fig.data[0].x
+
+
+def test_swapped_suppressed_column_has_no_hover_value(question_result_with_suppressed_cell):
+    """A withheld cell must never show a value, not even "0.0%" on hover."""
+    fig = build_figure(question_result_with_suppressed_cell, ChartType.grouped_bar, swap_axes=True)
+    assert fig.data[1].hoverinfo == "skip"
+
+
+def test_swapped_more_break_groups_than_palette_is_plain_error():
+    from surveytool.charts.styles import get_style
+
+    too_many = len(get_style(None).palette) + 1
+    qr = _question_result([_ok_column(f"c{i}", f"Group {i}") for i in range(too_many)])
+    with pytest.raises(SurveyToolError) as excinfo:
+        build_figure(qr, ChartType.grouped_bar, swap_axes=True)
+    err = excinfo.value
+    assert err.code is ErrorCode.PALETTE_EXHAUSTED
+    assert "break groups" in err.message
+    assert "Swap axes" in err.next_action
+
+
+def test_swapped_suppressed_columns_do_not_use_palette_slots():
+    from surveytool.charts.styles import get_style
+
+    palette_size = len(get_style(None).palette)
+    columns = [_ok_column(f"c{i}", f"Group {i}") for i in range(palette_size)]
+    columns.append(_suppressed_column("s", "Tiny group"))
+    fig = build_figure(_question_result(columns), ChartType.grouped_bar, swap_axes=True)
+    assert len({t.marker.color for t in fig.data[:palette_size]}) == palette_size
+
+
+def test_swapped_colour_is_stable_when_a_column_becomes_low_base():
+    # "South" hashes to a different palette slot than "South (low base,
+    # n=40)", so keying colours on the decorated label would fail this.
+    ok = build_figure(
+        _question_result([_ok_column("north", "North"), _ok_column("south", "South")]),
+        ChartType.grouped_bar, swap_axes=True,
+    )
+    low = build_figure(
+        _question_result([_ok_column("north", "North"), _low_base_column("south", "South")]),
+        ChartType.grouped_bar, swap_axes=True,
+    )
+    assert [t.marker.color for t in ok.data] == [t.marker.color for t in low.data]
+    assert low.data[1].name == "South (low base, n=40)"

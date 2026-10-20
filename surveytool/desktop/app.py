@@ -1406,8 +1406,17 @@ async def post_breaks_export(session_id: str, request: ExportRequest) -> dict:
 
     out_dir = _ensure_out_dir(request.out_dir)
     filename = _breaks_export_filename(question_result.question_id, request.chart_type, request.swap_axes)
-    rasterize(fig, out_dir / filename)
+    _save_png(fig, out_dir / filename)
     return {"filename": filename, "out_dir": request.out_dir}
+
+
+def _export_location_error(exc: OSError) -> SurveyToolError:
+    return SurveyToolError(
+        ErrorCode.INTERNAL,
+        "The export could not be saved to the chosen location.",
+        detail=str(exc),
+        next_action="Choose a different export location and try again.",
+    )
 
 
 def _ensure_out_dir(out_dir: str) -> Path:
@@ -1417,13 +1426,18 @@ def _ensure_out_dir(out_dir: str) -> Path:
     try:
         path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise SurveyToolError(
-            ErrorCode.INTERNAL,
-            "The export could not be saved to the chosen location.",
-            detail=str(exc),
-            next_action="Choose a different export location and try again.",
-        ) from exc
+        raise _export_location_error(exc) from exc
     return path
+
+
+def _save_png(fig, path: Path) -> None:
+    """Rasterize into the export folder. The folder can exist yet still be
+    unwritable (read-only, or the PNG locked open on Windows), which only
+    shows up here, so it gets the same plain-English error as mkdir."""
+    try:
+        rasterize(fig, path)
+    except OSError as exc:
+        raise _export_location_error(exc) from exc
 
 
 def _breaks_export_filename(question_id: str, chart_type: ChartType, swap_axes: bool) -> str:
@@ -1473,16 +1487,27 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
             })
             continue
 
-        fig = build_figure(
-            question_result, request.chart_type,
-            break_spec=request.break_spec.dimensions,
-            filter_spec=request.filter_spec.selections,
-            swap_axes=request.swap_axes,
-        )
+        # A permitted chart can still be refused while building (e.g. too
+        # many break groups to colour distinctly with Swap axes on). Every
+        # question shares the break, so letting that abort the loop would
+        # export nothing; record it as a skip with its plain-English reason.
+        try:
+            fig = build_figure(
+                question_result, request.chart_type,
+                break_spec=request.break_spec.dimensions,
+                filter_spec=request.filter_spec.selections,
+                swap_axes=request.swap_axes,
+            )
+        except SurveyToolError as exc:
+            skipped.append({
+                "question_id": question_result.question_id,
+                "reason": " ".join(filter(None, [exc.message, exc.next_action])),
+            })
+            continue
         filename = _breaks_export_filename(
             question_result.question_id, request.chart_type, request.swap_axes
         )
-        rasterize(fig, out_dir / filename)
+        _save_png(fig, out_dir / filename)
         exported.append({"question_id": question_result.question_id, "filename": filename})
 
     return {"exported": exported, "skipped": skipped, "out_dir": request.out_dir}

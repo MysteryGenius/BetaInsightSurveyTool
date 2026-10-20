@@ -630,6 +630,71 @@ def test_breaks_export_endpoint_rejects_unknown_chart_type(client):
     assert response.status_code == 422, response.text
 
 
+def test_breaks_export_read_only_folder_is_plain_error(client, tmp_path):
+    """The folder exists but can't be written to: mkdir succeeds, the PNG
+    write fails -- the analyst must still get the plain "choose another
+    location" error, not the generic catch-all."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    read_only = tmp_path / "ro"
+    read_only.mkdir()
+    read_only.chmod(0o500)
+    try:
+        session_id = _upload(client)
+        response = client.post(
+            f"/api/session/{session_id}/breaks-export",
+            json={
+                "break_spec": {"dimensions": ["gender"]},
+                "filter_spec": {"selections": {}},
+                "chart_type": "table",
+                "question_id": "Q1",
+                "out_dir": str(read_only),
+            },
+        )
+    finally:
+        read_only.chmod(0o700)
+    assert response.status_code == 500, response.text
+    error = response.json()["error"]
+    assert error["message"] == "The export could not be saved to the chosen location."
+    assert error["next_action"]
+
+
+def test_breaks_export_bulk_records_a_figure_refusal_as_a_skip(client, tmp_path, monkeypatch):
+    """A question whose figure can't be drawn (e.g. too many break groups to
+    colour when swapped) is recorded as a skip; the rest still export."""
+    if not RAKUTEN_PATH.exists():
+        pytest.skip(f"{RAKUTEN_PATH.name} not found in project root")
+
+    import surveytool.desktop.app as app_module
+    from surveytool.charts.errors import ErrorCode, SurveyToolError
+
+    real_build_figure = app_module.build_figure
+
+    def refuse_q1(question_result, *args, **kwargs):
+        if question_result.question_id == "Q1":
+            raise SurveyToolError(ErrorCode.PALETTE_EXHAUSTED, "Too many break groups.", next_action="Turn off Swap axes.")
+        return real_build_figure(question_result, *args, **kwargs)
+
+    monkeypatch.setattr(app_module, "build_figure", refuse_q1)
+    session_id = _upload(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export-bulk",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "table",
+            "question_ids": ["Q1", "Q2"],
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [s["question_id"] for s in body["skipped"]] == ["Q1"]
+    assert body["skipped"][0]["reason"] == "Too many break groups. Turn off Swap axes."
+    assert [e["question_id"] for e in body["exported"]] == ["Q2"]
+
+
 # --- POST .../breaks-figure ------------------------------------------------
 
 

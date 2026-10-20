@@ -175,8 +175,12 @@ def _apply_header(
     )
 
 
+def _column_group_label(column: ColumnResult) -> str:
+    return " / ".join(column.label_path) if column.label_path else "Total"
+
+
 def _column_display_label(column: ColumnResult) -> str:
-    label = " / ".join(column.label_path) if column.label_path else "Total"
+    label = _column_group_label(column)
     if column.band is Band.suppressed:
         return f"{label} (suppressed, n={column.base_cell})"
     if column.band is Band.low_base:
@@ -187,28 +191,42 @@ def _column_display_label(column: ColumnResult) -> str:
 def _swapped_bar_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figure:
     """Swapped axes: answer options on X, one grouped-bar series per column.
 
-    Each column gets its own colour from the style palette, keyed by its
-    display label (so two columns whose display labels collide would share a
-    colour). A suppressed column keeps its legend entry -- grey, patterned,
-    named "(suppressed, n=...)" -- but contributes zero-height bars, never a
-    fabricated value.
+    Each drawn column gets its own colour from the style palette, keyed by
+    its plain group label -- not the "(low base, n=...)"-decorated name, so a
+    group keeps its colour when a filter changes its n. Two columns whose
+    plain labels collide therefore share a colour. A suppressed column keeps
+    its legend entry -- grey, patterned, named "(suppressed, n=...)" -- but
+    takes no palette slot, draws zero-height bars and has no hover, so it
+    never shows a value. More drawn groups than the palette has colours is
+    refused with a swap-specific error rather than repeating a colour.
     """
     fig = go.Figure()
     x_labels = wrap_axis_labels([point.label for point in question_result.scale_points])
-    column_labels = [_column_display_label(c) for c in question_result.columns]
-    colour_by_label = assign_series_colours(column_labels, palette=style.palette)
+    drawn_groups = [
+        _column_group_label(c) for c in question_result.columns if c.band is not Band.suppressed
+    ]
+    if len(set(drawn_groups)) > len(style.palette):
+        raise SurveyToolError(
+            ErrorCode.PALETTE_EXHAUSTED,
+            f"With Swap axes on, this chart has {len(set(drawn_groups))} break groups, more than "
+            f"the {len(style.palette)} distinct colours available, so the groups can't be told apart.",
+            next_action="Turn off Swap axes, or use fewer Break by groups.",
+        )
+    colour_by_group = assign_series_colours(drawn_groups, palette=style.palette)
 
-    for column, label in zip(question_result.columns, column_labels):
+    for column in question_result.columns:
         y_values = [
             0.0 if column.percentages is None else column.percentages.get(str(point.code), 0.0)
             for point in question_result.scale_points
         ]
         if column.band is Band.suppressed:
+            hover = {"hoverinfo": "skip"}
             marker = {"color": _SUPPRESSED_GREY, "pattern": {"shape": "x"}}
         else:
-            marker = {"color": colour_by_label[label]}
+            hover = {"hovertemplate": _HOVER_TEMPLATE}
+            marker = {"color": colour_by_group[_column_group_label(column)]}
         fig.add_trace(
-            go.Bar(name=label, x=x_labels, y=y_values, marker=marker, hovertemplate=_HOVER_TEMPLATE)
+            go.Bar(name=_column_display_label(column), x=x_labels, y=y_values, marker=marker, **hover)
         )
 
     fig.update_layout(barmode="group", yaxis_title="%")

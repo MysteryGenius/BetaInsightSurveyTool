@@ -749,6 +749,7 @@ function renderBreaksResults(questionResults) {
     chartArea.className = "breaks-chart-area";
     block.appendChild(chartArea);
 
+    let legendRedrawTimer = null;
     const legendContainer = document.createElement("div");
     legendContainer.className = "chart-legend";
     legendContainer.dataset.currentStyle = qr.chart_style || "brand";
@@ -771,7 +772,12 @@ function renderBreaksResults(questionResults) {
           const reordered = updated.order.map((label) => byLabel.get(label)).filter(Boolean);
           if (reordered.length === qr.scale_points.length) qr.scale_points = reordered;
         }
-        renderChartArea(qr, block.querySelector(".breaks-chart-area"), breaksActiveChartType[qr.question_id]);
+        // Debounced: the colour picker fires on every drag movement, and
+        // each redraw is a server round trip, so redraw once it settles.
+        clearTimeout(legendRedrawTimer);
+        legendRedrawTimer = setTimeout(() => {
+          renderChartArea(qr, block.querySelector(".breaks-chart-area"), breaksActiveChartType[qr.question_id]);
+        }, 250);
       },
     });
 
@@ -1007,14 +1013,18 @@ async function renderBreaksChart(qr, chartArea, chartType) {
     });
   } catch {
     if (chartArea.dataset.renderToken !== token) return;
-    showBreaksChartError(chartArea, "Could not reach the local server.");
+    showBreaksChartError(chartArea, {
+      code: "INTERNAL",
+      message: "Could not reach the local server.",
+      next_action: "Try again. If it keeps happening, restart the app.",
+    });
     return;
   }
 
   const body = await parseJsonResponse(response);
   if (chartArea.dataset.renderToken !== token) return;
   if (!response.ok) {
-    showBreaksChartError(chartArea, errorFromBody(body).message);
+    showBreaksChartError(chartArea, errorFromBody(body));
     return;
   }
 
@@ -1033,13 +1043,10 @@ async function renderBreaksChart(qr, chartArea, chartType) {
   );
 }
 
-function showBreaksChartError(chartArea, message) {
+// Message plus detail and next step, like every other inline error box.
+function showBreaksChartError(chartArea, errorObj) {
   Plotly.purge(chartArea);
-  chartArea.innerHTML = "";
-  const el = document.createElement("div");
-  el.className = "status-body error";
-  el.textContent = message;
-  chartArea.appendChild(el);
+  renderInlineError(chartArea, errorObj);
 }
 
 // --- Export ------------------------------------------------------------------
