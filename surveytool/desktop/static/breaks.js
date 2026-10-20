@@ -527,6 +527,7 @@ document.getElementById("gate-adjust-btn").addEventListener("click", () => {
 
 async function runCrosstab(requestBody) {
   const container = document.getElementById("breaks-result");
+  const preservedScrollTop = container.scrollTop;
   container.innerHTML = "Loading results…";
 
   let response;
@@ -559,6 +560,7 @@ async function runCrosstab(requestBody) {
   breaksLatestResults = body;
   breaksActiveChartType = {};
   renderBreaksResults(body);
+  container.scrollTop = preservedScrollTop;
 }
 
 function renderFilterZeroMatchEmptyState(err) {
@@ -830,7 +832,6 @@ function buildChartTypeRow(qr) {
     }
     if (perm.permitted) {
       btn.addEventListener("click", () => {
-        // No network request: everything needed is already in qr.
         breaksActiveChartType[qr.question_id] = perm.chart_type;
         row.querySelectorAll(".chart-type-btn").forEach((b) => { b.classList.remove("active"); });
         btn.classList.add("active");
@@ -858,20 +859,33 @@ function chartTypeLabel(chartType) {
   return labels[chartType] || chartType;
 }
 
-// Renders either the table fallback (Prompt 6/7) or a Plotly chart, purely
-// from data already present on `qr` — switching types here never fetches.
+// Renders either the table fallback (Prompt 6/7), the HTML table (both
+// from data already on `qr`), or the server-built chart figure.
 function renderChartArea(qr, chartArea, chartType) {
   const allNonTableRefused = qr.permitted_charts
     .filter((p) => p.chart_type !== "table")
     .every((p) => !p.permitted && p.reason === "COLUMN_COUNT_EXCEEDS_RENDER_LIMIT");
 
-  if (chartType === "table" && allNonTableRefused) {
-    renderTableFallback(qr, chartArea);
-    return;
+  // A chart figure carries its own header (question text, break/filter,
+  // bases), so the page's heading and base line would repeat it; the
+  // tables have no such header and keep them.
+  const isTable = chartType === "table";
+  const block = chartArea.closest(".breaks-question");
+  if (block) {
+    block.querySelector("h3").style.display = isTable ? "" : "none";
+    block.querySelector(".breaks-question-base").style.display = isTable ? "" : "none";
   }
 
-  if (chartType === "table") {
-    renderTable(qr, chartArea);
+  if (isTable) {
+    // Supersede any figure request still in flight so it can't land on top
+    // of the table, and release the plot before the table replaces it.
+    chartArea.dataset.renderToken = String((Number(chartArea.dataset.renderToken) || 0) + 1);
+    Plotly.purge(chartArea);
+    if (allNonTableRefused) {
+      renderTableFallback(qr, chartArea);
+    } else {
+      renderTable(qr, chartArea);
+    }
     return;
   }
 
@@ -960,117 +974,72 @@ function renderTable(qr, chartArea, append) {
   chartArea.appendChild(table);
 }
 
-function renderBreaksChart(qr, chartArea, chartType) {
-  chartArea.innerHTML = "";
+// Draws the server-built figure (POST /breaks-figure) verbatim: the same
+// build_figure call /breaks-export rasterizes, so the chart on screen and
+// the exported PNG are one figure -- colours, wrapped labels, margins, Swap
+// axes and all. No trace or layout is built here.
+//
+// The one override: when the traces are the answer options (not swapped,
+// not net_bar), the colour-editable legend below the chart stands in for
+// Plotly's own legend, so Plotly's is hidden rather than showing two
+// legends for the same series.
+//
+// A per-area token makes the LAST request win: rapid chart-type / swap /
+// style clicks can return out of order, and a stale response must never
+// overwrite the newer chart. The previous chart stays up while fetching.
+async function renderBreaksChart(qr, chartArea, chartType) {
+  const swapped = AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped;
+  const token = String((Number(chartArea.dataset.renderToken) || 0) + 1);
+  chartArea.dataset.renderToken = token;
 
-  // Suppressed band constraint (build plan section 4/7): counts/percentages/
-  // nets are null for suppressed columns and stay in the payload holding
-  // their column position — never dropped, never given a fabricated value.
-  const labels = qr.columns.map((c) => c.label_path.join(" › "));
-  const bandColors = qr.columns.map((c) => {
-    if (c.band === "suppressed") return CHART_COLORS.suppressed;
-    if (c.band === "low_base") return CHART_COLORS.grey;
-    return CHART_COLORS.ok;
-  });
-  const patterns = qr.columns.map((c) => (c.band === "suppressed" ? "/" : ""));
-
-  const flippable = AXIS_FLIPPABLE_CHART_TYPES.has(chartType);
-
-  let traces;
-  if (chartType === "net_bar") {
-    const primaryNet = qr.nets[0];
-    const values = qr.columns.map((c) =>
-      c.band === "suppressed" || !c.nets ? null : (c.nets[primaryNet.net_id]?.percentage ?? null)
-    );
-    traces = [{
-      type: "bar",
-      x: labels,
-      y: values,
-      marker: { color: bandColors, pattern: { shape: patterns, fgcolor: CHART_COLORS.inkSoft, size: 6 } },
-      name: primaryNet.label,
-    }];
-  } else if (flippable && breaksAxisFlipped) {
-    // Flipped: answer options on X, one trace per break column — same
-    // percentages matrix as the unflipped view, just read column-major
-    // instead of scale-point-major. Suppressed columns still contribute no
-    // values (an all-null trace), same rule as the unflipped path.
-    const scaleLabels = qr.scale_points.map((sp) => sp.label);
-    traces = qr.columns.map((c, i) => ({
-      type: "bar",
-      x: scaleLabels,
-      y: qr.scale_points.map((sp) =>
-        c.band === "suppressed" || !c.percentages ? null : (c.percentages[String(sp.code)] ?? null)
-      ),
-      name: labels[i],
-      marker: {
-        color: bandColors[i],
-        pattern: { shape: patterns[i], fgcolor: CHART_COLORS.inkSoft, size: 6 },
-      },
-    }));
-  } else {
-    // stacked_bar_100 / diverging_stacked_bar / grouped_bar: one trace per
-    // scale point, using percentages already computed by the core.
-    //
-    // A manual colour override is keyed by the scale point's LABEL, exactly
-    // how the server's assign_series_colours(..., overrides=response_colours)
-    // keys it when building the exported PNG. Only overridden labels get an
-    // explicit marker colour; the rest are left without one so they keep
-    // falling back to the layout's colorway, so a partial override never
-    // disturbs the remaining series' colours.
-    const responseColours = qr.response_colours || {};
-    traces = qr.scale_points.map((sp) => {
-      const trace = {
-        type: "bar",
-        x: labels,
-        y: qr.columns.map((c) =>
-          c.band === "suppressed" || !c.percentages ? null : (c.percentages[String(sp.code)] ?? null)
-        ),
-        name: sp.label,
-      };
-      if (responseColours[sp.label]) {
-        trace.marker = { color: responseColours[sp.label] };
-      }
-      return trace;
+  let response;
+  try {
+    response = await fetch(`/api/session/${breaksSessionId}/breaks-figure`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        break_spec: currentBreakSpec(),
+        filter_spec: currentFilterSpec(),
+        chart_type: chartType,
+        question_id: qr.question_id,
+        swap_axes: swapped,
+      }),
     });
+  } catch {
+    if (chartArea.dataset.renderToken !== token) return;
+    showBreaksChartError(chartArea, "Could not reach the local server.");
+    return;
   }
 
-  // Flipped: each trace is now a break column, not a scale point, so
-  // stacking traces per answer option would sum unrelated columns' shares
-  // past 100% — group them instead, same as grouped_bar. Unflipped behavior
-  // (stack scale points per column) is unchanged.
-  const stackWhenUnflipped = chartType === "stacked_bar_100" || chartType === "diverging_stacked_bar" || chartType === "net_bar";
-
-  // The custom colour-editable legend below the chart lists this question's
-  // SCALE POINTS, so it stands in for Plotly's own legend exactly when the
-  // traces are the scale points — showing both would be two legends for the
-  // same series. When the axes are flipped each trace is a break column
-  // instead, and when the chart is a net_bar there is a single net trace;
-  // neither is what the custom legend describes, so Plotly's legend stays on
-  // for those.
-  const tracesAreScalePoints = chartType !== "net_bar" && !(flippable && breaksAxisFlipped);
-
-  let layout = withChartTemplate({
-    barmode: stackWhenUnflipped && !(flippable && breaksAxisFlipped) ? "stack" : "group",
-    margin: { l: 60, r: 20, t: 20, b: 100 },
-    yaxis: { title: "%" },
-    showlegend: !tracesAreScalePoints,
-  });
-  // Only apply a chart-style override once the analyst has actually chosen
-  // a non-default style. qr.chart_style is null/undefined for every
-  // question until an analyst opts in (QuestionResult.chart_style defaults
-  // to None server-side and is never coerced to "brand"), so leaving this
-  // call unconditional would apply applyChartStyleToLayout's brand values
-  // (#F4F1EA background, #222222 font, 12-colour palette) on top of
-  // withChartTemplate's own, different pre-feature defaults (#ffffff
-  // background, CHART_COLORS.ink font, 2-colour colorway) for every chart
-  // an analyst never touches -- silently regressing the default on-screen
-  // appearance. Gating on a real (non-default) style preserves
-  // withChartTemplate's original values exactly when no style is chosen.
-  if (qr.chart_style) {
-    layout = applyChartStyleToLayout(layout, qr.chart_style);
+  const body = await parseJsonResponse(response);
+  if (chartArea.dataset.renderToken !== token) return;
+  if (!response.ok) {
+    showBreaksChartError(chartArea, errorFromBody(body).message);
+    return;
   }
 
-  Plotly.newPlot(chartArea, traces, layout, { displaylogo: false, responsive: true });
+  // Plotly.react updates an existing plot in place; anything else in the
+  // area (the HTML table, an error message) has to go first.
+  if (chartArea.querySelector("table, .status-body, .breaks-table-fallback-note")) {
+    chartArea.innerHTML = "";
+  }
+  const fig = body.figure;
+  const plotlyLegendWanted = chartType === "net_bar" || swapped;
+  Plotly.react(
+    chartArea,
+    fig.data,
+    { ...fig.layout, showlegend: plotlyLegendWanted ? fig.layout.showlegend : false },
+    { displaylogo: false, responsive: true },
+  );
+}
+
+function showBreaksChartError(chartArea, message) {
+  Plotly.purge(chartArea);
+  chartArea.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "status-body error";
+  el.textContent = message;
+  chartArea.appendChild(el);
 }
 
 // --- Export ------------------------------------------------------------------
@@ -1085,7 +1054,9 @@ document.getElementById("breaks-export-btn").addEventListener("click", async () 
     return;
   }
 
-  const qr = breaksLatestResults[0];
+  // Export exactly what's on screen: the shown question, at the chart type
+  // and Swap-axes state currently displayed.
+  const qr = breaksLatestResults.find((r) => r.question_id === breaksSelectedQuestionId) || breaksLatestResults[0];
   const chartType = breaksActiveChartType[qr.question_id];
 
   statusEl.className = "status-body";
@@ -1101,6 +1072,8 @@ document.getElementById("breaks-export-btn").addEventListener("click", async () 
         filter_spec: currentFilterSpec(),
         chart_type: chartType,
         question_id: qr.question_id,
+        swap_axes: AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped,
+        out_dir: outDir,
       }),
     });
   } catch {
@@ -1116,9 +1089,9 @@ document.getElementById("breaks-export-btn").addEventListener("click", async () 
     return;
   }
 
-  const blob = await response.blob();
+  const body = await parseJsonResponse(response);
   statusEl.className = "status-body success";
-  statusEl.textContent = `Exported ${blob.size} bytes for ${qr.question_id}-${chartType}.png`;
+  statusEl.textContent = `Saved ${body.filename} to ${body.out_dir}`;
 });
 
 document.getElementById("breaks-export-bulk-btn").addEventListener("click", async () => {
@@ -1168,6 +1141,7 @@ document.getElementById("breaks-export-bulk-btn").addEventListener("click", asyn
         chart_type: chartType,
         question_ids: questionIds,
         out_dir: outDir,
+        swap_axes: AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped,
       }),
     });
   } catch {

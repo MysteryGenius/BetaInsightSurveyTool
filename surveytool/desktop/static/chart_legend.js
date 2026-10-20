@@ -43,20 +43,6 @@ const CLIENT_CHART_STYLES = {
   },
 };
 
-// Applies a chart_style's palette/background/font on top of withChartTemplate's
-// layout, matching the server's ChartStyle scope exactly (palette, background,
-// font colour only -- never layout/typography).
-function applyChartStyleToLayout(layout, styleName) {
-  const style = CLIENT_CHART_STYLES[styleName] || CLIENT_CHART_STYLES.brand;
-  return {
-    ...layout,
-    paper_bgcolor: style.background,
-    plot_bgcolor: style.background,
-    font: { ...layout.font, color: style.fontColor },
-    colorway: style.palette,
-  };
-}
-
 // `currentColours` is the question's saved response_colours map (label ->
 // hex), OR a zero-arg getter function returning that map. It MUST be sent
 // back with the style choice: the chart-style record is written as a
