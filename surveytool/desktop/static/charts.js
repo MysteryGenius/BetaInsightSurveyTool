@@ -217,7 +217,15 @@ function renderCharts(charts, container, sessionId) {
 
 async function loadCharts(sessionId, container, surveyId) {
   sessionSurveyId = surveyId;
-  container.innerHTML = "Loading charts…";
+  const preservedScrollTop = container.scrollTop;
+  // Keep whatever's already on screen (first load's own "Loading charts…"
+  // text, or the previous style/colour's charts on a restyle) until the new
+  // figures are ready to swap in -- clearing container.innerHTML here would
+  // blank fully-rendered charts for the length of a fetch on every colour or
+  // style change, which reads as a flash of nothing rather than a restyle.
+  const isFirstLoad = container.children.length === 0;
+  if (isFirstLoad) container.innerHTML = "Loading charts…";
+
   let response;
   try {
     response = await fetch(`/api/session/${sessionId}/charts`);
@@ -239,6 +247,7 @@ async function loadCharts(sessionId, container, surveyId) {
   chartsStyleByQid = body.chart_styles || {};
   chartsResponseColoursByQid = body.response_colours || {};
   renderCharts(body.charts, container, sessionId);
+  container.scrollTop = preservedScrollTop;
 }
 
 async function exportCharts(sessionId, outDir, resultEl) {
