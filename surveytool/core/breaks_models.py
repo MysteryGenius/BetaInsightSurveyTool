@@ -129,16 +129,23 @@ class CrosstabRequest(BaseModel):
     question_ids: list[str] | None = None
 
 
-class ExportRequest(BaseModel):
-    """POST .../export body (build plan section 12).
+class BreaksFigureRequest(BaseModel):
+    """POST .../breaks-figure body: one question's chart, as drawn on screen.
 
-    The renderer itself is a later task; this model pins the wire shape now.
+    `swap_axes` mirrors the Cross-tab "Swap axes" control; build_figure
+    ignores it for chart types that cannot swap.
     """
 
     break_spec: BreakSpec
     filter_spec: FilterSpec = Field(default_factory=FilterSpec)
     chart_type: ChartType
     question_id: str
+    swap_axes: bool = False
+
+
+class ExportRequest(BreaksFigureRequest):
+    """POST .../breaks-export body (build plan section 12): the same chart
+    the screen shows, so the export can match it exactly."""
 
 
 class BulkExportRequest(BaseModel):
@@ -152,3 +159,4 @@ class BulkExportRequest(BaseModel):
     chart_type: ChartType
     question_ids: list[str]
     out_dir: str
+    swap_axes: bool = False

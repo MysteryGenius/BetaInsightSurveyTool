@@ -37,9 +37,12 @@ from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_cro
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
 from surveytool.core.break_filter import validate_request
 from surveytool.core.breaks_models import (
+    BreakSpec,
+    BreaksFigureRequest,
     BulkExportRequest,
     CrosstabRequest,
     ExportRequest,
+    FilterSpec,
     ProjectionRequest,
     RegistryCategory,
     RegistryDimension,
@@ -1289,6 +1292,41 @@ async def post_projection(session_id: str, request: ProjectionRequest) -> Projec
     )
 
 
+def _compute_breaks_results(
+    session,
+    break_spec: BreakSpec,
+    filter_spec: FilterSpec,
+    question_ids: list[str],
+) -> list[QuestionResult]:
+    """Validate -> compute -> attach chart permissions: the one path every
+    Cross-tab route (crosstab, breaks-figure, both exports) goes through, so
+    the figure on screen and the PNG exported are built from identical
+    results with identical display-order/style/colour overrides."""
+    config = _default_config()
+    validate_request(
+        break_spec,
+        filter_spec,
+        session.registry,
+        session.survey,
+        session.vendor,
+        session.respondent_frame,
+    )
+    results = compute_breaks_crosstab(
+        session.respondent_frame,
+        session.survey,
+        break_spec.dimensions,
+        filter_spec.selections,
+        question_ids,
+        session.registry,
+        session.vendor,
+        config,
+        display_orders=_load_display_orders_for_survey(session.survey_id),
+        chart_styles=_load_chart_styles_for_survey(session.survey_id),
+        response_colours=_load_response_colours_for_survey(session.survey_id),
+    )
+    return attach_chart_permissions(results, config)
+
+
 @app.post("/api/session/{session_id}/crosstab")
 async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[QuestionResult]:
     """N-dimensional cross-tab for the requested questions.
@@ -1301,17 +1339,6 @@ async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[Quest
     caller has asked for figures that cannot be computed.
     """
     session = _require_session(session_id)
-    config = _default_config()
-
-    validate_request(
-        request.break_spec,
-        request.filter_spec,
-        session.registry,
-        session.survey,
-        session.vendor,
-        session.respondent_frame,
-    )
-
     question_ids = request.question_ids
     if question_ids is None:
         # Same set the existing /demographics endpoint offers.
@@ -1319,21 +1346,29 @@ async def post_crosstab(session_id: str, request: CrosstabRequest) -> list[Quest
             q.qid for q in session.survey.questions
             if q.base_eligible and not q.is_demographic
         ]
+    return _compute_breaks_results(session, request.break_spec, request.filter_spec, question_ids)
 
-    results = compute_breaks_crosstab(
-        session.respondent_frame,
-        session.survey,
-        request.break_spec.dimensions,
-        request.filter_spec.selections,
-        question_ids,
-        session.registry,
-        session.vendor,
-        config,
-        display_orders=_load_display_orders_for_survey(session.survey_id),
-        chart_styles=_load_chart_styles_for_survey(session.survey_id),
-        response_colours=_load_response_colours_for_survey(session.survey_id),
+
+@app.post("/api/session/{session_id}/breaks-figure")
+async def post_breaks_figure(session_id: str, request: BreaksFigureRequest) -> dict:
+    """Serve one Cross-tab chart as a serialized Plotly figure for the
+    screen. Built by the same _compute_breaks_results + build_figure calls
+    /breaks-export rasterizes, so the on-screen chart and its PNG are one
+    figure and cannot drift apart (the Charts tab's /charts guarantee,
+    extended to Cross-tab). build_figure refuses a non-permitted chart type.
+    """
+    session = _require_session(session_id)
+    question_result = _compute_breaks_results(
+        session, request.break_spec, request.filter_spec, [request.question_id]
+    )[0]
+    fig = build_figure(
+        question_result,
+        request.chart_type,
+        break_spec=request.break_spec.dimensions,
+        filter_spec=request.filter_spec.selections,
+        swap_axes=request.swap_axes,
     )
-    return attach_chart_permissions(results, config)
+    return {"figure": fig.to_plotly_json()}
 
 
 @app.post("/api/session/{session_id}/breaks-export")
@@ -1361,38 +1396,16 @@ async def post_breaks_export(session_id: str, request: ExportRequest):
     is a single file, so there is no manifest to build.
     """
     session = _require_session(session_id)
-    config = _default_config()
-
-    validate_request(
-        request.break_spec,
-        request.filter_spec,
-        session.registry,
-        session.survey,
-        session.vendor,
-        session.respondent_frame,
-    )
-
-    results = compute_breaks_crosstab(
-        session.respondent_frame,
-        session.survey,
-        request.break_spec.dimensions,
-        request.filter_spec.selections,
-        [request.question_id],
-        session.registry,
-        session.vendor,
-        config,
-        display_orders=_load_display_orders_for_survey(session.survey_id),
-        chart_styles=_load_chart_styles_for_survey(session.survey_id),
-        response_colours=_load_response_colours_for_survey(session.survey_id),
-    )
-    results = attach_chart_permissions(results, config)
-    question_result = results[0]
+    question_result = _compute_breaks_results(
+        session, request.break_spec, request.filter_spec, [request.question_id]
+    )[0]
 
     fig = build_figure(
         question_result,
         request.chart_type,
         break_spec=request.break_spec.dimensions,
         filter_spec=request.filter_spec.selections,
+        swap_axes=request.swap_axes,
     )
 
     out_path = Path(tempfile.gettempdir()) / f"breaks-export-{uuid.uuid4()}.png"
@@ -1415,22 +1428,9 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
     per question_id, exactly what /breaks-export already does per-call.
     """
     session = _require_session(session_id)
-    config = _default_config()
-
-    validate_request(
-        request.break_spec, request.filter_spec, session.registry,
-        session.survey, session.vendor, session.respondent_frame,
+    results = _compute_breaks_results(
+        session, request.break_spec, request.filter_spec, request.question_ids
     )
-
-    results = compute_breaks_crosstab(
-        session.respondent_frame, session.survey, request.break_spec.dimensions,
-        request.filter_spec.selections, request.question_ids, session.registry,
-        session.vendor, config,
-        display_orders=_load_display_orders_for_survey(session.survey_id),
-        chart_styles=_load_chart_styles_for_survey(session.survey_id),
-        response_colours=_load_response_colours_for_survey(session.survey_id),
-    )
-    results = attach_chart_permissions(results, config)
 
     out_dir = Path(request.out_dir)
     try:
@@ -1472,6 +1472,7 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
             question_result, request.chart_type,
             break_spec=request.break_spec.dimensions,
             filter_spec=request.filter_spec.selections,
+            swap_axes=request.swap_axes,
         )
         filename = f"{question_result.question_id}-{request.chart_type.value}.png"
         rasterize(fig, out_dir / filename)

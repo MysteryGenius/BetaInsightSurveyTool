@@ -623,6 +623,88 @@ def test_breaks_export_endpoint_rejects_unknown_chart_type(client):
     assert response.status_code == 422, response.text
 
 
+# --- POST .../breaks-figure ------------------------------------------------
+
+
+def _q8_figure_body(chart_type: str = "grouped_bar", swap_axes: bool = True) -> dict:
+    return {
+        "break_spec": {"dimensions": ["car_ownership"]},
+        "filter_spec": {"selections": {}},
+        "chart_type": chart_type,
+        "question_id": "q8",
+        "swap_axes": swap_axes,
+    }
+
+
+def test_breaks_figure_equals_build_figure_for_styled_swapped_question(client):
+    """The figure served for the screen must be exactly the one the export
+    rasterizes -- same colours, wrapped ticks, margins -- for a styled,
+    colour-overridden, swapped question."""
+    if not MILIEU_PATH.exists():
+        pytest.skip(f"{MILIEU_PATH.name} not found in project root")
+
+    import json
+
+    from surveytool.charts.plotly_renderer import build_figure
+    from surveytool.core.breaks_models import BreakSpec, FilterSpec
+    from surveytool.core.chart_validity import ChartType
+    from surveytool.desktop.app import _compute_breaks_results, get_session
+
+    session_id = _upload_milieu(client)
+    session = get_session(session_id)
+    crosstab = client.post(
+        f"/api/session/{session_id}/crosstab",
+        json={"break_spec": {"dimensions": ["car_ownership"]}, "filter_spec": {"selections": {}}, "question_ids": ["q8"]},
+    ).json()
+    first_label = crosstab[0]["scale_points"][0]["label"]
+    put = client.put(
+        f"/api/projects/{session.survey.id}/chart-style/q8",
+        json={"style_name": "cool", "response_colours": {first_label: "#1B667D"}},
+    )
+    assert put.status_code == 200, put.text
+
+    served = client.post(f"/api/session/{session_id}/breaks-figure", json=_q8_figure_body())
+    assert served.status_code == 200, served.text
+
+    question_result = _compute_breaks_results(
+        session, BreakSpec(dimensions=["car_ownership"]), FilterSpec(), ["q8"]
+    )[0]
+    expected = build_figure(
+        question_result, ChartType.grouped_bar,
+        break_spec=["car_ownership"], filter_spec={}, swap_axes=True,
+    ).to_plotly_json()
+    assert served.json()["figure"] == json.loads(json.dumps(expected, default=str))
+
+
+def test_breaks_figure_swapped_q8_has_distinct_colours_per_car_ownership_group(client):
+    """Leonard's case: q8 x Car ownership with axes swapped must show each
+    group in its own colour, with long answer labels wrapped."""
+    if not MILIEU_PATH.exists():
+        pytest.skip(f"{MILIEU_PATH.name} not found in project root")
+
+    session_id = _upload_milieu(client)
+    response = client.post(f"/api/session/{session_id}/breaks-figure", json=_q8_figure_body())
+    assert response.status_code == 200, response.text
+    traces = response.json()["figure"]["data"]
+    assert len(traces) >= 2
+    colours = [t["marker"]["color"] for t in traces]
+    assert len(set(colours)) == len(colours)
+    assert any("<br>" in tick for tick in traces[0]["x"])
+
+
+def test_breaks_figure_rejects_unpermitted_chart_type(client):
+    if not MILIEU_PATH.exists():
+        pytest.skip(f"{MILIEU_PATH.name} not found in project root")
+
+    session_id = _upload_milieu(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-figure",
+        json=_q8_figure_body(chart_type="net_bar", swap_axes=False),
+    )
+    assert response.status_code >= 400, response.text
+    assert response.json()["error"]["code"] == "INTERNAL"
+
+
 # --- POST .../breaks-export-bulk --------------------------------------------
 
 
