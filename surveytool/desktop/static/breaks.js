@@ -1040,7 +1040,7 @@ async function renderBreaksChart(qr, chartArea, chartType) {
     chartArea,
     fig.data,
     { ...fig.layout, showlegend: plotlyLegendWanted ? fig.layout.showlegend : false },
-    { displaylogo: false, responsive: true },
+    PLOTLY_SCREEN_CONFIG,
   );
 }
 

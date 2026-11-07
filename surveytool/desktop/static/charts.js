@@ -137,6 +137,20 @@ let chartsResponseColoursByQid = {};
 // it. Cross-tab's unstyled charts are a separate case and keep their own
 // pre-existing defaults (see the gate in breaks.js's renderBreaksChart) —
 // they were never in scope for Item A's parity guarantee.
+// Every on-screen Plotly chart is read-only (v4 feedback F2): no mode bar
+// (zoom, pan, box/lasso select, reset, camera download), no scroll or
+// double-click zoom. Export PNG is the only way to save a chart. Drag, axis
+// and legend-click locks live in the server figure (lock_interaction in
+// plotly_renderer.py). Shared with breaks.js, which loads after this file.
+const PLOTLY_SCREEN_CONFIG = Object.freeze({
+  displayModeBar: false,
+  displaylogo: false,
+  scrollZoom: false,
+  doubleClick: false,
+  showTips: false,
+  responsive: true,
+});
+
 function chartFigure(chart) {
   return {
     data: chart.figure.data,
@@ -211,7 +225,7 @@ function renderCharts(charts, container, sessionId) {
     container.appendChild(wrapper);
 
     const { data, layout } = chartFigure(chart);
-    Plotly.newPlot(div, data, layout, { displaylogo: false, responsive: true });
+    Plotly.newPlot(div, data, layout, PLOTLY_SCREEN_CONFIG);
   });
 }
 

@@ -589,6 +589,22 @@ def _means_figure(chart: ChartData, style: ChartStyle, response_colours: dict[st
     return fig
 
 
+def lock_interaction(fig: go.Figure) -> go.Figure:
+    """Make the figure read-only on screen (v4 feedback F2): no drag-to-zoom,
+    pan or box/lasso select, no axis range changes, and no legend clicks
+    hiding or isolating series. Hover tooltips are untouched.
+
+    Applied by both build_legacy_figure and build_figure, so every chart the
+    app shows has nothing a mouse can change -- the on-screen chart always
+    equals what Export PNG writes. These settings have no effect on the
+    rasterized PNG itself.
+    """
+    fig.update_layout(dragmode=False, legend={"itemclick": False, "itemdoubleclick": False})
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    return fig
+
+
 def build_legacy_figure(
     chart: ChartData,
     style: ChartStyle,
@@ -619,7 +635,7 @@ def build_legacy_figure(
         plot_bgcolor=style.background,
         font={"color": style.font_color},
     )
-    return fig
+    return lock_interaction(fig)
 
 
 SWAPPABLE_CHART_TYPES = frozenset(
@@ -685,7 +701,7 @@ def build_figure(
         fig = _BUILDERS[chart_type](question_result, style)
         axis_labels = [_column_display_label(c) for c in question_result.columns]
     _apply_header(fig, question_result, break_spec, filter_spec, chart_type, style, axis_labels=axis_labels)
-    return fig
+    return lock_interaction(fig)
 
 
 def rasterize(fig: go.Figure, path) -> None:
