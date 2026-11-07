@@ -52,6 +52,16 @@ class ChartType(str, Enum):
     table = "table"
 
 
+# Plain-English names for analysts. Mirrors chartTypeLabel() in breaks.js.
+CHART_TYPE_LABELS: dict[ChartType, str] = {
+    ChartType.stacked_bar_100: "100% stacked bar",
+    ChartType.diverging_stacked_bar: "Diverging stacked bar",
+    ChartType.grouped_bar: "Grouped bar",
+    ChartType.net_bar: "Net bar",
+    ChartType.table: "Table",
+}
+
+
 class ChartPermission(BaseModel):
     """One chart type's permitted/refused verdict for a computed result.
 

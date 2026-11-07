@@ -896,6 +896,10 @@
     font-size: var(--text-sm);
   }
   #export-result:has(.status-box.visible) { margin-bottom: var(--space-3); }
+  /* Cross-tab export banner: its own box below the export buttons. */
+  #breaks-export-row { flex-wrap: wrap; gap: var(--space-2); }
+  #breaks-export-result:has(.status-box.visible) { margin-top: var(--space-3); }
+  #breaks-export-box .status-body { overflow-wrap: anywhere; }
   .chart-export-row {
     display: flex;
     align-items: center;
@@ -1347,7 +1351,12 @@
       <div id="breaks-export-row" style="display:none;">
         <button type="button" class="btn btn-secondary btn-small" id="breaks-export-btn">Export current chart</button>
         <button type="button" class="btn btn-secondary btn-small" id="breaks-export-bulk-btn">Export all as PNGs</button>
-        <span class="status-body" id="breaks-export-status"></span>
+      </div>
+      <div id="breaks-export-result">
+        <div id="breaks-export-box" class="status-box">
+          <div class="status-title" id="breaks-export-title"></div>
+          <div class="status-body" id="breaks-export-body"></div>
+        </div>
       </div>
     </div>
 

@@ -237,12 +237,22 @@ def render_charts_plotly(
     to come from.
     """
     from pathlib import Path as _Path
-    from surveytool.charts.manifest import ManifestEntry, write_manifest
+    import uuid
+
+    from surveytool.charts.manifest import (
+        ManifestEntry,
+        charts_manifest_record,
+        load_manifest,
+        merge_manifest,
+    )
     from surveytool.charts.plotly_renderer import build_legacy_figure, rasterize
     from surveytool.charts.styles import get_style
 
     out_dir = _Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Read the shared manifest first: an unreadable one stops the export
+    # before any PNG is written, rather than after.
+    load_manifest(out_dir)
 
     chart_data_entries = build_chart_data(findings, survey_id, questions, display_orders=display_orders)
     entries: list[ManifestEntry] = []
@@ -263,5 +273,8 @@ def render_charts_plotly(
             findings_row_keys=[],  # Plotly path renders from ChartData, not FindingsRow directly; row provenance is not tracked per-entry here, matching build_chart_data's own contract of not re-deriving row keys.
         ))
 
-    write_manifest(entries, out_dir / "manifest.json")
+    # Merge, never rewrite: the Cross-tab exports into the same folder and
+    # its entries must survive a Charts tab export.
+    export_id = uuid.uuid4().hex
+    merge_manifest(out_dir, [charts_manifest_record(e, export_id) for e in entries])
     return entries

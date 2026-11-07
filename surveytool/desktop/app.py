@@ -36,6 +36,12 @@ from surveytool.charts.plotly_renderer import (
     build_legacy_figure,
     rasterize,
 )
+from surveytool.charts.export_naming import (
+    crosstab_export_identity,
+    crosstab_export_stem,
+    resolve_export_filename,
+)
+from surveytool.charts.manifest import MANIFEST_FILENAME, load_manifest, merge_manifest
 from surveytool.charts.styles import get_style
 from surveytool.compute.breaks_compute import QuestionResult, compute_breaks_crosstab
 from surveytool.compute.cross_tab import compute_cross_tab, detect_available_demographics
@@ -53,7 +59,7 @@ from surveytool.core.breaks_models import (
     RegistryPayload,
 )
 from surveytool.core.breaks_payload import attach_chart_permissions
-from surveytool.core.chart_validity import ChartType
+from surveytool.core.chart_validity import CHART_TYPE_LABELS, ChartType
 from surveytool.core.config import ToolConfig, load_config
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
 from surveytool.core.model import CodeRole, QuestionType, Survey
@@ -1405,9 +1411,16 @@ async def post_breaks_export(session_id: str, request: ExportRequest) -> dict:
     )
 
     out_dir = _ensure_out_dir(request.out_dir)
-    filename = _breaks_export_filename(question_result.question_id, request.chart_type, request.swap_axes)
-    _save_png(fig, out_dir / filename)
-    return {"filename": filename, "out_dir": request.out_dir}
+    batch = _CrosstabExportBatch(session, out_dir, request.break_spec, request.filter_spec,
+                                 request.chart_type, request.swap_axes)
+    filename = batch.save(question_result, fig)
+    batch.commit()
+    return {
+        "filename": filename,
+        "out_dir": request.out_dir,
+        "replaced": batch.replaced,
+        "manifest": MANIFEST_FILENAME,
+    }
 
 
 def _export_location_error(exc: OSError) -> SurveyToolError:
@@ -1440,11 +1453,78 @@ def _save_png(fig, path: Path) -> None:
         raise _export_location_error(exc) from exc
 
 
-def _breaks_export_filename(question_id: str, chart_type: ChartType, swap_axes: bool) -> str:
-    """`<qid>-<chart_type>.png`, with `-swapped` when the axes really were
-    swapped, so a swapped and an unswapped export of one chart can coexist."""
-    suffix = "-swapped" if swap_axes and chart_type in SWAPPABLE_CHART_TYPES else ""
-    return f"{question_id}-{chart_type.value}{suffix}.png"
+class _CrosstabExportBatch:
+    """One Cross-tab export request: names each PNG (see export_naming),
+    writes it, and records every file in the folder's shared manifest.json.
+
+    The manifest is read before anything is written, so an unreadable one
+    stops the export loudly instead of risking an overwrite.
+    """
+
+    def __init__(self, session, out_dir: Path, break_spec: BreakSpec, filter_spec: FilterSpec,
+                 chart_type: ChartType, swap_axes: bool) -> None:
+        self.session = session
+        self.out_dir = out_dir
+        self.break_dims = list(break_spec.dimensions)
+        self.filters = {dim: list(vals) for dim, vals in filter_spec.selections.items() if vals}
+        self.chart_type = chart_type
+        # Recorded as the axes actually drawn: build_figure ignores swap_axes
+        # for chart types it can't swap.
+        self.swapped = bool(swap_axes and chart_type in SWAPPABLE_CHART_TYPES)
+        self.export_id = uuid.uuid4().hex
+        self.manifest = load_manifest(out_dir)
+        self.records: list[dict] = []
+        self.taken: set[str] = set()
+        self.replaced: list[str] = []
+
+    def save(self, question_result: QuestionResult, fig) -> str:
+        qid = question_result.question_id
+        stem = crosstab_export_stem(qid, self.chart_type.value, self.swapped, self.break_dims, self.filters)
+        identity = crosstab_export_identity(
+            self.session.survey_id, qid, self.chart_type.value, self.swapped, self.break_dims, self.filters
+        )
+        filename, replaced = resolve_export_filename(self.out_dir, stem, identity, self.manifest, self.taken)
+        try:
+            _save_png(fig, self.out_dir / filename)
+        except SurveyToolError:
+            # Keep the record of what did get written before the failure.
+            self.commit()
+            raise
+        self.taken.add(filename)
+        if replaced:
+            self.replaced.append(filename)
+        self.records.append({
+            "filename": filename,
+            "source": "crosstab",
+            "export_id": self.export_id,
+            "identity": identity,
+            "question_id": qid,
+            "question_text": question_result.question_text,
+            "chart_type": self.chart_type.value,
+            "chart_type_label": CHART_TYPE_LABELS[self.chart_type],
+            "swap_axes": self.swapped,
+            "break_by": [self._dimension_label(d) for d in self.break_dims],
+            "break_by_keys": self.break_dims,
+            "filter": self.filters,
+            "base_total": question_result.base_total,
+            "base_filtered": question_result.base_filtered,
+            "response_options_manually_reordered": question_result.display_order_is_manual,
+            "replaced_earlier_identical_export": replaced,
+        })
+        return filename
+
+    def _dimension_label(self, dimension: str) -> str:
+        canonical = self.session.registry.canonical.dimensions.get(dimension)
+        return canonical.label if canonical is not None else dimension
+
+    def commit(self) -> None:
+        if not self.records:
+            return
+        try:
+            merge_manifest(self.out_dir, self.records)
+        except OSError as exc:
+            raise _export_location_error(exc) from exc
+        self.records = []
 
 
 @app.post("/api/session/{session_id}/breaks-export-bulk")
@@ -1461,6 +1541,8 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
     )
 
     out_dir = _ensure_out_dir(request.out_dir)
+    batch = _CrosstabExportBatch(session, out_dir, request.break_spec, request.filter_spec,
+                                 request.chart_type, request.swap_axes)
 
     exported = []
     skipped = []
@@ -1504,13 +1586,17 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
                 "reason": " ".join(filter(None, [exc.message, exc.next_action])),
             })
             continue
-        filename = _breaks_export_filename(
-            question_result.question_id, request.chart_type, request.swap_axes
-        )
-        _save_png(fig, out_dir / filename)
+        filename = batch.save(question_result, fig)
         exported.append({"question_id": question_result.question_id, "filename": filename})
 
-    return {"exported": exported, "skipped": skipped, "out_dir": request.out_dir}
+    batch.commit()
+    return {
+        "exported": exported,
+        "skipped": skipped,
+        "replaced": batch.replaced,
+        "out_dir": request.out_dir,
+        "manifest": MANIFEST_FILENAME,
+    }
 
 
 app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

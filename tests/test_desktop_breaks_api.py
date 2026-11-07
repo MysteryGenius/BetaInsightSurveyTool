@@ -531,7 +531,12 @@ def test_breaks_export_endpoint_saves_png_into_out_dir(client, tmp_path):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body == {"filename": "Q1-table.png", "out_dir": str(tmp_path)}
+    assert body == {
+        "filename": "Q1_table_by-gender.png",
+        "out_dir": str(tmp_path),
+        "replaced": [],
+        "manifest": "manifest.json",
+    }
     saved = tmp_path / body["filename"]
     assert saved.exists() and saved.stat().st_size > 0
 
@@ -546,8 +551,8 @@ def test_breaks_export_swapped_writes_swapped_filename(client, tmp_path):
         json={**_q8_figure_body(), "out_dir": str(tmp_path)},
     )
     assert response.status_code == 200, response.text
-    assert response.json()["filename"] == "q8-grouped_bar-swapped.png"
-    assert (tmp_path / "q8-grouped_bar-swapped.png").stat().st_size > 0
+    assert response.json()["filename"] == "q8_grouped_bar_by-car-ownership_swapped.png"
+    assert (tmp_path / "q8_grouped_bar_by-car-ownership_swapped.png").stat().st_size > 0
 
 
 def test_breaks_export_unwritable_folder_is_plain_error(client, tmp_path):
@@ -917,3 +922,187 @@ def test_legacy_chart_export_endpoint_still_reachable(client, tmp_path):
     )
     assert response.status_code == 200, response.text
     assert "exported" in response.json()
+
+
+# --- v4 feedback F1: export never overwrites, manifest accounts for every file
+
+
+def _toluna_export_all(client, session_id, out_dir, break_dims, chart_type="grouped_bar", filters=None):
+    """Exactly what the Cross-tab's "Export all as PNGs" sends: every
+    question /demographics lists, at one chart type and break."""
+    questions = client.get(f"/api/session/{session_id}/demographics").json()["questions"]
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export-bulk",
+        json={
+            "break_spec": {"dimensions": break_dims},
+            "filter_spec": {"selections": filters or {}},
+            "chart_type": chart_type,
+            "question_ids": [q["qid"] for q in questions],
+            "out_dir": str(out_dir),
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _manifest_files(out_dir):
+    import json
+
+    return {e["filename"]: e for e in json.loads((out_dir / "manifest.json").read_text())["files"]}
+
+
+def test_export_all_by_age_then_gender_keeps_both_sets(client, tmp_path):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    session_id = _upload_toluna(client)
+    by_age = _toluna_export_all(client, session_id, tmp_path, ["age_band"])
+    by_gender = _toluna_export_all(client, session_id, tmp_path, ["gender"])
+
+    assert by_age["exported"] and len(by_age["exported"]) == len(by_gender["exported"])
+    assert by_age["replaced"] == [] and by_gender["replaced"] == []
+    age_names = {e["filename"] for e in by_age["exported"]}
+    gender_names = {e["filename"] for e in by_gender["exported"]}
+    assert all(n.endswith("_grouped_bar_by-age-band.png") for n in age_names)
+    assert all(n.endswith("_grouped_bar_by-gender.png") for n in gender_names)
+    assert "6_grouped_bar_by-gender.png" in gender_names
+
+    on_disk = {p.name for p in tmp_path.glob("*.png")}
+    assert on_disk == age_names | gender_names
+    assert len(on_disk) == len(age_names) + len(gender_names)
+    # The brief's acceptance figure: 8 Cross-tab questions on this file, x 2 breaks.
+    assert len(age_names) == 8 and len(on_disk) == 16
+
+    manifest = _manifest_files(tmp_path)
+    assert set(manifest) == on_disk
+    entry = manifest["6_grouped_bar_by-age-band.png"]
+    assert entry["source"] == "crosstab"
+    assert entry["break_by"] == ["Age band"]
+    assert entry["break_by_keys"] == ["age_band"]
+    assert entry["filter"] == {}
+    assert entry["base_total"] == 1000 and entry["base_filtered"] == 1000
+    assert entry["chart_type"] == "grouped_bar"
+    assert entry["chart_type_label"] == "Grouped bar"
+    assert entry["response_options_manually_reordered"] is False
+
+
+def test_filtered_export_name_and_manifest_carry_the_filter(client, tmp_path):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    session_id = _upload_toluna(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {"ethnicity": ["malay", "chinese"]}},
+            "chart_type": "grouped_bar",
+            "question_id": "6",
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert response.status_code == 200, response.text
+    filename = response.json()["filename"]
+    assert filename == "6_grouped_bar_by-gender_filter-ethnicity-chinese+malay.png"
+    entry = _manifest_files(tmp_path)[filename]
+    assert entry["filter"] == {"ethnicity": ["malay", "chinese"]}
+    assert entry["base_total"] == 1000
+    assert entry["base_filtered"] == 736 + 133
+
+
+def test_identical_re_export_overwrites_and_says_so(client, tmp_path):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    session_id = _upload_toluna(client)
+    body = {
+        "break_spec": {"dimensions": ["gender"]},
+        "filter_spec": {"selections": {}},
+        "chart_type": "table",
+        "question_id": "6",
+        "out_dir": str(tmp_path),
+    }
+    first = client.post(f"/api/session/{session_id}/breaks-export", json=body).json()
+    second = client.post(f"/api/session/{session_id}/breaks-export", json=body).json()
+
+    assert first["filename"] == second["filename"] == "6_table_by-gender.png"
+    assert first["replaced"] == []
+    assert second["replaced"] == ["6_table_by-gender.png"]
+    assert [p.name for p in tmp_path.glob("*.png")] == ["6_table_by-gender.png"]
+    assert _manifest_files(tmp_path)["6_table_by-gender.png"]["replaced_earlier_identical_export"] is True
+
+
+def test_file_not_in_manifest_is_never_overwritten(client, tmp_path):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    stray = tmp_path / "6_table_by-gender.png"
+    stray.write_bytes(b"not ours")
+    session_id = _upload_toluna(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "table",
+            "question_id": "6",
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["filename"] == "6_table_by-gender_2.png"
+    assert response.json()["replaced"] == []
+    assert stray.read_bytes() == b"not ours"
+    assert set(_manifest_files(tmp_path)) == {"6_table_by-gender_2.png"}
+
+
+def test_charts_tab_export_keeps_crosstab_manifest_entries(client, tmp_path):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    session_id = _upload_toluna(client)
+    crosstab = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "table",
+            "question_id": "6",
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert crosstab.status_code == 200, crosstab.text
+
+    charts = client.post(
+        f"/api/session/{session_id}/export",
+        data={"out_dir": str(tmp_path), "qid": "6", "chart_type": "dist", "breakdown_variable": "total"},
+    )
+    assert charts.status_code == 200, charts.text
+
+    manifest = _manifest_files(tmp_path)
+    assert manifest["6_table_by-gender.png"]["source"] == "crosstab"
+    charts_name = charts.json()["exported"][0]
+    assert manifest[charts_name]["source"] == "charts"
+
+
+def test_corrupt_manifest_stops_export_with_plain_error(client, tmp_path):
+    if not TOLUNA_PATH.exists():
+        pytest.skip(f"{TOLUNA_PATH.name} not found in project root")
+
+    (tmp_path / "manifest.json").write_text("{not json")
+    session_id = _upload_toluna(client)
+    response = client.post(
+        f"/api/session/{session_id}/breaks-export",
+        json={
+            "break_spec": {"dimensions": ["gender"]},
+            "filter_spec": {"selections": {}},
+            "chart_type": "table",
+            "question_id": "6",
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert response.status_code == 500, response.text
+    error = response.json()["error"]
+    assert "manifest.json" in error["message"]
+    assert error["next_action"]
+    assert list(tmp_path.glob("*.png")) == []

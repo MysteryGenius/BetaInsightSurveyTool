@@ -45,6 +45,7 @@ function resetBreaksState() {
   document.getElementById("breaks-gate").classList.remove("visible");
   document.getElementById("breaks-result").innerHTML = "";
   document.getElementById("breaks-export-row").style.display = "none";
+  clearBreaksExportBanner();
 }
 
 function dimensionByName(name) {
@@ -1051,13 +1052,86 @@ function showBreaksChartError(chartArea, errorObj) {
 
 // --- Export ------------------------------------------------------------------
 
+// The export banner: its own status box below the export buttons, styled
+// like the Charts tab's "Export complete" box. Cleared at the start of every
+// export so it always describes the latest one.
+function breaksExportBannerEls() {
+  return [
+    document.getElementById("breaks-export-box"),
+    document.getElementById("breaks-export-title"),
+    document.getElementById("breaks-export-body"),
+  ];
+}
+
+function clearBreaksExportBanner() {
+  const [box, title, body] = breaksExportBannerEls();
+  box.className = "status-box";
+  title.textContent = "";
+  body.textContent = "";
+}
+
+function showBreaksExportProgress() {
+  const [box, title, body] = breaksExportBannerEls();
+  setStatusBox(box, title, body, "", "Exporting…", "");
+}
+
+function showBreaksExportError(errorObj) {
+  const [box, title, body] = breaksExportBannerEls();
+  setStatusError(box, title, body, errorObj);
+}
+
+const BREAKS_SERVER_UNREACHABLE = {
+  code: "INTERNAL",
+  message: "Could not reach the local server.",
+  next_action: "Try again. If it keeps happening, restart the app.",
+};
+
+const BREAKS_NO_EXPORT_FOLDER = {
+  code: "INTERNAL",
+  message: "Choose an export folder first.",
+  next_action: "Click an export button again and pick a folder when asked.",
+};
+
+function showBreaksExportSuccess(count, outDir, replaced, skipped) {
+  const lines = [`Saved ${count} PNG(s) to ${outDir}.`];
+  if (replaced.length) {
+    lines.push(`Replaced ${replaced.length} file(s) from an earlier identical export (same question, chart, break and filter).`);
+  }
+  if (skipped.length) {
+    lines.push(`${skipped.length} question(s) don't support this chart type and were not exported. `
+      + "Switch to a different chart type and export again to include them.");
+  }
+  lines.push("Every file is listed in manifest.json in that folder.");
+  const [box, title, body] = breaksExportBannerEls();
+  setStatusBox(box, title, body, "success", "Export complete", lines.join("\n"));
+}
+
+async function postBreaksExport(path, payload) {
+  let response;
+  try {
+    response = await fetch(`/api/session/${breaksSessionId}/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    showBreaksExportError(BREAKS_SERVER_UNREACHABLE);
+    return null;
+  }
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    showBreaksExportError(errorFromBody(body));
+    return null;
+  }
+  return body;
+}
+
 document.getElementById("breaks-export-btn").addEventListener("click", async () => {
   if (!breaksLatestResults || breaksLatestResults.length === 0) return;
-  const statusEl = document.getElementById("breaks-export-status");
+  clearBreaksExportBanner();
   const outDir = await ensureExportDir();
   if (!outDir) {
-    statusEl.className = "status-body error";
-    statusEl.textContent = "Choose an export folder first.";
+    showBreaksExportError(BREAKS_NO_EXPORT_FOLDER);
     return;
   }
 
@@ -1066,55 +1140,30 @@ document.getElementById("breaks-export-btn").addEventListener("click", async () 
   const qr = breaksLatestResults.find((r) => r.question_id === breaksSelectedQuestionId) || breaksLatestResults[0];
   const chartType = breaksActiveChartType[qr.question_id];
 
-  statusEl.className = "status-body";
-  statusEl.textContent = "Exporting…";
-
-  let response;
-  try {
-    response = await fetch(`/api/session/${breaksSessionId}/breaks-export`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        break_spec: currentBreakSpec(),
-        filter_spec: currentFilterSpec(),
-        chart_type: chartType,
-        question_id: qr.question_id,
-        swap_axes: AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped,
-        out_dir: outDir,
-      }),
-    });
-  } catch {
-    statusEl.className = "status-body error";
-    statusEl.textContent = "Could not reach the local server.";
-    return;
-  }
-
-  if (!response.ok) {
-    const body = await parseJsonResponse(response);
-    statusEl.className = "status-body error";
-    statusEl.textContent = errorFromBody(body).message;
-    return;
-  }
-
-  const body = await parseJsonResponse(response);
-  statusEl.className = "status-body success";
-  statusEl.textContent = `Saved ${body.filename} to ${body.out_dir}`;
+  showBreaksExportProgress();
+  const body = await postBreaksExport("breaks-export", {
+    break_spec: currentBreakSpec(),
+    filter_spec: currentFilterSpec(),
+    chart_type: chartType,
+    question_id: qr.question_id,
+    swap_axes: AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped,
+    out_dir: outDir,
+  });
+  if (!body) return;
+  showBreaksExportSuccess(1, body.out_dir, body.replaced || [], []);
 });
 
 document.getElementById("breaks-export-bulk-btn").addEventListener("click", async () => {
   if (!breaksLatestResults || breaksLatestResults.length === 0) return;
-  const statusEl = document.getElementById("breaks-export-status");
+  clearBreaksExportBanner();
   const outDir = await ensureExportDir();
   if (!outDir) {
-    statusEl.className = "status-body error";
-    statusEl.textContent = "Choose an export folder first.";
+    showBreaksExportError(BREAKS_NO_EXPORT_FOLDER);
     return;
   }
 
   const chartType = breaksActiveChartType[breaksLatestResults[0].question_id];
-
-  statusEl.className = "status-body";
-  statusEl.textContent = "Exporting…";
+  showBreaksExportProgress();
 
   // "Export all" = every base-eligible, non-demographic question in the
   // survey (matching the legacy Charts tab's bulk export, which exports
@@ -1126,54 +1175,28 @@ document.getElementById("breaks-export-bulk-btn").addEventListener("click", asyn
   try {
     response = await fetch(`/api/session/${breaksSessionId}/demographics`);
   } catch {
-    statusEl.className = "status-body error";
-    statusEl.textContent = "Could not reach the local server.";
+    showBreaksExportError(BREAKS_SERVER_UNREACHABLE);
     return;
   }
   const demographicsBody = await parseJsonResponse(response);
   if (!response.ok) {
-    statusEl.className = "status-body error";
-    statusEl.textContent = errorFromBody(demographicsBody).message;
+    showBreaksExportError(errorFromBody(demographicsBody));
     return;
   }
   const questionIds = demographicsBody.questions.map((q) => q.qid);
 
-  try {
-    response = await fetch(`/api/session/${breaksSessionId}/breaks-export-bulk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        break_spec: currentBreakSpec(),
-        filter_spec: currentFilterSpec(),
-        chart_type: chartType,
-        question_ids: questionIds,
-        out_dir: outDir,
-        swap_axes: AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped,
-      }),
-    });
-  } catch {
-    statusEl.className = "status-body error";
-    statusEl.textContent = "Could not reach the local server.";
-    return;
-  }
-
-  const body = await parseJsonResponse(response);
-  if (!response.ok) {
-    statusEl.className = "status-body error";
-    statusEl.textContent = errorFromBody(body).message;
-    return;
-  }
+  const body = await postBreaksExport("breaks-export-bulk", {
+    break_spec: currentBreakSpec(),
+    filter_spec: currentFilterSpec(),
+    chart_type: chartType,
+    question_ids: questionIds,
+    out_dir: outDir,
+    swap_axes: AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped,
+  });
+  if (!body) return;
 
   // Some questions can't be drawn as the chart type currently on screen, and
   // "Export all" sends the whole survey — so a partly-skipped batch is a
-  // normal outcome, not a failure. Say so plainly, with what to do about it,
-  // instead of reporting only the count that happened to succeed.
-  const skipped = body.skipped || [];
-  statusEl.className = "status-body success";
-  let message = `Exported ${body.exported.length} PNG(s) to ${body.out_dir}`;
-  if (skipped.length) {
-    message += `. ${skipped.length} question(s) don't support this chart type — `
-      + "switch to a different chart type and export again to include them.";
-  }
-  statusEl.textContent = message;
+  // normal outcome, not a failure. Say so plainly, with what to do about it.
+  showBreaksExportSuccess(body.exported.length, body.out_dir, body.replaced || [], body.skipped || []);
 });
