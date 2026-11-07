@@ -211,3 +211,26 @@ def compute_survey_stats(
         q_responses = response_index.get(question.qid, [])
         results.append(compute_question_stats(question, q_responses))
     return results
+
+
+def net_member_labels(question: Question, role: CodeRole) -> list[str]:
+    """The answer labels a net adds up -- the codes with `role`, exactly the
+    set compute_question_stats sums for t2b (CodeRole.top) / b2b
+    (CodeRole.bottom). Ordered from the scale's extreme inwards (top: highest
+    rank first; bottom: lowest rank first), so a description reads
+    "Extremely able to + Somewhat able to". This is the single source for
+    describing what a net figure measures (v4 feedback F3)."""
+    members = [sc for sc in question.labels if sc.role is role]
+    ranked = sorted(
+        (sc for sc in members if sc.rank is not None),
+        key=lambda sc: sc.rank,
+        reverse=role is CodeRole.top,
+    )
+    return [sc.label for sc in ranked] + [sc.label for sc in members if sc.rank is None]
+
+
+def describe_net(question: Question, metric: str) -> str:
+    """Plain-English membership of a net metric ("t2b"/"b2b"), e.g.
+    "Extremely able to + Somewhat able to"."""
+    role = {"t2b": CodeRole.top, "b2b": CodeRole.bottom}[metric]
+    return " + ".join(net_member_labels(question, role))

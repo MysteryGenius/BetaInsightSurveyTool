@@ -63,6 +63,7 @@ from surveytool.core.chart_validity import CHART_TYPE_LABELS, ChartType
 from surveytool.core.config import ToolConfig, load_config
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
 from surveytool.core.model import CodeRole, QuestionType, Survey
+from surveytool.core.natural_order import ChartOrders, chart_orders
 from surveytool.core.projection import Projection, project
 from surveytool.core.respondent_frame import to_respondent_frame
 from surveytool.core.straightliner import detect_straightliners
@@ -1075,6 +1076,13 @@ async def get_run_summary(session_id: str):
     }
 
 
+def _session_chart_orders(session) -> ChartOrders:
+    """Natural answer order for the Charts tab: scale rank (positive end
+    first) and the demographic registry's category order (v4 feedback F3).
+    The same orders feed /charts and /export, so screen and PNG agree."""
+    return chart_orders(session.survey, session.registry, session.vendor)
+
+
 @app.get("/api/session/{session_id}/charts")
 async def get_charts(session_id: str):
     session = _require_session(session_id)
@@ -1084,6 +1092,7 @@ async def get_charts(session_id: str):
     chart_data = build_chart_data(
         session.findings, session.survey.id, session.survey.questions,
         display_orders=display_orders,
+        orders=_session_chart_orders(session),
     )
 
     # Item A (render parity): each chart carries the SERIALIZED Plotly figure
@@ -1142,6 +1151,7 @@ async def export_charts(
             chart_styles=_load_chart_styles_for_survey(session.survey_id),
             response_colours=_load_response_colours_for_survey(session.survey_id),
             chart_filter=chart_filter,
+            orders=_session_chart_orders(session),
         )
     except OSError as exc:
         raise SurveyToolError(

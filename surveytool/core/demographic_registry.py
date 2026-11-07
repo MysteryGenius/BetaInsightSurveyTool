@@ -352,3 +352,16 @@ def load_registry(
         _check_unmapped_source_values(canonical, vendor_mapping, survey)
 
     return ResolvedRegistry(canonical=canonical, vendors=vendor_mappings)
+
+
+_BUNDLED_DIR = Path(__file__).parent / "demographics"
+
+
+def load_bundled_registry(vendor: str, survey: Survey) -> ResolvedRegistry:
+    """Load the registry shipped with the package (canonical.yaml plus every
+    vendor_<v>.yaml beside it), checked against `survey` -- the same files
+    and checks the desktop upload uses, for callers without the app (CLI)."""
+    vendor_paths = {
+        path.stem[len("vendor_"):]: path for path in sorted(_BUNDLED_DIR.glob("vendor_*.yaml"))
+    }
+    return load_registry(_BUNDLED_DIR / "canonical.yaml", vendor_paths, surveys={vendor: survey})

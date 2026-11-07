@@ -528,6 +528,80 @@ def _table_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figu
     return fig
 
 
+# ── Legacy chart layout (v4 feedback F3) ────────────────────────────────────
+# Character-count estimates, like compute_axis_margin: the figure is built
+# before any browser measures text, so every estimate errs generous. Titles
+# wrap to fit the narrowest place the chart is drawn -- the 700px-wide PNG
+# (kaleido's default; the on-screen chart is at least as wide).
+_TITLE_CHARS = 64          # 17px title font, ~8.5px per character
+_SUBTITLE_CHARS = 88       # 12px subtitle font
+_TITLE_LINE_PX = 24
+_SUBTITLE_LINE_PX = 17
+_LABEL_PX_PER_CHAR = 7     # 12px tick font, generous
+_LABEL_LINE_PX = 17
+_MEANS_LABEL_CHARS = 30
+
+
+def _title_block(title: str, subtitle: str) -> tuple[str, int]:
+    """Wrapped title (+ smaller subtitle) and the top margin it needs, so no
+    title line is ever cut off on screen or in the PNG."""
+    title_lines = wrap_text(title, max_chars_per_line=_TITLE_CHARS) or [""]
+    sub_lines = wrap_text(subtitle, max_chars_per_line=_SUBTITLE_CHARS) if subtitle else []
+    text = "<br>".join(title_lines)
+    if sub_lines:
+        text += "<br>" + "<br>".join(f'<span style="font-size:12px">{line}</span>' for line in sub_lines)
+    top = 20 + len(title_lines) * _TITLE_LINE_PX + len(sub_lines) * _SUBTITLE_LINE_PX + 16
+    return text, top
+
+
+def _title_layout(text: str, height: int) -> dict:
+    """Place a multi-line title block inside the top margin `_title_block`
+    sized for it. plotly.js positions a multi-line title by its *first* line
+    (later lines flow downward), so `y` is that first line's baseline: one
+    line height plus padding below the top edge."""
+    return {"text": text, "x": 0.02, "xanchor": "left", "yref": "container",
+            "y": 1 - (14 + _TITLE_LINE_PX) / height, "yanchor": "bottom"}
+
+
+_PNG_WIDTH = 700           # kaleido's default export width
+_AXIS_TITLE_PX_PER_CHAR = 8
+
+
+def _wrapped_axis_title(text: str, margin_l: int, margin_r: int) -> tuple[str, int]:
+    """Value-axis title wrapped to the plot area's width in the PNG, and the
+    extra bottom margin its additional lines need."""
+    chars = max(20, (_PNG_WIDTH - margin_l - margin_r) // _AXIS_TITLE_PX_PER_CHAR)
+    lines = wrap_text(text, max_chars_per_line=chars) or [""]
+    return "<br>".join(lines), (len(lines) - 1) * 18
+
+
+def _lines(wrapped_label: str) -> list[str]:
+    return wrapped_label.split("<br>")
+
+
+def _left_margin_for(wrapped_labels: list[str], minimum: int = 80) -> int:
+    """Left margin wide enough for the longest line of any wrapped label.
+    Lines inside a small-font span are measured at their smaller size."""
+    widest = 0
+    for label in wrapped_labels:
+        for line in _lines(label):
+            if line.startswith("<span"):
+                inner = line.split(">", 1)[1].rsplit("<", 1)[0]
+                widest = max(widest, int(len(inner) * _LABEL_PX_PER_CHAR * 0.85))
+            else:
+                widest = max(widest, len(line) * _LABEL_PX_PER_CHAR)
+    return max(minimum, widest + 24)
+
+
+def _horizontal_plot_height(wrapped_labels: list[str]) -> int:
+    """Plot-area height giving every category room for its label lines.
+    A category axis spaces rows evenly, so every row must be as tall as the
+    tallest label needs."""
+    tallest = max((len(_lines(label)) for label in wrapped_labels), default=1)
+    row = max(30, tallest * _LABEL_LINE_PX + 14)
+    return max(220, row * len(wrapped_labels))
+
+
 def _dist_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None) -> go.Figure:
     t = chart.trace
     colour_by_label = assign_series_colours(t["labels"], palette=style.palette, overrides=response_colours)
@@ -542,10 +616,20 @@ def _dist_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str
             hovertemplate="%{y}: %{x:.1f}%<br>n=%{customdata}<extra></extra>",
         )],
     )
+    title, top = _title_block(chart.question_text, chart.subtitle)
+    left = _left_margin_for(wrapped_labels)
+    axis_title, extra = _wrapped_axis_title(chart.value_axis_title or "%", left, 20)
+    bottom = 60 + extra
+    height = top + bottom + _horizontal_plot_height(wrapped_labels)
     fig.update_layout(
-        title={"text": chart.question_text, "x": 0.02, "xanchor": "left"},
-        xaxis_title="%",
-        margin={"l": compute_axis_margin(t["labels"], base_margin=160), "r": 20, "t": 60, "b": 40},
+        title=_title_layout(title, height),
+        xaxis_title=axis_title,
+        # The list beneath the chart reads top-down in trace order; a
+        # category axis draws its first category at the bottom, so reverse
+        # the axis (never the data) to make bars read top-down the same way.
+        yaxis={"autorange": "reversed"},
+        height=height,
+        margin={"l": left, "r": 20, "t": top, "b": bottom},
     )
     return fig
 
@@ -562,9 +646,14 @@ def _xbreak_figure(chart: ChartData, style: ChartStyle) -> go.Figure:
             hovertemplate="%{x}: %{y:.1f}" + ("%" if t["is_pct"] else "") + "<br>n=%{customdata}<extra></extra>",
         )],
     )
+    title, top = _title_block(chart.question_text, chart.subtitle)
+    bottom = compute_axis_margin(t["levels"])
+    height = top + bottom + 300
     fig.update_layout(
-        title={"text": f"{chart.question_text} by {chart.breakdown_variable}", "x": 0.02, "xanchor": "left"},
-        margin={"l": 60, "r": 20, "t": 60, "b": compute_axis_margin(t["levels"])},
+        title=_title_layout(title, height),
+        yaxis_title=chart.value_axis_title or None,
+        height=height,
+        margin={"l": 70, "r": 20, "t": top, "b": bottom},
     )
     return fig
 
@@ -572,7 +661,14 @@ def _xbreak_figure(chart: ChartData, style: ChartStyle) -> go.Figure:
 def _means_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None) -> go.Figure:
     t = chart.trace
     colour_by_label = assign_series_colours(t["labels"], palette=style.palette, overrides=response_colours)
-    wrapped_labels = wrap_axis_labels(t["labels"])
+    lo, hi = t["scale_min"], t["scale_max"]
+    wrapped_labels = wrap_axis_labels(t["labels"], max_chars_per_line=_MEANS_LABEL_CHARS)
+    if len(set(map(tuple, t["endpoints"]))) > 1:
+        # Questions on different scales: each label carries its own ends.
+        wrapped_labels = [
+            f'{label}<br><span style="font-size:10px">{lo} = {low} · {hi} = {high}</span>'
+            for label, (low, high) in zip(wrapped_labels, t["endpoints"])
+        ]
     fig = go.Figure(
         data=[go.Bar(
             orientation="h",
@@ -582,9 +678,22 @@ def _means_figure(chart: ChartData, style: ChartStyle, response_colours: dict[st
             hovertemplate="%{y}: %{x:.2f}<extra></extra>",
         )],
     )
+    title, top = _title_block("Mean score comparison", chart.subtitle)
+    left = _left_margin_for(wrapped_labels)
+    axis_title, extra = _wrapped_axis_title(chart.value_axis_title, left, 30)
+    bottom = 70 + extra
+    height = top + bottom + _horizontal_plot_height(wrapped_labels)
     fig.update_layout(
-        title={"text": "Mean score comparison", "x": 0.02, "xanchor": "left"},
-        margin={"l": compute_axis_margin(t["labels"], base_margin=200), "r": 20, "t": 60, "b": 40},
+        title=_title_layout(title, height),
+        # Axis starts at the scale minimum (rank 1), not 0: no answer scores 0.
+        xaxis={
+            "range": [lo, hi],
+            "tickvals": list(range(lo, hi + 1)),
+            "title": {"text": axis_title},
+        },
+        yaxis={"autorange": "reversed"},
+        height=height,
+        margin={"l": left, "r": 30, "t": top, "b": bottom},
     )
     return fig
 

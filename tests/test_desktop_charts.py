@@ -8,6 +8,8 @@ no fixture is fabricated. If the fixture is absent the test is skipped.
 """
 from __future__ import annotations
 
+from surveytool.desktop.app import _session_chart_orders
+
 from pathlib import Path
 
 import pytest
@@ -199,6 +201,7 @@ def test_export_endpoint_matches_direct_render_charts_output(client, tmp_path):
         display_orders={},
         chart_styles={},
         response_colours={},
+        orders=_session_chart_orders(session),
     )
     direct_filenames = {e.filename for e in direct_entries}
 
@@ -257,6 +260,7 @@ def test_export_endpoint_single_chart_matches_direct_render(client, tmp_path):
         display_orders={},
         chart_styles={},
         response_colours={},
+        orders=_session_chart_orders(session),
         chart_filter=lambda s: (
             s.qid == spec.qid
             and s.chart_type == spec.chart_type
@@ -377,6 +381,7 @@ def test_charts_figure_is_identical_to_the_figure_the_export_rasterizes(client):
     chart_data = build_chart_data(
         session.findings, survey_id, session.survey.questions,
         display_orders=_load_display_orders_for_survey(session.survey_id),
+        orders=_session_chart_orders(session),
     )
     styles = _load_chart_styles_for_survey(session.survey_id)
     colours = _load_response_colours_for_survey(session.survey_id)
@@ -410,5 +415,7 @@ def test_charts_figure_wraps_long_axis_labels_and_sizes_margin(client):
     longest = max(tick_labels, key=len)
     if len(longest.replace("<br>", "")) > 24:
         assert "<br>" in longest, "a long category label was not wrapped"
-    # Margin is computed from the labels, never the old hardcoded 160.
-    assert figure["layout"]["margin"]["l"] >= 160
+    # Margin is computed from the labels: wide enough for the longest
+    # wrapped line (v4 feedback F3 sizes it from that line, not a fixed floor).
+    longest_line = max(len(line) for label in tick_labels for line in label.split("<br>"))
+    assert figure["layout"]["margin"]["l"] >= longest_line * 7

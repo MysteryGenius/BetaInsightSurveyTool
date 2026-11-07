@@ -119,8 +119,12 @@ def _cmd_charts(args: argparse.Namespace) -> int:
             "use --significance once the two-proportion z-test is available"
         )
 
+    from surveytool.core.demographic_registry import load_bundled_registry
+    from surveytool.core.natural_order import chart_orders
+
+    orders = chart_orders(survey, load_bundled_registry(args.vendor, survey), args.vendor)
     out_dir = Path(args.out_dir)
-    render_charts_plotly(findings, out_dir, args.survey_id, survey.questions)
+    render_charts_plotly(findings, out_dir, args.survey_id, survey.questions, orders=orders)
     manifest_path = out_dir / "manifest.json"
     print(str(manifest_path))
 

@@ -42,7 +42,9 @@ def _means_chart_data():
     return ChartData(
         chart_type="means", filename="t__all__means__total.png", qid="Q1",
         question_text="Q1", breakdown_variable="total", metric="mean",
-        trace={"labels": ["Q1", "Q2"], "values": [4.1, 3.8], "cell_base": 100},
+        trace={"labels": ["Q1", "Q2"], "values": [4.1, 3.8], "cell_base": 100,
+               "scale_min": 1, "scale_max": 5,
+               "endpoints": [("Very dissatisfied", "Very satisfied")] * 2},
     )
 
 

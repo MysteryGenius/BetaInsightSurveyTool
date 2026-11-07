@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from surveytool.charts.errors import MissingFindingsRow
+from surveytool.charts.errors import ErrorCode, MissingFindingsRow, SurveyToolError
 from surveytool.charts.types import ChartSpec
 from surveytool.charts import iter_chart_specs
+from surveytool.compute.frequency import describe_net
 from surveytool.core.model import CodeRole, Question
+from surveytool.core.natural_order import ChartOrders
+from surveytool.core.scale_library import variant_point_count
 from surveytool.findings.sheet import FindingsRow
 
 
@@ -18,6 +21,11 @@ class ChartData:
     breakdown_variable: str
     metric: str
     trace: dict
+    # What the chart plots, in plain English (v4 feedback F3), and the unit
+    # on its value axis. Built here from the compute core's definitions,
+    # never in the renderer.
+    subtitle: str = ""
+    value_axis_title: str = ""
 
 
 def _index_rows(rows: list[FindingsRow]) -> dict[tuple[str, str, str], FindingsRow]:
@@ -54,7 +62,20 @@ def _apply_manual_order(labels: list[str], *parallel: list, manual_order: list[s
     return (reordered_labels, *reordered_parallel)
 
 
-def _dist_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict:
+def _sort_by(items: list, label_of, order: list[str] | None) -> list:
+    """Stable sort of `items` into `order` (by label); labels not in it keep
+    their relative order, after the ones that are."""
+    if not order:
+        return items
+    index = {label: i for i, label in enumerate(order)}
+    return sorted(items, key=lambda it: index.get(label_of(it), len(order)))
+
+
+def _dist_trace(
+    spec: ChartSpec,
+    manual_order: list[str] | None = None,
+    natural_order: list[str] | None = None,
+) -> dict:
     rows = spec.rows
     idx = _index_rows(rows)
 
@@ -86,6 +107,12 @@ def _dist_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict:
     n: list[int] = []
     roles: list[str | None] = []
 
+    def pct_label(pr: FindingsRow) -> str:
+        return pr.metric[len("pct_"):]
+
+    substantive = _sort_by(substantive, pct_label, natural_order)
+    nonsubstantive = _sort_by(nonsubstantive, pct_label, natural_order)
+
     for group in (substantive, nonsubstantive):
         for pr in group:
             label = pr.metric[len("pct_"):]
@@ -115,7 +142,7 @@ def _dist_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict:
     }
 
 
-def _xbreak_trace(spec: ChartSpec) -> dict:
+def _xbreak_trace(spec: ChartSpec, level_order: list[str] | None = None) -> dict:
     rows = spec.rows
     bvar = spec.breakdown_variable
 
@@ -128,7 +155,7 @@ def _xbreak_trace(spec: ChartSpec) -> dict:
     if not seen:
         raise MissingFindingsRow(spec.qid, bvar, "*", spec.metric)
 
-    levels = list(seen.keys())
+    levels = _sort_by(list(seen.keys()), lambda lv: lv, level_order)
     metric_rows = [seen[lv] for lv in levels]
 
     for lv, mr in zip(levels, metric_rows):
@@ -148,7 +175,36 @@ def _xbreak_trace(spec: ChartSpec) -> dict:
     }
 
 
-def _means_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict:
+def _scale_endpoints(question: Question) -> tuple[int, str, str]:
+    """(point count, rank-1 label, top-rank label) for a scale question,
+    from scales.yaml. A mean score is the average rank, so the scale runs
+    from 1 to the point count. Raises a plain-English error naming the
+    question when scales.yaml can't supply the range or the question has
+    no answer label at either end."""
+    points = variant_point_count(question.scale_family, question.scale_variant)
+    by_rank = {sc.rank: sc.label for sc in question.labels if sc.rank is not None}
+    if points is None or 1 not in by_rank or points not in by_rank:
+        raise SurveyToolError(
+            ErrorCode.INTERNAL,
+            f"The mean score chart can't be drawn because the scale for question "
+            f"\"{question.text}\" has no defined lowest or highest point.",
+            detail=(
+                f"qid={question.qid!r}, scale={question.scale_family}.{question.scale_variant}, "
+                f"points in scales.yaml={points}, ranks present={sorted(by_rank)}"
+            ),
+            next_action=(
+                "Check this question's answer options match a complete scale in the scale "
+                "library (scales.yaml), or set it to a different question type, then run again."
+            ),
+        )
+    return points, by_rank[1], by_rank[points]
+
+
+def _means_trace(
+    spec: ChartSpec,
+    manual_order: list[str] | None = None,
+    questions_by_qid: dict[str, Question] | None = None,
+) -> dict:
     rows = spec.rows
     bvar = spec.breakdown_variable
 
@@ -170,14 +226,58 @@ def _means_trace(spec: ChartSpec, manual_order: list[str] | None = None) -> dict
 
     labels = [mr.question_text for mr in mr_list]
     values = [mr.value for mr in mr_list]
+    endpoints = [_scale_endpoints((questions_by_qid or {})[q]) for q in qids]
 
-    labels, values = _apply_manual_order(labels, values, manual_order=manual_order)
+    point_counts = {pc for pc, _, _ in endpoints}
+    if len(point_counts) > 1:
+        raise SurveyToolError(
+            ErrorCode.INTERNAL,
+            "The mean score chart can't put these questions on one axis because their "
+            "scales have different numbers of points.",
+            detail="; ".join(f"{q}: {pc} points" for q, (pc, _, _) in zip(qids, endpoints)),
+            next_action="Compare these questions' mean scores separately; a shared axis would misstate them.",
+        )
+
+    labels, values, endpoints = _apply_manual_order(labels, values, endpoints, manual_order=manual_order)
 
     return {
         "labels": labels,
         "values": values,
         "cell_base": mr_list[0].cell_base,
+        "scale_min": 1,
+        "scale_max": point_counts.pop(),
+        # (lowest-point label, highest-point label) per item, in label order.
+        "endpoints": [(low, high) for _, low, high in endpoints],
     }
+
+
+def _measure_text(spec: ChartSpec, trace: dict, question: Question | None) -> tuple[str, str]:
+    """(subtitle, value-axis title) saying exactly what a chart plots.
+
+    Net charts take their wording from the compute core's own net
+    membership (describe_net), so the subtitle can't drift from the figure.
+    """
+    if spec.chart_type == "dist":
+        return "% of respondents giving each answer", "% of respondents"
+    if spec.chart_type == "xbreak":
+        if spec.metric in ("t2b", "b2b") and question is not None:
+            return f"% {describe_net(question, spec.metric)}, by {spec.breakdown_variable}", "% of respondents"
+        if spec.metric == "mean" and question is not None:
+            points, low, high = _scale_endpoints(question)
+            return (
+                f"Mean score (1 = {low}, {points} = {high}), by {spec.breakdown_variable}",
+                "Mean score",
+            )
+        return f"{spec.metric}, by {spec.breakdown_variable}", spec.metric
+    # Survey-wide mean score comparison.
+    low_high = set(trace["endpoints"])
+    top = trace["scale_max"]
+    if len(low_high) == 1:
+        low, high = low_high.pop()
+        axis = f"Mean score (1 = {low}, {top} = {high})"
+    else:
+        axis = f"Mean score (1 = lowest, {top} = highest point of each question's scale)"
+    return f"Average answer on each question's {top}-point scale", axis
 
 
 def build_chart_data(
@@ -185,6 +285,7 @@ def build_chart_data(
     survey_id: str,
     questions: list[Question],
     display_orders: dict[str, list[str]] | None = None,
+    orders: ChartOrders | None = None,
 ) -> list[ChartData]:
     """Build Plotly-ready chart data from the findings sheet.
 
@@ -193,14 +294,25 @@ def build_chart_data(
     `findings` — never recomputes. Raises MissingFindingsRow if a required
     row is absent.
     """
+    orders = orders or ChartOrders()
+    questions_by_qid = {q.qid: q for q in questions}
     entries: list[ChartData] = []
     for spec in iter_chart_specs(findings, survey_id, questions):
         if spec.chart_type == "dist":
-            trace = _dist_trace(spec, manual_order=(display_orders or {}).get(spec.qid))
+            trace = _dist_trace(
+                spec,
+                manual_order=(display_orders or {}).get(spec.qid),
+                natural_order=orders.by_qid.get(spec.qid),
+            )
         elif spec.chart_type == "xbreak":
-            trace = _xbreak_trace(spec)
+            trace = _xbreak_trace(spec, level_order=orders.by_breakdown.get(spec.breakdown_variable))
         else:
-            trace = _means_trace(spec, manual_order=(display_orders or {}).get(spec.qid))
+            trace = _means_trace(
+                spec,
+                manual_order=(display_orders or {}).get(spec.qid),
+                questions_by_qid=questions_by_qid,
+            )
+        subtitle, value_axis_title = _measure_text(spec, trace, questions_by_qid.get(spec.qid))
 
         entries.append(ChartData(
             chart_type=spec.chart_type,
@@ -210,6 +322,8 @@ def build_chart_data(
             breakdown_variable=spec.breakdown_variable,
             metric=spec.metric,
             trace=trace,
+            subtitle=subtitle,
+            value_axis_title=value_axis_title,
         ))
 
     return entries
@@ -224,6 +338,7 @@ def render_charts_plotly(
     chart_styles: dict[str, str] | None = None,
     response_colours: dict[str, dict[str, str]] | None = None,
     chart_filter=None,
+    orders: ChartOrders | None = None,
 ) -> list["ManifestEntry"]:
     """Render every legacy chart to a PNG via Plotly/kaleido.
 
@@ -254,7 +369,9 @@ def render_charts_plotly(
     # before any PNG is written, rather than after.
     load_manifest(out_dir)
 
-    chart_data_entries = build_chart_data(findings, survey_id, questions, display_orders=display_orders)
+    chart_data_entries = build_chart_data(
+        findings, survey_id, questions, display_orders=display_orders, orders=orders
+    )
     entries: list[ManifestEntry] = []
     for chart in chart_data_entries:
         if chart_filter is not None:

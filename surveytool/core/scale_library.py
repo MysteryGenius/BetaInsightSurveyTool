@@ -414,3 +414,16 @@ def classify_question_type(
         return QuestionType.scale, roles, variant.family, variant.name
 
     return None
+
+
+def variant_point_count(family: str | None, variant: str | None) -> int | None:
+    """Number of points in a scales.yaml variant (its top rank), or None if
+    the family/variant isn't in the library. Rank 1 is always the bottom, so
+    a scale's numeric range is 1..variant_point_count."""
+    fam = _FAMILIES_BY_NAME.get(family or "")
+    if fam is None:
+        return None
+    for v in fam.variants:
+        if v.name == variant:
+            return len(v.points)
+    return None
