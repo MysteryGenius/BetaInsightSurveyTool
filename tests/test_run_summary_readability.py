@@ -48,12 +48,12 @@ def test_guardrail_findings_are_separate_short_items(toluna_summary):
     assert items[1].startswith("Toluna supplies no verification sheet.")
     assert items[2] == "5 respondent(s) were flagged as straightliners and kept in the base."
     gaps = items[3:]
+    # F6 groups gaps that share a reason into one finding.
     assert gaps == [
         "Age band: 'Below 18' was not collected. The age question in this file has no under-18 answer.",
-        "Age band: '55-64' was not collected. This file's oldest age answer is one combined "
-        "\"55 years old and above\" group, so 55-64 can't be separated from 65+.",
-        "Age band: '65+' was not collected. This file's oldest age answer is one combined "
-        "\"55 years old and above\" group, so 65+ can't be separated from 55-64.",
+        "Age band: '55-64' and '65+' were not collected. This file's oldest age answer is one "
+        "combined \"55 years old and above\" group, shown as the 55 and above band, so 55-64 "
+        "and 65+ can't be separated.",
     ]
     for item in items:
         assert len(item) <= 200, item

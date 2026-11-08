@@ -34,6 +34,11 @@ class CanonicalCategory(BaseModel):
     label: str
     order: int
     non_response: bool = False
+    combines: list[str] = Field(default_factory=list)
+    """v4 feedback F6: the finer categories this one is the union of (e.g.
+    55_plus = 55_64 + 65_plus). A vendor can map a combined answer straight
+    to it, or reach it implicitly by mapping every part. Filtering by it
+    selects respondents in any of its parts."""
 
 
 class CanonicalDimension(BaseModel):
@@ -206,7 +211,17 @@ def _check_reachability(canonical: CanonicalRegistry, vendor_mapping: VendorMapp
                 )
 
         reachable = reached | set(dim_mapping.not_collected)
+        known = {c.value for c in canonical_dim.categories}
         for category in canonical_dim.categories:
+            unknown_parts = set(category.combines) - known
+            if unknown_parts:
+                raise DimensionNotInCanonicalError(
+                    vendor_mapping.vendor, f"{dimension_name}.{category.value} combines {sorted(unknown_parts)}"
+                )
+            # A combined category is covered when the vendor collects every
+            # part separately: its respondents are in the finer columns.
+            if category.combines and set(category.combines) <= reached:
+                continue
             if category.value not in reachable:
                 raise CanonicalCategoryUnreachableError(
                     vendor_mapping.vendor, dimension_name, category.value

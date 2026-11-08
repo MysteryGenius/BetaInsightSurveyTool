@@ -85,10 +85,17 @@ def _demographic_gap_items(not_collected: list[NotCollectedEntry]) -> list[str]:
     its own finding rather than one run-on paragraph."""
     if not not_collected:
         return [_demographic_gap_statement([])]
-    return [
-        f"{entry.dimension_label}: '{entry.category_label}' was not collected. {entry.reason}"
-        for entry in not_collected
-    ]
+    # Gaps sharing one reason (e.g. Toluna's 55-64 and 65+, both hidden in
+    # one combined band) read as one finding, not two near-identical lines.
+    grouped: dict[tuple[str, str], list[NotCollectedEntry]] = {}
+    for entry in not_collected:
+        grouped.setdefault((entry.dimension_label, entry.reason), []).append(entry)
+    items = []
+    for (dimension_label, reason), entries in grouped.items():
+        names = " and ".join(f"'{e.category_label}'" for e in entries)
+        verb = "were" if len(entries) > 1 else "was"
+        items.append(f"{dimension_label}: {names} {verb} not collected. {reason}")
+    return items
 
 
 def build_run_summary(

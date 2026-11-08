@@ -42,12 +42,21 @@ dimensions:
       - value: "45_54"
         label: "45-54"
         order: 5
+      # v4 feedback F6: a vendor whose age question stops at one combined
+      # top band (Toluna's "55 years old and above") maps to this, so those
+      # respondents get their own column instead of being dropped. Vendors
+      # with finer bands reach it through `combines` (no declaration needed),
+      # and filtering by it selects their 55-64 and 65+ respondents.
+      - value: "55_plus"
+        label: "55 and above"
+        order: 6
+        combines: ["55_64", "65_plus"]
       - value: "55_64"
         label: "55-64"
-        order: 6
+        order: 7
       - value: "65_plus"
         label: "65+"
-        order: 7
+        order: 8
 
   ethnicity:
     label: "Ethnicity"

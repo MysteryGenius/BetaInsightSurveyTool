@@ -31,7 +31,7 @@ from pydantic import BaseModel
 
 from surveytool.charts.errors import ErrorCode, SurveyToolError
 from surveytool.compute.frequency import compute_question_stats
-from surveytool.core.cohort import Cell, apply_filter, resolve_cells
+from surveytool.core.cohort import Cell, apply_filter, break_exclusions, resolve_cells
 from surveytool.core.config import ToolConfig
 from surveytool.core.demographic_registry import ResolvedRegistry
 from surveytool.core.model import CodeRole, Question, Response, ScaleCode, Survey
@@ -171,6 +171,12 @@ class QuestionResult(BaseModel):
     # feedback F4), filled by the desktop app from the registry's labels.
     # Display only: never drawn into a figure, never affects any number.
     header_lines: list[str] = []
+    excluded_from_columns: int = 0
+    """v4 feedback F6: filtered respondents who appear in no column because
+    a break dimension couldn't place them. Columns' base_cell values plus
+    this always equal base_filtered."""
+    exclusion_reasons: list[str] = []
+    """Plain-English reasons for excluded_from_columns, one per cause."""
 
 
 def _scale_points(question: Question, manual_label_order: list[str] | None = None) -> list[ScalePoint]:
@@ -405,6 +411,9 @@ def compute_breaks_crosstab(
     cells = resolve_cells(
         respondent_frame, filtered_ids, break_spec, registry, survey, vendor
     )
+    excluded_count, exclusions = break_exclusions(
+        respondent_frame, filtered_ids, break_spec, registry, survey, vendor
+    )
 
     base_total = len(respondent_frame)
     base_filtered = len(filtered_ids)
@@ -450,6 +459,8 @@ def compute_breaks_crosstab(
                 base_filtered=base_filtered,
                 columns=columns,
                 demographic_notices=demographic_notices,
+                excluded_from_columns=excluded_count,
+                exclusion_reasons=[e.reason for e in exclusions],
                 display_order_is_manual=bool(display_orders and question.qid in display_orders),
                 chart_style=(chart_styles or {}).get(question.qid),
                 response_colours=(response_colours or {}).get(question.qid, {}),

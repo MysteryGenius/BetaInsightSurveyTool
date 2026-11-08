@@ -50,13 +50,16 @@ dimensions:
       "25-34 years old": "25_34"
       "35-44 years old": "35_44"
       "45-54 years old": "45_54"
+      "55 years old and above": "55_plus"
     not_collected:
       # Verified by direct extraction: column 2 ("How old are you?") of
       # toluna_survey_misinformation_data.xlsx has exactly 5 distinct values
       # across all 1000 rows, none of them a "Below 18" band. The top band
       # is one combined "55 years old and above" value (214 respondents)
       # with no finer breakdown, so 55-64 and 65+ cannot be separated
-      # without inventing a boundary the data doesn't contain.
+      # without inventing a boundary the data doesn't contain. It maps to
+      # the canonical combined band 55_plus (v4 feedback F6), so those
+      # respondents get their own column rather than being dropped.
       # `reason` is shown to analysts in the Run summary: keep it short and
       # plain (v4 feedback F5).
       "under_18":
@@ -65,15 +68,13 @@ dimensions:
       "55_64":
         reason: >-
           This file's oldest age answer is one combined "55 years old and
-          above" group, so 55-64 can't be separated from 65+.
-        ambiguous_raw_values:
-          - "55 years old and above"
+          above" group, shown as the 55 and above band, so 55-64 and 65+
+          can't be separated.
       "65_plus":
         reason: >-
           This file's oldest age answer is one combined "55 years old and
-          above" group, so 65+ can't be separated from 55-64.
-        ambiguous_raw_values:
-          - "55 years old and above"
+          above" group, shown as the 55 and above band, so 55-64 and 65+
+          can't be separated.
 
   ethnicity:
     source_column: "3"

@@ -150,6 +150,11 @@ def apply_filter(
     for dimension_name, selected in filter_spec.items():
         canonical_dim = registry.canonical.dimensions[dimension_name]
         multi_select = canonical_dim.multi_select
+        # A combined category (e.g. 55_plus) also selects its parts, so it
+        # finds the same people whether a vendor collected the combined band
+        # or the finer ones (v4 feedback F6).
+        parts = {c.value: c.combines for c in canonical_dim.categories}
+        selected = list(dict.fromkeys([*selected, *(p for v in selected for p in parts.get(v, []))]))
         column = canonical_frame[dimension_name]
         dim_matches = column.apply(lambda v: _matches_dimension(v, selected, multi_select))
         matched &= dim_matches
@@ -206,3 +211,61 @@ def resolve_cells(
         cells.append(Cell(key=key, label_path=label_path, respondent_ids=respondent_ids))
 
     return cells
+
+
+@dataclass(frozen=True)
+class BreakExclusion:
+    """Filtered respondents a break dimension could not place in any column,
+    and why, in plain English (v4 feedback F6)."""
+
+    dimension: str
+    count: int
+    reason: str
+
+
+def break_exclusions(
+    respondent_frame: pd.DataFrame,
+    filtered_ids: set[str],
+    break_spec: list[str],
+    registry: ResolvedRegistry,
+    survey: Survey,
+    vendor: str,
+) -> tuple[int, list[BreakExclusion]]:
+    """How many filtered respondents appear in no break column, and why.
+
+    resolve_cells drops a respondent with no canonical value in any break
+    dimension (they can't be placed in a cell tuple). This reports exactly
+    that set -- the total, and per dimension the respondents who either gave
+    no answer or gave one the vendor mapping can't place in a category --
+    so the screen can state it beside the base instead of the columns
+    silently summing to less than the base.
+    """
+    if not break_spec:
+        return 0, []
+    canonical_frame = to_canonical_demographic_frame(respondent_frame, survey, registry, vendor)
+    subset = canonical_frame.loc[canonical_frame.index.isin(filtered_ids)]
+    missing_any = subset[break_spec].isna().any(axis=1)
+    total = int(missing_any.sum())
+
+    mappings = registry.dimensions_for_vendor(vendor)
+    reasons: list[BreakExclusion] = []
+    for dimension in break_spec:
+        missing = subset.index[subset[dimension].isna()]
+        if len(missing) == 0:
+            continue
+        label = registry.canonical.dimensions[dimension].label
+        source = mappings[dimension].source_column
+        raw = respondent_frame.loc[missing, source] if source in respondent_frame.columns else None
+        no_answer = int(raw.isna().sum()) if raw is not None else len(missing)
+        unplaced = len(missing) - no_answer
+        if no_answer:
+            reasons.append(BreakExclusion(
+                dimension, no_answer, f"{no_answer:,} gave no answer to the {label.lower()} question"
+            ))
+        if unplaced:
+            reasons.append(BreakExclusion(
+                dimension, unplaced,
+                f"{unplaced:,} gave an answer to the {label.lower()} question that doesn't fit any "
+                f"{label.lower()} group",
+            ))
+    return total, reasons

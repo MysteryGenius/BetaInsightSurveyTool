@@ -47,9 +47,17 @@ def crosstab_header_lines(
     else:
         filter_text = "None"
 
+    base_line = f"Base total: {question_result.base_total:,}  |  Base filtered: {question_result.base_filtered:,}"
+    if question_result.excluded_from_columns:
+        # Beside the base, so columns that sum to less than it are explained
+        # right where the analyst reads the base (v4 feedback F6).
+        base_line += (
+            f"  |  Not in any column: {question_result.excluded_from_columns:,} "
+            f"({'; '.join(question_result.exclusion_reasons)})"
+        )
     lines = [
         f"Break by: {break_text}  |  Filter by: {filter_text}",
-        f"Base total: {question_result.base_total:,}  |  Base filtered: {question_result.base_filtered:,}",
+        base_line,
     ]
     if question_result.display_order_is_manual:
         lines.append(REORDERED_WARNING)

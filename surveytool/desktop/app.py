@@ -1546,6 +1546,8 @@ class _CrosstabExportBatch:
             "filter": self.filters,
             "base_total": question_result.base_total,
             "base_filtered": question_result.base_filtered,
+            "excluded_from_columns": question_result.excluded_from_columns,
+            "exclusion_reasons": question_result.exclusion_reasons,
             "response_options_manually_reordered": question_result.display_order_is_manual,
             "replaced_earlier_identical_export": replaced,
         })
