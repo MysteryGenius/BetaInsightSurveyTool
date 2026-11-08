@@ -290,8 +290,6 @@ def test_breaks_export_uses_saved_chart_style(client):
     fig = build_figure(
         question_result,
         question_result.permitted_charts[0].chart_type,
-        break_spec=break_spec.dimensions,
-        filter_spec=filter_spec.selections,
     )
     style = STYLE_REGISTRY["warm"]
     assert fig.layout.paper_bgcolor == style.background

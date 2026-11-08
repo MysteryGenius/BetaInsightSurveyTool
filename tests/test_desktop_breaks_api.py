@@ -366,7 +366,19 @@ def test_crosstab_endpoint_matches_compute_plus_permissions(client):
         config,
     )
 
-    assert body == [r.model_dump(mode="json") for r in expected]
+    # Every computed field is exactly the core's; the endpoint only adds the
+    # plain-English header_lines for the screen (v4 feedback F4).
+    from surveytool.charts.crosstab_header import crosstab_header_lines
+
+    served_headers = [r.pop("header_lines") for r in body]
+    expected_dump = [r.model_dump(mode="json") for r in expected]
+    for r in expected_dump:
+        r.pop("header_lines")
+    assert body == expected_dump
+    assert served_headers == [
+        crosstab_header_lines(r, ["gender"], {}, session.registry) for r in expected
+    ]
+    assert served_headers[0][0] == "Break by: Gender  |  Filter by: None"
 
 
 def test_crosstab_endpoint_column_shape_matches_section_10(client):
@@ -748,7 +760,7 @@ def test_breaks_figure_equals_build_figure_for_styled_swapped_question(client):
     )[0]
     expected = build_figure(
         question_result, ChartType.grouped_bar,
-        break_spec=["car_ownership"], filter_spec={}, swap_axes=True,
+        swap_axes=True,
     ).to_plotly_json()
     assert served.json()["figure"] == json.loads(json.dumps(expected, default=str))
 

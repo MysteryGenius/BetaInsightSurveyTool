@@ -212,27 +212,17 @@ def test_table_figure_is_always_buildable_even_with_undeclared_polarity():
 # --- header block ------------------------------------------------------------
 
 
-def test_header_block_present_in_figure_title(question_result):
-    fig = build_figure(
-        question_result,
-        ChartType.table,
-        break_spec=["gender"],
-        filter_spec={"age_band": ["18-24"]},
-    )
+@pytest.mark.parametrize("chart_type", list(ChartType))
+def test_figure_title_is_question_text_only_no_header_block(question_result, chart_type):
+    """v4 feedback F4: exported PNGs carry no "Break by / Filter by / Chart /
+    Base / manually reordered" block -- the figure is titled with the
+    question text alone (that block is shown on screen and in manifest.json)."""
+    question_result.display_order_is_manual = True
+    fig = build_figure(question_result, chart_type)
     title_text = fig.layout.title.text
-    assert title_text is not None
-    assert "gender" in title_text
-    assert "age_band" in title_text
-    assert "18-24" in title_text
-    assert str(question_result.base_total) in title_text
-    assert str(question_result.base_filtered) in title_text
-    assert "table" in title_text
-
-
-def test_header_block_present_without_break_or_filter(question_result):
-    fig = build_figure(question_result, ChartType.table)
-    title_text = fig.layout.title.text
-    assert "(none)" in title_text
+    assert title_text.replace("<br>", " ") == question_result.question_text
+    for diagnostic in ("Break by", "Filter by", "Chart:", "Base total", "Base filtered", "reordered"):
+        assert diagnostic not in title_text
 
 
 # --- suppressed cells: labelled gaps, not fabricated/omitted -----------------

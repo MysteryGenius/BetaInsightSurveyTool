@@ -205,6 +205,7 @@ function renderCharts(charts, container, sessionId) {
         labels: chart.trace.labels,
         order: chart.trace.labels,
         colours: chartsResponseColoursByQid[chart.qid] || {},
+        resolvedColours: chart.answer_colours || {},
         onChange: () => loadCharts(sessionId, container, sessionSurveyId),
       });
     }

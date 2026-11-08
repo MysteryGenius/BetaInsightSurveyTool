@@ -104,11 +104,24 @@ function buildChartStyleRow(qid, currentStyleName, surveyId, onChange, currentCo
 // question can update it and redraw without a server round trip. Callers
 // that instead re-fetch from the server (charts.js, whose figure is built
 // server-side) can ignore the argument.
-function renderLegend(container, { qid, surveyId, labels, order, colours, onChange }) {
+//
+// `resolvedColours` (v4 feedback F4) is the colour the server actually draws
+// each answer in (palette plus overrides). Swatches show it, so the list
+// matches the chart; only `colours` (real overrides) is ever saved, so a
+// palette colour is never frozen into an override by editing another one.
+// The chart's own legend is drawn in the figure; this list is the editor.
+function renderLegend(container, { qid, surveyId, labels, order, colours, resolvedColours, onChange }) {
   container.innerHTML = "";
   const effectiveOrder = order && order.length ? order : labels;
   let currentOrder = [...effectiveOrder];
   const currentColours = { ...(colours || {}) };
+  if (resolvedColours) container._resolvedColours = resolvedColours;
+  container._overrides = currentColours;
+
+  const caption = document.createElement("div");
+  caption.className = "legend-caption";
+  caption.textContent = "Answer order and colours: drag a row to reorder, click a swatch to change its colour.";
+  container.appendChild(caption);
 
   let dragFromIndex = null;
 
@@ -126,7 +139,8 @@ function renderLegend(container, { qid, surveyId, labels, order, colours, onChan
     const swatch = document.createElement("input");
     swatch.type = "color";
     swatch.className = "legend-colour-swatch";
-    swatch.value = currentColours[label] || "#cccccc";
+    swatch.value = currentColours[label] || (container._resolvedColours || {})[label] || "#cccccc";
+    swatch.dataset.label = label;
     swatch.addEventListener("input", () => {
       currentColours[label] = swatch.value;
       fetch(`/api/projects/${surveyId}/chart-style/${qid}`, {
@@ -162,9 +176,22 @@ function renderLegend(container, { qid, surveyId, labels, order, colours, onChan
       })
         .then(() => onChange({ order: [...currentOrder], colours: { ...currentColours } }))
         .catch((err) => console.error("Failed to save display order", err));
-      renderLegend(container, { qid, surveyId, labels, order: currentOrder, colours: currentColours, onChange });
+      renderLegend(container, { qid, surveyId, labels, order: currentOrder, colours: currentColours, resolvedColours: container._resolvedColours, onChange });
     });
 
     container.appendChild(row);
+  });
+}
+
+// Update an already-rendered list's swatches to the colours the server just
+// drew (e.g. after a style preset change), without re-rendering it. Saved
+// overrides keep precedence, exactly as the server applies them.
+function setLegendResolvedColours(container, resolvedColours) {
+  container._resolvedColours = resolvedColours || {};
+  const overrides = container._overrides || {};
+  container.querySelectorAll(".legend-colour-swatch").forEach((swatch) => {
+    const label = swatch.dataset.label;
+    const colour = overrides[label] || container._resolvedColours[label];
+    if (colour) swatch.value = colour;
   });
 }

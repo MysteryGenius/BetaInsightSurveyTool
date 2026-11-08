@@ -32,10 +32,13 @@ from surveytool.charts.errors import (
 )
 from surveytool.charts.plotly_renderer import (
     SWAPPABLE_CHART_TYPES,
+    answer_colours,
     build_figure,
     build_legacy_figure,
+    legacy_answer_colours,
     rasterize,
 )
+from surveytool.charts.crosstab_header import crosstab_header_lines
 from surveytool.charts.export_naming import (
     crosstab_export_identity,
     crosstab_export_stem,
@@ -112,6 +115,22 @@ _CHART_STYLE_DIR = _APP_DATA_DIR / "chart_style"
 _logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+
+@app.middleware("http")
+async def _revalidate_static_files(request: Request, call_next):
+    """Make the browser check every page/script against the server before
+    reusing a cached copy (cheap: unchanged files answer 304 via ETag).
+
+    Without a Cache-Control header, browsers -- including the WebView2 the
+    desktop app runs in -- may reuse an old copy of one script while loading
+    a new copy of another after an update, and the mismatched pair then
+    fails (e.g. breaks.js calling a function only the new chart_legend.js
+    defines)."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 _VENDORS = ("rakuten", "milieu", "toluna", "purespectrum")
 _VENDOR_LABELS = {
@@ -1113,6 +1132,11 @@ async def get_charts(session_id: str):
         )
         entry = asdict(chart)
         entry["figure"] = figure.to_plotly_json()
+        # The colour each bar is drawn in, so the answer list's swatches
+        # match the chart instead of showing grey for un-overridden answers.
+        entry["answer_colours"] = legacy_answer_colours(
+            chart, get_style(chart_styles.get(chart.qid)), response_colours.get(chart.qid)
+        )
         charts.append(entry)
 
     return {
@@ -1345,6 +1369,10 @@ def _compute_breaks_results(
         chart_styles=_load_chart_styles_for_survey(session.survey_id),
         response_colours=_load_response_colours_for_survey(session.survey_id),
     )
+    for result in results:
+        result.header_lines = crosstab_header_lines(
+            result, break_spec.dimensions, filter_spec.selections, session.registry
+        )
     return attach_chart_permissions(results, config)
 
 
@@ -1385,11 +1413,13 @@ async def post_breaks_figure(session_id: str, request: BreaksFigureRequest) -> d
     fig = build_figure(
         question_result,
         request.chart_type,
-        break_spec=request.break_spec.dimensions,
-        filter_spec=request.filter_spec.selections,
         swap_axes=request.swap_axes,
     )
-    return {"figure": fig.to_plotly_json()}
+    return {
+        "figure": fig.to_plotly_json(),
+        # The colours the chart draws each answer in, for the answer list.
+        "answer_colours": answer_colours(question_result, get_style(question_result.chart_style)),
+    }
 
 
 @app.post("/api/session/{session_id}/breaks-export")
@@ -1415,8 +1445,6 @@ async def post_breaks_export(session_id: str, request: ExportRequest) -> dict:
     fig = build_figure(
         question_result,
         request.chart_type,
-        break_spec=request.break_spec.dimensions,
-        filter_spec=request.filter_spec.selections,
         swap_axes=request.swap_axes,
     )
 
@@ -1573,7 +1601,7 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
             skipped.append({
                 "question_id": question_result.question_id,
                 "reason": (
-                    permission.reason if permission is not None and permission.reason
+                    permission.message if permission is not None and permission.message
                     else "This question can't be shown as this chart type."
                 ),
             })
@@ -1586,8 +1614,6 @@ async def post_breaks_export_bulk(session_id: str, request: BulkExportRequest):
         try:
             fig = build_figure(
                 question_result, request.chart_type,
-                break_spec=request.break_spec.dimensions,
-                filter_spec=request.filter_spec.selections,
                 swap_axes=request.swap_axes,
             )
         except SurveyToolError as exc:

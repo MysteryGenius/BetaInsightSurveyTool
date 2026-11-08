@@ -167,6 +167,10 @@ class QuestionResult(BaseModel):
     label -> hex map for this question, or {} if none saved. Purely a
     rendering hint threaded into plotly_renderer.build_figure's colour
     assignment -- never affects any computed figure, nets, or mean."""
+    # Plain-English break/filter/base description for the screen (v4
+    # feedback F4), filled by the desktop app from the registry's labels.
+    # Display only: never drawn into a figure, never affects any number.
+    header_lines: list[str] = []
 
 
 def _scale_points(question: Question, manual_label_order: list[str] | None = None) -> list[ScalePoint]:

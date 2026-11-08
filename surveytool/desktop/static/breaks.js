@@ -707,11 +707,6 @@ function renderBreaksResults(questionResults) {
     h3.textContent = qr.question_text;
     block.appendChild(h3);
 
-    const baseLine = document.createElement("div");
-    baseLine.className = "breaks-question-base";
-    baseLine.textContent = `Filtered base: ${qr.base_filtered} / Total base: ${qr.base_total}`;
-    block.appendChild(baseLine);
-
     block.appendChild(buildColumnStrip(qr));
 
     const controlsRow = document.createElement("div");
@@ -745,6 +740,13 @@ function renderBreaksResults(questionResults) {
     controlsRow.appendChild(flipBtn);
 
     block.appendChild(controlsRow);
+
+    // Plain-English break/filter/chart/base description (F4), filled from
+    // the server's header_lines each time the chart is drawn. Shown here,
+    // never drawn into the figure, so exported PNGs carry none of it.
+    const chartHeader = document.createElement("div");
+    chartHeader.className = "breaks-chart-header";
+    block.appendChild(chartHeader);
 
     const chartArea = document.createElement("div");
     chartArea.className = "breaks-chart-area";
@@ -831,8 +833,8 @@ function buildChartTypeRow(qr) {
     btn.className = "chart-type-btn";
     btn.textContent = chartTypeLabel(perm.chart_type);
     btn.disabled = !perm.permitted;
-    if (!perm.permitted && perm.reason) {
-      btn.title = perm.reason;
+    if (!perm.permitted && perm.message) {
+      btn.title = perm.message;
     }
     if (breaksActiveChartType[qr.question_id] === perm.chart_type) {
       btn.classList.add("active");
@@ -873,14 +875,14 @@ function renderChartArea(qr, chartArea, chartType) {
     .filter((p) => p.chart_type !== "table")
     .every((p) => !p.permitted && p.reason === "COLUMN_COUNT_EXCEEDS_RENDER_LIMIT");
 
-  // A chart figure carries its own header (question text, break/filter,
-  // bases), so the page's heading and base line would repeat it; the
-  // tables have no such header and keep them.
+  // A chart figure is titled with the question text, so the page heading
+  // would repeat it; the HTML tables have no title and keep the heading.
+  // The break/filter/chart/base description shows for every chart type.
   const isTable = chartType === "table";
   const block = chartArea.closest(".breaks-question");
   if (block) {
     block.querySelector("h3").style.display = isTable ? "" : "none";
-    block.querySelector(".breaks-question-base").style.display = isTable ? "" : "none";
+    renderBreaksChartHeader(block.querySelector(".breaks-chart-header"), qr, chartType);
   }
 
   if (isTable) {
@@ -986,10 +988,10 @@ function renderTable(qr, chartArea, append) {
 // the exported PNG are one figure -- colours, wrapped labels, margins, Swap
 // axes and all. No trace or layout is built here.
 //
-// The one override: when the traces are the answer options (not swapped,
-// not net_bar), the colour-editable legend below the chart stands in for
-// Plotly's own legend, so Plotly's is hidden rather than showing two
-// legends for the same series.
+// No overrides (v4 feedback F4): the legend is the figure's own, so the
+// screen shows exactly the legend the PNG has, with or without Swap axes.
+// The answer list below the chart is the order/colour editor, and its
+// swatches take the colours the server reports drawing.
 //
 // A per-area token makes the LAST request win: rapid chart-type / swap /
 // style clicks can return out of order, and a stale response must never
@@ -1035,13 +1037,27 @@ async function renderBreaksChart(qr, chartArea, chartType) {
     chartArea.innerHTML = "";
   }
   const fig = body.figure;
-  const plotlyLegendWanted = chartType === "net_bar" || swapped;
-  Plotly.react(
-    chartArea,
-    fig.data,
-    { ...fig.layout, showlegend: plotlyLegendWanted ? fig.layout.showlegend : false },
-    PLOTLY_SCREEN_CONFIG,
-  );
+  Plotly.react(chartArea, fig.data, fig.layout, PLOTLY_SCREEN_CONFIG);
+  const legend = chartArea.parentElement.querySelector(".chart-legend");
+  if (legend) setLegendResolvedColours(legend, body.answer_colours || {});
+}
+
+// The server's plain-English header_lines, with the chart type currently
+// shown added to the first line in the same words its button uses.
+function renderBreaksChartHeader(el, qr, chartType) {
+  if (!el) return;
+  el.innerHTML = "";
+  const swapped = AXIS_FLIPPABLE_CHART_TYPES.has(chartType) && breaksAxisFlipped;
+  const lines = [...(qr.header_lines || [])];
+  if (lines.length) {
+    lines[0] += `  |  Chart: ${chartTypeLabel(chartType)}${swapped ? " (axes swapped)" : ""}`;
+  }
+  lines.forEach((line) => {
+    const row = document.createElement("div");
+    row.textContent = line;
+    if (line.startsWith("⚠")) row.className = "header-warning";
+    el.appendChild(row);
+  });
 }
 
 // Message plus detail and next step, like every other inline error box.

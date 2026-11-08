@@ -21,7 +21,7 @@ def test_brand_reuses_categorical_palette_verbatim():
 
 
 def test_brand_matches_current_hardcoded_colours():
-    """Byte-for-byte match to the values plotly_renderer._apply_header
+    """Byte-for-byte match to the values plotly_renderer._apply_title
     hardcodes today (#F4F1EA / #222222) -- the additive guarantee that
     choosing no style is identical to today's behaviour."""
     assert STYLE_REGISTRY["brand"].background == "#F4F1EA"

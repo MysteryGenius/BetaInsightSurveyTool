@@ -23,7 +23,7 @@ from enum import Enum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from surveytool.compute.breaks_compute import QuestionResult
 from surveytool.core.config import ToolConfig
@@ -32,6 +32,18 @@ _POLARITY_PATH = Path(__file__).parent / "scale_polarity.yaml"
 
 _REASON_SCALE_POLARITY_UNDECLARED = "SCALE_POLARITY_UNDECLARED"
 _REASON_COLUMN_COUNT_EXCEEDS_RENDER_LIMIT = "COLUMN_COUNT_EXCEEDS_RENDER_LIMIT"
+
+# What each reason code means, for people (v4 feedback F4). The code stays
+# the stable identifier the frontend switches on; only `message` is shown.
+REASON_MESSAGES: dict[str, str] = {
+    _REASON_SCALE_POLARITY_UNDECLARED: (
+        "Diverging stacked bar isn't available: this question's answer scale has no "
+        "agreed positive and negative side. Use a 100% stacked bar instead."
+    ),
+    _REASON_COLUMN_COUNT_EXCEEDS_RENDER_LIMIT: (
+        "Too many break columns to draw clearly. Use the Table, or break by fewer categories."
+    ),
+}
 
 
 def _load_polarity_registry() -> dict[str, dict]:
@@ -72,6 +84,14 @@ class ChartPermission(BaseModel):
     chart_type: ChartType
     permitted: bool
     reason: str | None = None
+
+    @computed_field  # serialized with the permission, so the UI never shows `reason`
+    @property
+    def message(self) -> str | None:
+        """Plain-English explanation of `reason`, for display."""
+        if self.reason is None:
+            return None
+        return REASON_MESSAGES.get(self.reason, "This chart type isn't available for this question.")
 
 
 def _variant_key(scale_id: str | None, scale_variant: str | None) -> str | None:

@@ -1202,14 +1202,14 @@ def test_build_figure_with_no_chart_style_matches_pre_feature_brand_colours():
     """The critical additive guarantee: chart_style=None must produce a
     figure whose colours/background/font are identical to hardcoded brand
     values plotly_renderer used before this feature existed."""
-    from surveytool.charts.plotly_renderer import _stacked_bar_100_figure, _apply_header
+    from surveytool.charts.plotly_renderer import _stacked_bar_100_figure, _apply_title
     from surveytool.charts.styles import get_style
     from surveytool.core.chart_validity import ChartType
 
     result = _minimal_question_result(chart_style=None)
     style = get_style(result.chart_style)
     fig = _stacked_bar_100_figure(result, style)
-    _apply_header(fig, result, break_spec=None, filter_spec=None, chart_type=ChartType.stacked_bar_100, style=style)
+    _apply_title(fig, result, style)
 
     assert fig.layout.paper_bgcolor == "#F4F1EA"
     assert fig.layout.plot_bgcolor == "#F4F1EA"
@@ -1224,7 +1224,7 @@ def test_build_figure_with_no_chart_style_matches_pre_feature_brand_colours():
 def test_build_figure_with_non_brand_style_applies_its_palette_background_and_font():
     """A non-brand style's background/font/palette actually appear in the
     built figure's layout and trace marker_color."""
-    from surveytool.charts.plotly_renderer import _stacked_bar_100_figure, _apply_header
+    from surveytool.charts.plotly_renderer import _stacked_bar_100_figure, _apply_title
     from surveytool.charts.styles import STYLE_REGISTRY, get_style
     from surveytool.charts.palette import assign_series_colours
     from surveytool.core.chart_validity import ChartType
@@ -1233,7 +1233,7 @@ def test_build_figure_with_non_brand_style_applies_its_palette_background_and_fo
     result = _minimal_question_result(chart_style="cool")
     resolved_style = get_style(result.chart_style)
     fig = _stacked_bar_100_figure(result, resolved_style)
-    _apply_header(fig, result, break_spec=None, filter_spec=None, chart_type=ChartType.stacked_bar_100, style=resolved_style)
+    _apply_title(fig, result, resolved_style)
 
     assert fig.layout.paper_bgcolor == style.background
     assert fig.layout.plot_bgcolor == style.background
@@ -1249,14 +1249,14 @@ def test_build_figure_unknown_chart_style_falls_back_to_brand():
     later removed from STYLE_REGISTRY) must never crash rendering --
     get_style's silent fallback applies here exactly as it does anywhere
     else get_style is called."""
-    from surveytool.charts.plotly_renderer import _apply_header, _stacked_bar_100_figure
+    from surveytool.charts.plotly_renderer import _apply_title, _stacked_bar_100_figure
     from surveytool.charts.styles import get_style
     from surveytool.core.chart_validity import ChartType
 
     result = _minimal_question_result(chart_style="a_style_that_was_removed")
     style = get_style(result.chart_style)
     fig = _stacked_bar_100_figure(result, style)
-    _apply_header(fig, result, break_spec=None, filter_spec=None, chart_type=ChartType.stacked_bar_100, style=style)
+    _apply_title(fig, result, style)
     assert fig.layout.paper_bgcolor == "#F4F1EA"
 
 

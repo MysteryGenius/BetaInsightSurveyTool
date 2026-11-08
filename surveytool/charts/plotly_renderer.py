@@ -84,44 +84,6 @@ _HOVER_TEMPLATE = f"%{{y:.{DISPLAY_PRECISION}f}}%%<extra>%{{fullData.name}}</ext
 _DIVERGING_HOVER_TEMPLATE = f"%{{customdata:.{DISPLAY_PRECISION}f}}%%<extra>%{{fullData.name}}</extra>"
 
 
-def _header_text(
-    question_result: QuestionResult,
-    break_spec: list[str] | None,
-    filter_spec: dict[str, list[str]] | None,
-    chart_type: ChartType,
-) -> str:
-    """Build the export header block's text content.
-
-    Composed into the Figure's title (point 3 of the brief) rather than a
-    sidecar file, so it is genuinely visible in the rasterized image.
-    """
-    break_text = ", ".join(break_spec) if break_spec else "(none)"
-    if filter_spec:
-        filter_text = "; ".join(
-            f"{dim}={','.join(values)}" for dim, values in filter_spec.items()
-        )
-    else:
-        filter_text = "(none)"
-
-    raw_lines = [
-        question_result.question_text,
-        (
-            f"Break by: {break_text}  |  Filter by: {filter_text}  |  "
-            f"Chart: {chart_type.value}"
-        ),
-        (
-            f"Base total: {question_result.base_total:,}  |  "
-            f"Base filtered: {question_result.base_filtered:,}"
-        ),
-    ]
-    if question_result.display_order_is_manual:
-        raw_lines.append("⚠ Response options manually reordered")
-    wrapped_lines = []
-    for line in raw_lines:
-        wrapped_lines.extend(wrap_text(line, max_chars_per_line=90))
-    return "<br>".join(wrapped_lines)
-
-
 def wrap_axis_labels(labels: list[str], max_chars_per_line: int = 24) -> list[str]:
     """Wrap each category-axis label independently onto multiple lines via
     Plotly's native <br> tick-label break syntax, mirroring what the retired
@@ -152,26 +114,40 @@ def compute_axis_margin(
     return max(base_margin, estimated)
 
 
-def _apply_header(
+def _apply_title(
     fig: go.Figure,
     question_result: QuestionResult,
-    break_spec: list[str] | None,
-    filter_spec: dict[str, list[str]] | None,
-    chart_type: ChartType,
     style: ChartStyle,
     axis_labels: list[str] | None = None,
 ) -> None:
+    """Title the figure with the question text only (v4 feedback F4).
+
+    Break-by, filter, chart type, bases and the manual-reorder warning are
+    not drawn into the figure, so exported PNGs carry no diagnostic text:
+    the screen shows them as a plain-English block beside the chart
+    (crosstab_header.crosstab_header_lines) and every export records them
+    in manifest.json.
+    """
+    title, top = _title_block(question_result.question_text, "")
     fig.update_layout(
-        title={
-            "text": _header_text(question_result, break_spec, filter_spec, chart_type),
-            "x": 0.02,
-            "xanchor": "left",
-            "font": {"size": 13},
-        },
-        margin={"t": 140, "b": compute_axis_margin(axis_labels or [])},
+        title=_title_layout(title, _CROSSTAB_HEIGHT),
+        height=_CROSSTAB_HEIGHT,
+        margin={"t": top, "b": compute_axis_margin(axis_labels or [])},
         paper_bgcolor=style.background,
         plot_bgcolor=style.background,
         font={"color": style.font_color},
+    )
+
+
+def answer_colours(question_result: QuestionResult, style: ChartStyle) -> dict[str, str]:
+    """The colour each answer option is drawn in: the style's palette plus
+    any saved per-answer override. Every answer-coloured Cross-tab chart
+    uses this, and the screen's answer list shows the same colours, so the
+    list and the chart legend can't disagree."""
+    return assign_series_colours(
+        [point.label for point in question_result.scale_points],
+        palette=style.palette,
+        overrides=question_result.response_colours,
     )
 
 
@@ -243,11 +219,7 @@ def _stacked_bar_100_figure(question_result: QuestionResult, style: ChartStyle) 
     """
     fig = go.Figure()
     x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
-    colour_by_label = assign_series_colours(
-        [point.label for point in question_result.scale_points],
-        palette=style.palette,
-        overrides=question_result.response_colours,
-    )
+    colour_by_label = answer_colours(question_result, style)
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -298,11 +270,7 @@ def _diverging_stacked_bar_figure(question_result: QuestionResult, style: ChartS
     """
     fig = go.Figure()
     x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
-    colour_by_label = assign_series_colours(
-        [point.label for point in question_result.scale_points],
-        palette=style.palette,
-        overrides=question_result.response_colours,
-    )
+    colour_by_label = answer_colours(question_result, style)
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -381,11 +349,7 @@ def _grouped_bar_figure(question_result: QuestionResult, style: ChartStyle) -> g
     """
     fig = go.Figure()
     x_labels = wrap_axis_labels([_column_display_label(c) for c in question_result.columns])
-    colour_by_label = assign_series_colours(
-        [point.label for point in question_result.scale_points],
-        palette=style.palette,
-        overrides=question_result.response_colours,
-    )
+    colour_by_label = answer_colours(question_result, style)
 
     for point in question_result.scale_points:
         code = str(point.code)
@@ -481,7 +445,7 @@ def _table_figure(question_result: QuestionResult, style: ChartStyle) -> go.Figu
     and cells use style.background, so a
     non-brand style's colours are visible here too, consistent with how the
     three bar builders apply style to both background/font (via
-    _apply_header) and palette.
+    _apply_title) and palette.
     """
     header = ["Scale point"] + [_column_display_label(c) for c in question_result.columns]
 
@@ -540,6 +504,7 @@ _SUBTITLE_LINE_PX = 17
 _LABEL_PX_PER_CHAR = 7     # 12px tick font, generous
 _LABEL_LINE_PX = 17
 _MEANS_LABEL_CHARS = 30
+_CROSSTAB_HEIGHT = 520     # fixed so the title offset is exact on screen and in the PNG
 
 
 def _title_block(title: str, subtitle: str) -> tuple[str, int]:
@@ -602,9 +567,20 @@ def _horizontal_plot_height(wrapped_labels: list[str]) -> int:
     return max(220, row * len(wrapped_labels))
 
 
+def legacy_answer_colours(
+    chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None
+) -> dict[str, str]:
+    """The colour each bar of a dist/means chart is drawn in (palette plus
+    saved overrides); {} for xbreak, whose single series isn't an answer.
+    The answer list under the chart shows these same colours."""
+    if chart.chart_type == "xbreak":
+        return {}
+    return assign_series_colours(chart.trace["labels"], palette=style.palette, overrides=response_colours)
+
+
 def _dist_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None) -> go.Figure:
     t = chart.trace
-    colour_by_label = assign_series_colours(t["labels"], palette=style.palette, overrides=response_colours)
+    colour_by_label = legacy_answer_colours(chart, style, response_colours)
     wrapped_labels = wrap_axis_labels(t["labels"])
     fig = go.Figure(
         data=[go.Bar(
@@ -660,7 +636,7 @@ def _xbreak_figure(chart: ChartData, style: ChartStyle) -> go.Figure:
 
 def _means_figure(chart: ChartData, style: ChartStyle, response_colours: dict[str, str] | None) -> go.Figure:
     t = chart.trace
-    colour_by_label = assign_series_colours(t["labels"], palette=style.palette, overrides=response_colours)
+    colour_by_label = legacy_answer_colours(chart, style, response_colours)
     lo, hi = t["scale_min"], t["scale_max"]
     wrapped_labels = wrap_axis_labels(t["labels"], max_chars_per_line=_MEANS_LABEL_CHARS)
     if len(set(map(tuple, t["endpoints"]))) > 1:
@@ -764,8 +740,6 @@ def build_figure(
     question_result: QuestionResult,
     chart_type: ChartType,
     *,
-    break_spec: list[str] | None = None,
-    filter_spec: dict[str, list[str]] | None = None,
     swap_axes: bool = False,
 ) -> go.Figure:
     """Build the requested chart type's figure for a computed result.
@@ -783,8 +757,8 @@ def build_figure(
     `rasterize` regardless of which layer the caller enforces it in, because
     this is the layer that actually owns the check.
 
-    `break_spec`/`filter_spec` are accepted for the header block only; the
-    figure's data always comes from `question_result` alone.
+    The figure's data always comes from `question_result` alone; its title
+    is the question text (see _apply_title).
     """
     permission = next(
         (p for p in question_result.permitted_charts if p.chart_type is chart_type),
@@ -809,7 +783,7 @@ def build_figure(
     else:
         fig = _BUILDERS[chart_type](question_result, style)
         axis_labels = [_column_display_label(c) for c in question_result.columns]
-    _apply_header(fig, question_result, break_spec, filter_spec, chart_type, style, axis_labels=axis_labels)
+    _apply_title(fig, question_result, style, axis_labels=axis_labels)
     return lock_interaction(fig)
 
 
