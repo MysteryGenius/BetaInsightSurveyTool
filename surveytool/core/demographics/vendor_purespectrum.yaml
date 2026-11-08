@@ -44,14 +44,15 @@ dimensions:
       "9": "55_64"
       "10": "65_plus"
     not_collected:
+      # Verified from the Datamap sheet of purespectrum_survey_wcs_data.xlsx:
+      # the D2 codebook ("Which of the following best describes your age?")
+      # has exactly 10 codes running 18-24 through 65+; no under-18 band
+      # exists, as the survey's quotas never asked under-18 respondents.
+      # `reason` is shown to analysts: keep it short and plain (F5).
       "under_18":
         reason: >-
-          PureSpectrum's D2 codebook ("Which of the following best describes
-          your age?") has exactly 10 codes running 18-24 through 65+,
-          verified directly from the Datamap sheet of
-          purespectrum_survey_wcs_data.xlsx. No under-18 band exists
-          anywhere in the codebook -- PureSpectrum's quota structure for
-          this survey never asked under-18 respondents.
+          This survey's age question has no under-18 answer; under-18s were
+          not surveyed.
 
   ethnicity:
     source_column: "D1"

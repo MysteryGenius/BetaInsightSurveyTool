@@ -145,3 +145,16 @@ register_vendor_profile(RAKUTEN_PROFILE)
 register_vendor_profile(MILIEU_PROFILE)
 register_vendor_profile(TOLUNA_PROFILE)
 register_vendor_profile(PURESPECTRUM_PROFILE)
+
+
+# How each vendor is named to analysts (the vendor ids are lowercase keys).
+VENDOR_LABELS: dict[str, str] = {
+    "rakuten": "Rakuten",
+    "milieu": "Milieu",
+    "toluna": "Toluna",
+    "purespectrum": "PureSpectrum",
+}
+
+
+def vendor_label(vendor_id: str) -> str:
+    return VENDOR_LABELS.get(vendor_id, vendor_id)

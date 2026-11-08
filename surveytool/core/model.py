@@ -19,6 +19,21 @@ class QuestionType(str, Enum):
     excluded = "excluded"
 
 
+# Plain-English names for analysts (v4 feedback F5): shown wherever a
+# question's type appears on screen, never the enum value.
+QUESTION_TYPE_LABELS: dict[QuestionType, str] = {
+    QuestionType.scale: "Rating scale",
+    QuestionType.binary: "Yes / no",
+    QuestionType.categorical: "Categories",
+    QuestionType.single_choice: "Single choice",
+    QuestionType.multi_response: "Multiple choice",
+    QuestionType.numeric_open: "Number entry",
+    QuestionType.text_open: "Text entry",
+    QuestionType.demographic: "Demographic",
+    QuestionType.excluded: "Not analysed",
+}
+
+
 class CodeRole(str, Enum):
     top = "top"
     neutral = "neutral"

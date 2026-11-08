@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from surveytool.core.column_classification import ColumnClassification
 from surveytool.core.demographic_registry import NotCollectedEntry
 from surveytool.ingest.overrides import OverrideNotice
-from surveytool.ingest.vendor_profile import VendorProfile
+from surveytool.ingest.vendor_profile import VendorProfile, vendor_label
 
 
 class RunSummary(BaseModel):
@@ -23,6 +23,10 @@ class RunSummary(BaseModel):
     demographic_gap_statement: str
     override_resolutions: list[dict]
     notices: list[str]
+    guardrail_items: list[str] = []
+    """v4 feedback F5: the guardrail findings shown at the top of the Run
+    summary, one short plain-English item per finding (quality flag,
+    verification, straightliners, then one per demographic gap)."""
     categorical_classifications: list[dict] = []
     mean_newly_available: list[dict] = []
     """Round B4: one entry per Toluna/Milieu scale question whose mean is
@@ -36,21 +40,21 @@ class RunSummary(BaseModel):
 def _quality_flag_statement(profile: VendorProfile) -> str:
     if profile.quality_flag_column is None:
         return (
-            f"{profile.vendor_id} supplies no quality flag column. "
+            f"{vendor_label(profile.vendor_id)} supplies no quality flag column. "
             "Straightliner exclusion based on a vendor-supplied flag is unavailable for this file; "
             "straightliner detection based on response variance is still available."
         )
     return (
-        f"Quality flag column '{profile.quality_flag_column}' is available from {profile.vendor_id}."
+        f"Quality flag column '{profile.quality_flag_column}' is available from {vendor_label(profile.vendor_id)}."
     )
 
 
 def _verification_statement(profile: VendorProfile, verification_sheet_used: bool) -> str:
     if profile.verification_sheet is None:
-        return f"{profile.vendor_id} supplies no verification sheet. Topline figures are not cross-checked against a vendor tabulation."
+        return f"{vendor_label(profile.vendor_id)} supplies no verification sheet. Topline figures are not cross-checked against a vendor tabulation."
     if verification_sheet_used:
         return f"Verification sheet '{profile.verification_sheet}' was present and used."
-    return f"Verification sheet '{profile.verification_sheet}' is expected for {profile.vendor_id} but was not used for this run."
+    return f"Verification sheet '{profile.verification_sheet}' is expected for {vendor_label(profile.vendor_id)} but was not used for this run."
 
 
 def _straightliner_statement(count: int, action: str) -> str:
@@ -74,6 +78,17 @@ def _demographic_gap_statement(not_collected: list[NotCollectedEntry]) -> str:
         for entry in not_collected
     ]
     return " ".join(parts)
+
+
+def _demographic_gap_items(not_collected: list[NotCollectedEntry]) -> list[str]:
+    """One item per declared not-collected category, so each gap reads as
+    its own finding rather than one run-on paragraph."""
+    if not not_collected:
+        return [_demographic_gap_statement([])]
+    return [
+        f"{entry.dimension_label}: '{entry.category_label}' was not collected. {entry.reason}"
+        for entry in not_collected
+    ]
 
 
 def build_run_summary(
@@ -101,6 +116,12 @@ def build_run_summary(
         verification_statement=_verification_statement(profile, verification_sheet_used),
         straightliner_statement=_straightliner_statement(straightliner_count, straightliner_action),
         demographic_gap_statement=_demographic_gap_statement(not_collected or []),
+        guardrail_items=[
+            _quality_flag_statement(profile),
+            _verification_statement(profile, verification_sheet_used),
+            _straightliner_statement(straightliner_count, straightliner_action),
+            *_demographic_gap_items(not_collected or []),
+        ],
         override_resolutions=[{"variable": v, "resolved_at": ts} for v, ts in overrides_applied],
         notices=[n.message for n in override_notices],
         categorical_classifications=[

@@ -626,6 +626,8 @@
     overflow-y: auto;
     flex: 1 1 auto;
   }
+  .rs-guardrails { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); }
+  .rs-guardrails li { overflow-wrap: anywhere; }
   #run-summary-statements {
     display: flex;
     flex-direction: column;
@@ -644,7 +646,11 @@
     padding-bottom: var(--space-1);
     border-bottom: 1px solid var(--line);
   }
-  .rs-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .rs-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: fixed; }
+  .rs-table col.rs-col-column { width: 38%; }
+  .rs-table col.rs-col-text { width: 44%; }
+  .rs-table col.rs-col-type { width: 18%; }
+  .rs-table th, .rs-table td { overflow-wrap: anywhere; }
   .rs-table th {
     text-align: left;
     color: var(--ink-soft);
@@ -658,7 +664,7 @@
     color: var(--ink);
     vertical-align: top;
   }
-  .rs-table td.rs-col { font-family: var(--font-num); white-space: nowrap; }
+  .rs-table td.rs-col { font-family: var(--font-num); }
   #run-summary-disposition {
     margin-top: var(--space-4);
     padding-top: var(--space-4);
@@ -891,6 +897,12 @@
     background: var(--panel);
     color: var(--accent);
   }
+  /* F5: .btn:hover darkens the background; a secondary button's text is
+     the accent colour, so it must not inherit that dark fill. A light
+     tint keeps the accent text readable in every state. */
+  .btn-secondary:hover { background: var(--accent-soft); border-color: var(--accent-hover); color: var(--accent-hover); }
+  .btn-secondary:active { background: var(--accent-soft-line); border-color: var(--accent-hover); color: var(--accent-hover); }
+  .btn-secondary:focus-visible { outline: 2px solid var(--accent-soft-line); outline-offset: 2px; }
   .btn-small {
     padding: var(--space-1) var(--space-3);
     font-size: var(--text-sm);
@@ -1807,13 +1819,18 @@ const RUN_SUMMARY_GROUP_LABELS = {
   unclassified: "Unclassified",
 };
 
+// One short item per guardrail finding (v4 feedback F5), as the server
+// lists them, instead of one long paragraph.
 function renderRunSummaryStatements(body) {
   runSummaryStatements.innerHTML = "";
-  [body.quality_flag_statement, body.verification_statement, body.straightliner_statement, body.demographic_gap_statement].filter(Boolean).forEach((text) => {
-    const p = document.createElement("div");
-    p.textContent = text;
-    runSummaryStatements.appendChild(p);
+  const list = document.createElement("ul");
+  list.className = "rs-guardrails";
+  (body.guardrail_items || []).forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    list.appendChild(item);
   });
+  runSummaryStatements.appendChild(list);
 }
 
 function renderRunSummaryGroups(body) {
@@ -1840,7 +1857,11 @@ function renderRunSummaryGroups(body) {
 
     const table = document.createElement("table");
     table.className = "rs-table";
-    table.innerHTML = "<thead><tr><th>Column</th><th>Question text</th><th>Type</th></tr></thead>";
+    // Fixed column widths so long column headers and question text wrap
+    // inside the modal instead of widening it (F5).
+    table.innerHTML =
+      '<colgroup><col class="rs-col-column"><col class="rs-col-text"><col class="rs-col-type"></colgroup>' +
+      "<thead><tr><th>Column</th><th>Question text</th><th>Type</th></tr></thead>";
     const tbody = document.createElement("tbody");
     cols.forEach((col) => {
       const row = document.createElement("tr");
@@ -1848,7 +1869,7 @@ function renderRunSummaryGroups(body) {
         `<td class="rs-col"></td><td></td><td></td>`;
       row.children[0].textContent = col.column;
       row.children[1].textContent = col.question_text || "";
-      row.children[2].textContent = col.question_type || "";
+      row.children[2].textContent = col.question_type_label || "";
       tbody.appendChild(row);
     });
     table.appendChild(tbody);
@@ -2738,7 +2759,7 @@ async function uploadFile(file) {
   currentSessionId = body.session_id;
   currentSurveyId = body.survey_id || surveyId;
 
-  document.getElementById("summary-vendor").textContent = vendor;
+  document.getElementById("summary-vendor").textContent = body.vendor_label || vendor;
   document.getElementById("summary-survey-id").textContent = surveyId;
   document.getElementById("summary-respondents").textContent =
     `${body.n_raw} raw / ${body.n_analysis} analysis`;

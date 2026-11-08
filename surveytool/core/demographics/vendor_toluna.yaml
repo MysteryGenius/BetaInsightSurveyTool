@@ -51,25 +51,27 @@ dimensions:
       "35-44 years old": "35_44"
       "45-54 years old": "45_54"
     not_collected:
+      # Verified by direct extraction: column 2 ("How old are you?") of
+      # toluna_survey_misinformation_data.xlsx has exactly 5 distinct values
+      # across all 1000 rows, none of them a "Below 18" band. The top band
+      # is one combined "55 years old and above" value (214 respondents)
+      # with no finer breakdown, so 55-64 and 65+ cannot be separated
+      # without inventing a boundary the data doesn't contain.
+      # `reason` is shown to analysts in the Run summary: keep it short and
+      # plain (v4 feedback F5).
       "under_18":
         reason: >-
-          Column 2 ("How old are you?") of toluna_survey_misinformation_data.xlsx
-          has exactly 5 distinct raw response values across all 1000 rows,
-          none of which is a "Below 18" band -- verified by direct
-          extraction, not assumed from the questionnaire design.
+          The age question in this file has no under-18 answer.
       "55_64":
         reason: >-
-          Column 2's top band is a single combined "55 years old and above"
-          value (214 respondents) with no finer breakdown anywhere in the raw
-          data -- there is no way to tell a 55-64 respondent from a 65+ one,
-          so this cannot be split into 55_64 without inventing a boundary the
-          source data does not contain.
+          This file's oldest age answer is one combined "55 years old and
+          above" group, so 55-64 can't be separated from 65+.
         ambiguous_raw_values:
           - "55 years old and above"
       "65_plus":
         reason: >-
-          Same combined "55 years old and above" bucket as 55_64 above -- the
-          raw data has no distinction between these two canonical bands.
+          This file's oldest age answer is one combined "55 years old and
+          above" group, so 65+ can't be separated from 55-64.
         ambiguous_raw_values:
           - "55 years old and above"
 

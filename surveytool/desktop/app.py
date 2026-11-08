@@ -65,7 +65,7 @@ from surveytool.core.breaks_payload import attach_chart_permissions
 from surveytool.core.chart_validity import CHART_TYPE_LABELS, ChartType
 from surveytool.core.config import ToolConfig, load_config
 from surveytool.core.demographic_registry import ResolvedRegistry, load_registry
-from surveytool.core.model import CodeRole, QuestionType, Survey
+from surveytool.core.model import QUESTION_TYPE_LABELS, CodeRole, QuestionType, Survey
 from surveytool.core.natural_order import ChartOrders, chart_orders
 from surveytool.core.projection import Projection, project
 from surveytool.core.respondent_frame import to_respondent_frame
@@ -95,7 +95,7 @@ from surveytool.ingest.overrides import (
 )
 from surveytool.ingest.run_summary import RunSummary, build_run_summary
 from surveytool.ingest.validate_questions import assert_no_duplicate_codes
-from surveytool.ingest.vendor_profile import get_vendor_profile
+from surveytool.ingest.vendor_profile import VENDOR_LABELS, get_vendor_profile, vendor_label
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _DEMOGRAPHICS_DIR = Path(__file__).parent.parent / "core" / "demographics"
@@ -133,12 +133,7 @@ async def _revalidate_static_files(request: Request, call_next):
     return response
 
 _VENDORS = ("rakuten", "milieu", "toluna", "purespectrum")
-_VENDOR_LABELS = {
-    "rakuten": "Rakuten",
-    "milieu": "Milieu",
-    "toluna": "Toluna",
-    "purespectrum": "PureSpectrum",
-}
+_VENDOR_LABELS = VENDOR_LABELS  # single source: surveytool.ingest.vendor_profile
 
 _SCALE_LIBRARY_VERSION = "1.0.0"
 
@@ -728,6 +723,7 @@ async def upload(file: UploadFile, vendor: str = Form(...), survey_id: str = For
     return {
         "session_id": session_id,
         "survey_id": survey_id,
+        "vendor_label": vendor_label(vendor),
         "n_raw": session.survey.n_raw,
         "n_analysis": session.survey.n_analysis,
         "question_count": len(session.survey.questions),
@@ -828,6 +824,7 @@ async def resolve_questions(session_id: str, request: ResolveRequest):
 
     return {
         "session_id": session_id,
+        "vendor_label": vendor_label(new_session.vendor),
         "n_raw": new_session.survey.n_raw,
         "n_analysis": new_session.survey.n_analysis,
         "question_count": len(new_session.survey.questions),
@@ -848,6 +845,7 @@ async def rerun_session(session_id: str):
     _SESSIONS[session_id] = new_session
     return {
         "session_id": session_id,
+        "vendor_label": vendor_label(new_session.vendor),
         "n_raw": new_session.survey.n_raw,
         "n_analysis": new_session.survey.n_analysis,
         "question_count": len(new_session.survey.questions),
@@ -1078,6 +1076,7 @@ async def get_run_summary(session_id: str):
             "question_text": question.text if question is not None else None,
             "classification": classification.value,
             "question_type": question.qtype.value if question is not None else None,
+            "question_type_label": QUESTION_TYPE_LABELS[question.qtype] if question is not None else None,
         })
 
     return {
@@ -1088,6 +1087,7 @@ async def get_run_summary(session_id: str):
         "verification_statement": summary.verification_statement,
         "straightliner_statement": summary.straightliner_statement,
         "demographic_gap_statement": summary.demographic_gap_statement,
+        "guardrail_items": summary.guardrail_items,
         "override_resolutions": summary.override_resolutions,
         "notices": summary.notices,
         "categorical_classifications": summary.categorical_classifications,
